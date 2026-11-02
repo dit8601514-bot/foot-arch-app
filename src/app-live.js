@@ -42,10 +42,27 @@ const Voice = (() => {
 })();
 
 // 화면 가이드(점선) — 판정에 쓰는 C.GUIDE와 같은 영역을 그린다
-function drawGuide(g, ox, oy, w, h, okState) {
-  const G = C.GUIDE;
+function drawGuide(g, ox, oy, w, h, okState, hint) {
+  const G = C.GUIDE, A = C.ALIGN;
   g.strokeStyle = okState ? 'rgba(46,204,113,.95)' : 'rgba(255,255,255,.6)'; g.setLineDash([8, 6]); g.lineWidth = okState ? 3 : 2;
   g.strokeRect(ox + w * G.x0, oy + h * G.y0, w * (G.x1 - G.x0), h * (G.y1 - G.y0)); g.setLineDash([]);
+  // 목표 영역: 세 스티커의 중심이 들어와야 하는 상자 + 발 길이 범위(최소·최대 폭 표시)
+  const tx0 = ox + w * A.cx[0], tx1 = ox + w * A.cx[1], ty0 = oy + h * A.cy[0], ty1 = oy + h * A.cy[1];
+  g.fillStyle = okState ? 'rgba(46,204,113,.18)' : 'rgba(255,255,255,.10)'; g.fillRect(tx0, ty0, tx1 - tx0, ty1 - ty0);
+  g.strokeStyle = okState ? 'rgba(46,204,113,.95)' : 'rgba(255,255,255,.75)'; g.lineWidth = 1.5; g.strokeRect(tx0, ty0, tx1 - tx0, ty1 - ty0);
+  const midY = (ty0 + ty1) / 2;
+  for (const sp of A.span) { const half = w * sp / 2; g.beginPath(); g.moveTo(ox + w / 2 - half, midY - 10); g.lineTo(ox + w / 2 - half, midY + 10); g.moveTo(ox + w / 2 + half, midY - 10); g.lineTo(ox + w / 2 + half, midY + 10); g.stroke(); }
+  if (hint) {
+    g.font = 'bold 15px system-ui'; const tw = g.measureText(hint).width + 20;
+    g.fillStyle = 'rgba(0,0,0,.65)'; g.fillRect(ox + (w - tw) / 2, oy + h - 34, tw, 26);
+    g.fillStyle = '#ffd400'; g.textAlign = 'center'; g.fillText(hint, ox + w / 2, oy + h - 16); g.textAlign = 'start';
+  }
+}
+// 장면 움직임: 축소 회색 영상의 프레임 간 평균 절대 차이(0~255). 일어서는 동작처럼 화면 전체가 바뀌는 것을 잡는다.
+function sceneThumb(img) {
+  const { data, width: W, height: H } = img, sx = Math.max(1, Math.floor(W / 64)), sy = Math.max(1, Math.floor(H / 36)), out = [];
+  for (let y = 0; y < H; y += sy) for (let x = 0; x < W; x += sx) { const i = (y * W + x) * 4; out.push(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]); }
+  return Float32Array.from(out);
 }
 
 /**
@@ -70,9 +87,13 @@ function createTracker(opts) {
     const motion = st.hist.length >= 2 ? Math.max(...st.hist.map(h => C.motionBetween(h.det, det))) : Infinity;
     const speedDia = st.dia ? st.kf.speed() / st.dia : Infinity; // 칼만 추정 속도(스티커 지름/초)
     c.still = c.stickers && motion < 0.15 && speedDia < 0.6; c.stillMsg = c.stickers && !c.still ? (st.hist.length < 2 ? '안정 상태 확인 중' : '발이 움직이고 있습니다') : '';
+    // 정렬: 가이드 안(가장자리 여유) + 목표 영역 정밀 정렬(중앙·크기·수평) + 정면 촬영(스티커가 원으로 보임)
     const fr = det.landmarks ? C.framingCheck(det) : { ok: false, msg: '', code: 'NONE' };
-    const angleOk = det.quality && det.quality.minAxisRatio >= 0.9 && det.landmarks && Math.abs(det.landmarks.axisAngleDeg) < 15;
-    c.frame = fr.ok && !!angleOk; c.frameMsg = !fr.ok ? fr.msg : (!angleOk && det.landmarks ? '휴대폰을 발 안쪽 면과 수직·수평으로 맞춰 주세요' : ''); c.frameCode = !fr.ok ? fr.code : (angleOk ? '' : 'ANGLE');
+    const al = det.landmarks ? C.alignmentCheck(det, getToe()) : { ok: false, msg: '', code: 'NONE' };
+    const faceOn = det.quality && det.quality.minAxisRatio >= 0.9;
+    c.frame = fr.ok && al.ok && !!faceOn;
+    c.frameMsg = !det.landmarks ? '' : !fr.ok ? fr.msg : !al.ok ? al.msg : !faceOn ? '휴대폰이 발 안쪽 면을 정면으로 향하게 해 주십시오' : '';
+    c.frameCode = !det.landmarks ? 'NONE' : !fr.ok ? fr.code : !al.ok ? al.code : faceOn ? '' : 'FACE';
     const ready = det.ok && c.stickers && c.sharp && c.still && c.frame;
     st.lastOk = det.ok && consistent ? det : (det.ok && !st.lastOk ? det : null);
     // 칼만 갱신: 측정 잡음 = 타원 피팅 잔차. 실패 프레임은 '놓침'으로 처리(7회 연속이면 추적 초기화)
@@ -85,6 +106,10 @@ function createTracker(opts) {
   async function tick() {
     const { img } = imageDataFromSource(video, 640);
     const IW = img.width, IH = img.height;
+    const thumb = sceneThumb(img); // 워커로 넘기기 전에 계산(버퍼가 비워짐)
+    let sceneMotion = 0;
+    if (st.thumb && st.thumb.length === thumb.length) { let d = 0; for (let i = 0; i < thumb.length; i++) d += Math.abs(thumb[i] - st.thumb[i]); sceneMotion = d / thumb.length; }
+    st.thumb = thumb;
     const t0 = performance.now();
     const pred = st.kf.predict(t0); // 칼만 예측 위치 → 탐색 영역·후보 대응·라벨 확인에 사용
     const roiPrev = pred && st.dia ? { ok: true, landmarks: pred, quality: { diameterPx: st.dia } } : st.lastOk;
@@ -96,9 +121,9 @@ function createTracker(opts) {
     const wr = wrap.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
     overlay.width = wr.width * dpr; overlay.height = wr.height * dpr; const g = overlay.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0);
     const k = Math.min(wr.width / IW, wr.height / IH), ox = (wr.width - IW * k) / 2, oy = (wr.height - IH * k) / 2;
-    drawGuide(g, ox, oy, IW * k, IH * k, a.ready);
+    drawGuide(g, ox, oy, IW * k, IH * k, a.ready, det.landmarks && !a.c.frame ? (a.c.frameMsg || '').replace(/ 주십시오| 주세요|십시오/g, '') : '');
     drawOverlay(g, { stickers: det.stickers, rejected: det.rejected, landmarks: det.landmarks && st.smooth ? Object.assign({}, det.landmarks, st.smooth) : det.landmarks }, k, k, ox, oy);
-    onFrame(Object.assign({ det, fps: st.fpsT.length, roi: !!det.roi }, a));
+    onFrame(Object.assign({ det, fps: st.fpsT.length, roi: !!det.roi, sceneMotion }, a));
   }
   function loop() {
     if (!st.stream) return;

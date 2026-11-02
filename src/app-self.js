@@ -25,7 +25,7 @@ route('/self', '자가 검사 (음성 안내)', async (v, p) => {
   const cv = convSettings();
   v.innerHTML = `
     <h2>음성 안내 자가 검사</h2>
-    <p class="muted small">혼자서도 할 수 있습니다. 발이 가이드 안에 들어오면 “찍습니다”라고 말하고 <b>앉은 자세(비체중부하)</b>를 찍은 뒤, 일어서라고 안내하고 <b>선 자세(체중부하)</b>를 자동으로 찍습니다.</p>
+    <p class="muted small">혼자서도 할 수 있습니다. 음성 안내에 따라 <b>앉은 자세(비체중부하)</b>를 찍은 뒤, 앱이 <b>체중부하(선 자세)</b>를 스스로 확인하고 자동으로 찍습니다.</p>
     ${!cv.validated ? '<div class="note warn small">mm 환산이 아직 검증되지 않아 결과는 픽셀 값으로만 기록되고 분류가 표시되지 않습니다. 시연 전에 연구자 모드에서 스티커 지름 설정과 템플릿 시험을 마쳐 주세요.</div>' : ''}
     <label class="f">검사할 발</label>
     <div class="seg" id="feetSeg">${[['left', '왼발'], ['right', '오른발'], ['both', '양발(왼발→오른발)']].map(([k, l]) => `<button data-v="${k}" class="${feetSel === k ? 'on' : ''}">${l}</button>`).join('')}</div>
@@ -34,8 +34,8 @@ route('/self', '자가 검사 (음성 안내)', async (v, p) => {
       <li>발 안쪽에 파란 스티커 3개를 붙입니다. <a href="#/stickers-info">부착 위치 보기</a></li>
       <li>의자에 앉아 두 발을 바닥에 편하게 둡니다.</li>
       <li>휴대폰을 <b>가로로 세워 두 발 사이 바닥</b>에 두고, <b>뒷면 카메라</b>가 검사할 발 안쪽을 향하게 합니다(거치대 권장).</li>
-      <li>시작을 누르면 음성 안내가 나옵니다. 발이 가이드 안에 들어오면 “찍습니다” 후 앉은 자세를 찍습니다.</li>
-      <li>“일어서세요” 안내가 나오면 천천히 일어서서 양발에 체중을 고르게 싣고 가만히 있습니다. 선 자세를 찍습니다.</li>
+      <li>시작을 누르면 음성 안내가 나옵니다. 발이 <b>목표 영역에 정확히</b> 들어오면 “비체중부하 상태를 촬영합니다” 후 앉은 자세를 찍습니다. 벗어나 있으면 “발을 조금 앞으로” 같은 방향을 알려 드립니다.</li>
+      <li>“체중부하 해주십시오” 안내가 나오면 일어서서 양발에 체중을 고르게 싣고 가만히 섭니다. 앱이 일어서는 동작과 발 형태 변화를 확인하면 “체중부하 확인했습니다. 촬영합니다”라고 말하고 선 자세를 찍습니다.</li>
       <li>검사 중에는 <b>휴대폰을 움직이지 마세요.</b> 움직이면 처음부터 다시 찍습니다.</li>
     </ol></div>
     <label class="chk"><input type="checkbox" id="voiceOn" ${Voice.enabled ? 'checked' : ''}><span class="small">음성 안내 켜기${Voice.supported ? '' : ' — 이 브라우저는 음성 출력을 지원하지 않아 화면 자막과 신호음으로 안내합니다'}</span></label>
@@ -73,90 +73,140 @@ route('/self/run', '자가 검사 진행', async (v) => {
     <div class="camwrap" id="camwrap" style="margin-top:8px"><video id="vid" playsinline muted autoplay></video><canvas id="ov"></canvas><div class="voicecap hide" id="voiceCap"></div><div class="countdown" id="cd"></div></div>
     <div class="statusline" id="status" aria-live="polite">카메라 준비 중…</div><div class="tiny" id="hud" style="text-align:center"></div>
     <div class="checks" id="checks"></div>
+    <div class="card small" id="loadCard" style="display:none"><b>체중부하 인지</b><dl class="kv" style="margin-top:6px"><dt>일어서는 동작</dt><dd id="lcMove">대기</dd><dt>선 자세 안정</dt><dd id="lcStable">대기</dd><dt>아치 하강</dt><dd id="lcDrop">—</dd><dt>발 길이 변화</dt><dd id="lcSpan">—</dd></dl></div>
     <div class="grid2"><button class="btn" id="mute">${Voice.enabled ? '음성 끄기' : '음성 켜기'}</button><button class="btn" id="stop">중지</button></div>
     <div id="camErr"></div>`;
   const vid = $('#vid', v), cd = $('#cd', v);
-  let fi = 0, phase = 'pre', phaseStart = performance.now(), readySince = 0, sawMove = false, lastHint = { t: 0, msg: '' }, busy = false, cur = null;
-  const PHASE_LABEL = { pre: '1/2 앉은 자세(비체중부하)', stand: '일어서는 중', post: '2/2 선 자세(체중부하)' };
+  // 상태: align(앉은 자세 정렬) → stand(체중부하 요청, 일어서는 동작 감지) → settle(선 자세 안정·형태 근거 확인) → 촬영
+  const PHASE_LABEL = { align: '1/2 비체중부하(앉은 자세)', stand: '체중부하 요청', settle: '2/2 체중부하(선 자세)' };
+  let fi = 0, phase = 'align', phaseStart = 0, readySince = 0, busy = false, cur = null, lastHint = { t: 0, msg: '' }, announcedAlign = false;
+  let preLive = [], liveRef = null, lostFrames = 0, moveFrames = 0, transitionSeen = false, standPrompts = 0, settleWin = [], recheckAt = 0, reprompted = false, lastEv = null;
   const foot = () => run.feet[fi], toe = () => defaultToe(foot());
-  const setPhase = ph => { phase = ph; phaseStart = performance.now(); readySince = 0; $('#phaseBadge', v).textContent = PHASE_LABEL[ph] || ''; };
+  const T = { alignHold: 1200, settleHold: 1500, sceneMove: 6, lostMove: 5, standRepeat: 12000, standGiveUp: 30000, recheck: 4500 };
+  const setPhase = ph => { phase = ph; phaseStart = performance.now(); readySince = 0; $('#phaseBadge', v).textContent = PHASE_LABEL[ph] || ''; $('#loadCard', v).style.display = ph === 'align' ? 'none' : ''; };
+  const say = (t, o) => Voice.say(t, o);
   const tracker = createTracker({ video: vid, overlay: $('#ov', v), wrap: $('#camwrap', v), getToe: toe, onFrame });
+  const median = a => { const q = a.slice().sort((x, y) => x - y), n = q.length; return n % 2 ? q[n >> 1] : (q[n / 2 - 1] + q[n / 2]) / 2; };
+  const medShape = arr => ({ heightPx: median(arr.map(s => s.heightPx / s.dia)), spanPx: median(arr.map(s => s.spanPx / s.dia)), dia: 1 });
   function beginFoot() {
     cur = { id: uid(), foot: foot(), toeDirection: toe(), participantId: S.settings.participantId || '', startedAt: Date.now(), pre: null, post: null, method: 'voice' };
-    $('#footBadge', v).textContent = FOOT[foot()]; setPhase('pre');
+    preLive = []; liveRef = null; announcedAlign = false;
+    $('#footBadge', v).textContent = FOOT[foot()]; setPhase('align');
   }
   function hint(f, now) {
     if (now - phaseStart < 2500 || now - lastHint.t < 5000) return;
     const c = f.c; let msg;
-    if (!c.stickers) msg = f.det.stickers.length === 0 ? `${FOOT[foot()]} 안쪽이 화면 가이드 안에 들어오게 해 주세요` : c.stickersCode === 'EXTRA' ? '주변의 파란 물건을 치워 주세요' : c.stickersCode === 'OCCLUDED' ? '스티커가 가려졌습니다. 바지나 손을 치워 주세요' : '스티커 세 개가 모두 보이게 해 주세요';
+    if (!c.stickers) msg = f.det.stickers.length === 0 ? `${FOOT[foot()]} 안쪽이 화면 가이드 안에 들어오게 해 주십시오` : c.stickersCode === 'EXTRA' ? '주변의 파란 물건을 치워 주십시오' : c.stickersCode === 'OCCLUDED' ? '스티커가 가려졌습니다. 바지나 손을 치워 주십시오' : '스티커 세 개가 모두 보이게 해 주십시오';
     else if (!c.frame) msg = c.frameMsg;
-    else if (!c.sharp) msg = '화면이 흐립니다. 조명을 밝게 하고 잠시 그대로 계세요';
-    else if (!c.still) msg = '움직이지 말아 주세요';
-    if (!msg) return;
-    if (msg === lastHint.msg && now - lastHint.t < 12000) return;
-    lastHint = { t: now, msg }; Voice.say(msg, { interrupt: false });
+    else if (!c.sharp) msg = '화면이 흐립니다. 조명을 밝게 하고 잠시 그대로 계십시오';
+    else if (!c.still) msg = '움직이지 마십시오';
+    if (!msg || (msg === lastHint.msg && now - lastHint.t < 12000)) return;
+    lastHint = { t: now, msg }; say(msg, { interrupt: false });
   }
-  async function shoot(ph) {
+  async function shoot(ph, intro) {
     busy = true; tracker.pause();
-    await Voice.say('찍습니다');
-    cd.textContent = '●'; $('#status', v).textContent = '촬영 중… 움직이지 마세요';
+    await say(intro);
+    cd.innerHTML = '<span class="recbadge">● 촬영 중</span>'; $('#status', v).textContent = '촬영 중… 움직이지 마십시오';
     const r = await burstCapture(vid, toe(), tracker.priorNorm());
     cd.textContent = ''; Voice.beep(990, 120);
     if (!r.det.ok) {
       $('#status', v).textContent = '다시 촬영합니다';
-      await Voice.say('잘 찍히지 않았습니다. 그대로 계시면 다시 찍겠습니다.');
-      busy = false; tracker.resume(); setPhase(ph); return;
+      await say('잘 찍히지 않았습니다. 그대로 계시면 다시 촬영하겠습니다.');
+      busy = false; tracker.resume(); readySince = 0; phaseStart = performance.now(); return false;
     }
+    await say('촬영되었습니다.');
     const rec = captureRecord(r.det, r.meas, 'voice', toe());
     if (S.settings.savePhotos) rec._blob = await blobFromCanvas(r.canvas);
-    if (ph === 'pre') {
-      cur.pre = rec; setPhase('stand'); sawMove = false;
-      $('#status', v).textContent = '천천히 일어서서 양발에 체중을 고르게 실어 주세요';
-      await Voice.say('앉은 자세를 찍었습니다. 이제 천천히 일어서서, 양발에 체중을 고르게 싣고 가만히 서 계세요. 휴대폰은 움직이지 마세요.');
-      busy = false; tracker.resume(); phaseStart = performance.now(); return;
-    }
+    rec._shape = C.shapeOf(r.det);
+    return rec;
+  }
+  async function shootPre() {
+    liveRef = medShape(preLive.slice(-10)); // 같은 해상도(실시간)의 비체중부하 기준 형태
+    const rec = await shoot('pre', '비체중부하 상태를 촬영합니다.');
+    if (!rec) return;
+    cur.pre = rec;
+    transitionSeen = false; lostFrames = 0; moveFrames = 0; standPrompts = 1; settleWin = []; reprompted = false; lastEv = null;
+    setPhase('stand'); updateLoadCard();
+    $('#status', v).textContent = '일어서서 체중부하 해주십시오';
+    // 안내를 말하는 동안에도 추적을 계속한다(말하는 도중에 일어서기 시작해도 동작을 놓치지 않도록)
+    busy = false; tracker.resume(); phaseStart = performance.now();
+    say('이제 일어서서 체중부하 해주십시오. 양발에 체중을 고르게 실어 주십시오.');
+  }
+  async function shootPost(confirmed, ev) {
+    const rec = await shoot('post', confirmed ? '체중부하 확인했습니다. 촬영합니다.' : '현재 자세로 체중부하 상태를 촬영합니다.');
+    if (!rec) return;
     cur.post = rec;
-    // 휴대폰이 움직였는지: 전·후 스티커 겉보기 크기(=촬영 거리) 비교
     const d1 = cur.pre.quality.diameterPx, d2 = cur.post.quality.diameterPx;
     if (Math.abs(d1 - d2) / ((d1 + d2) / 2) > C.DEFAULT_CONVERSION.maxScaleDiffPrePost) {
-      await Voice.say('휴대폰이 움직인 것 같습니다. 다시 앉아 주시면 처음부터 다시 찍겠습니다.');
-      cur.pre = cur.post = null; busy = false; tracker.resume(); setPhase('pre'); phaseStart = performance.now() + 3000; return;
+      await say('휴대폰이 움직였습니다. 다시 앉아 주시면 처음부터 다시 촬영하겠습니다.');
+      cur.pre = cur.post = null; preLive = []; busy = false; tracker.resume(); setPhase('align'); announcedAlign = false; phaseStart = performance.now() + 3000; return;
     }
+    // 최종 형태 근거: 두 연속 촬영(같은 고해상도)끼리 비교
+    const fin = C.loadEvidence(cur.pre._shape, cur.post._shape);
+    cur.loadRecognition = { transitionSeen, live: ev ? { drop: ev.drop, spanGain: ev.spanGain, by: ev.by } : null, final: { drop: fin.drop, spanGain: fin.spanGain, by: fin.by }, confirmed: !!confirmed, at: Date.now() };
+    delete cur.pre._shape; delete cur.post._shape;
     $('#status', v).textContent = '분석 중…';
     const saved = await finalizeExam(cur);
     run.results.push(saved.id);
     if (fi + 1 < run.feet.length) {
       fi++;
-      await Voice.say(`${FOOT[run.feet[fi - 1]]} 검사를 마쳤습니다. 다시 앉으신 뒤, 휴대폰을 돌려 ${FOOT[foot()]} 안쪽을 비춰 주세요.`);
+      await say(`${FOOT[run.feet[fi - 1]]} 검사를 마쳤습니다. 다시 앉으신 뒤, 휴대폰을 돌려 ${FOOT[foot()]} 안쪽을 비춰 주십시오.`);
       beginFoot(); phaseStart = performance.now() + 4000; busy = false; tracker.resume(); return;
     }
     tracker.stop();
-    await Voice.say('검사가 끝났습니다. 화면에서 결과를 확인하세요.');
+    await say('검사가 끝났습니다. 결과를 확인해 주십시오.');
     S.selfRun = null;
     go(run.results.length === 2 ? `#/pair/${run.results[0]}/${run.results[1]}` : `#/result/${run.results[0]}`);
+  }
+  const pctTxt = v2 => (v2 * 100).toFixed(1) + '%';
+  function updateLoadCard(ev) {
+    $('#lcMove', v).textContent = transitionSeen ? '확인' : '대기';
+    $('#lcStable', v).textContent = phase === 'settle' && readySince ? '확인 중' : phase === 'settle' ? '정렬 대기' : '대기';
+    $('#lcDrop', v).textContent = ev ? `${ev.drop >= C.LOAD.minDrop ? '✓ ' : ''}${ev.drop.toFixed(2)}×스티커 지름 (기준 ${C.LOAD.minDrop})` : '—';
+    $('#lcSpan', v).textContent = ev ? `${ev.spanGain >= C.LOAD.minSpanGain ? '✓ ' : ''}${ev.spanGain >= 0 ? '+' : ''}${pctTxt(ev.spanGain)} (기준 +${pctTxt(C.LOAD.minSpanGain)})` : '—';
   }
   function onFrame(f) {
     if (busy) return;
     const now = performance.now();
     paintChecksInto($('#checks', v), f.c);
-    $('#hud', v).textContent = `${f.fps} fps · ${f.roi ? '추적 모드' : '전체 검색'}`;
-    if (now < phaseStart) { $('#status', v).textContent = '음성 안내를 들어 주세요…'; return; } // 안내 음성 후 준비 시간
-    if (phase === 'stand') {
-      if (!f.det.ok || f.motion > 0.3) sawMove = true;
-      const el = now - phaseStart;
-      $('#status', v).textContent = sawMove ? '자세를 잡고 가만히 서 계세요' : '천천히 일어서 주세요';
-      if (el > 4000 && (sawMove || el > 9000)) setPhase('post');
+    $('#hud', v).textContent = `${f.fps} fps · ${f.roi ? '추적 모드' : '전체 검색'} · 장면 움직임 ${f.sceneMotion.toFixed(1)}`;
+    if (now < phaseStart) { $('#status', v).textContent = '음성 안내를 들어 주십시오…'; return; }
+    if (phase === 'align') {
+      if (f.ready) {
+        preLive.push(C.shapeOf(f.det)); if (preLive.length > 20) preLive.shift();
+        if (!readySince) { readySince = now; if (!announcedAlign) { announcedAlign = true; say('발이 가이드에 정확히 들어왔습니다. 움직이지 마십시오.'); } }
+        $('#status', v).textContent = '정확히 들어왔습니다. 그대로 계십시오';
+        if (now - readySince >= T.alignHold && preLive.length >= 5) shootPre();
+      } else { readySince = 0; $('#status', v).textContent = (!f.c.stickers ? f.c.stickersMsg : !f.c.frame ? f.c.frameMsg : !f.c.sharp ? f.c.sharpMsg : f.c.stillMsg) || '가이드 안에 발을 맞춰 주십시오'; hint(f, now); }
       return;
     }
-    const need = phase === 'pre' ? 1000 : 1500; // 선 자세는 흔들림이 가라앉을 시간을 조금 더 둔다
-    if (f.ready) {
-      if (!readySince) readySince = now;
-      $('#status', v).textContent = '좋습니다. 그대로 계세요';
-      if (now - readySince >= need) shoot(phase);
-    } else {
-      readySince = 0;
-      $('#status', v).textContent = (!f.c.stickers ? f.c.stickersMsg : !f.c.frame ? f.c.frameMsg : !f.c.sharp ? f.c.sharpMsg : f.c.stillMsg) || '가이드 안에 발을 맞춰 주세요';
-      hint(f, now);
+    if (phase === 'stand') {
+      // 일어서는 동작 인지: 장면 전체 움직임이 커지거나, 스티커 추적이 끊기거나, 스티커가 크게 움직임
+      if (f.sceneMotion > T.sceneMove || f.motion > 0.3) moveFrames++; else moveFrames = Math.max(0, moveFrames - 1);
+      if (!f.det.ok) lostFrames++; else lostFrames = 0;
+      if (!transitionSeen && (moveFrames >= 2 || lostFrames >= T.lostMove)) { transitionSeen = true; updateLoadCard(); say('일어서는 동작을 확인했습니다. 가만히 서 계십시오.'); }
+      const el = now - phaseStart;
+      $('#status', v).textContent = transitionSeen ? '가만히 서 계십시오' : '일어서서 체중부하 해주십시오';
+      if (transitionSeen && moveFrames === 0 && f.det.ok) { setPhase('settle'); updateLoadCard(); return; }
+      if (!transitionSeen && el > T.standRepeat * standPrompts && el < T.standGiveUp) { standPrompts++; say('일어서서 체중부하 해주십시오.'); }
+      if (!transitionSeen && el >= T.standGiveUp) { setPhase('settle'); updateLoadCard(); } // 동작을 못 봤어도 형태 근거로 판단
+      return;
+    }
+    if (phase === 'settle') {
+      if (!f.ready) { readySince = 0; settleWin = []; $('#status', v).textContent = (!f.c.stickers ? f.c.stickersMsg : !f.c.frame ? f.c.frameMsg : f.c.stillMsg) || '가만히 서 계십시오'; hint(f, now); updateLoadCard(lastEv); return; }
+      if (!readySince) { readySince = now; recheckAt = now + T.settleHold; }
+      settleWin.push(C.shapeOf(f.det)); if (settleWin.length > 10) settleWin.shift();
+      const ev = liveRef && settleWin.length >= 5 ? C.loadEvidence(liveRef, medShape(settleWin)) : null; lastEv = ev;
+      updateLoadCard(ev);
+      if (now < recheckAt) { $('#status', v).textContent = '선 자세 확인 중… 그대로 계십시오'; return; }
+      if (ev && ev.confirmed) { shootPost(true, ev); return; }
+      if (!reprompted) {
+        reprompted = true; recheckAt = now + T.recheck; settleWin = [];
+        $('#status', v).textContent = '양발에 체중을 고르게 실어 주십시오';
+        say('체중이 실린 변화가 아직 작습니다. 양발에 체중을 고르게 실어 주십시오.');
+        return;
+      }
+      shootPost(false, ev); // 정상 아치처럼 변화가 작은 발 — 촬영하되 "형태 근거 미확인"으로 기록
     }
   }
   $('#mute', v).onclick = () => { Voice.enabled = !Voice.enabled; $('#mute', v).textContent = Voice.enabled ? '음성 끄기' : '음성 켜기'; };
@@ -164,9 +214,10 @@ route('/self/run', '자가 검사 진행', async (v) => {
   beginFoot();
   try {
     await tracker.start();
-    Voice.say(`${FOOT[foot()]} 검사를 시작합니다. 의자에 앉아, ${FOOT[foot()]} 안쪽이 화면 가이드 안에 들어오게 해 주세요.`);
+    say(`${FOOT[foot()]} 검사를 시작합니다. 의자에 앉아 체중을 빼고, ${FOOT[foot()]} 안쪽이 화면 가이드에 들어오게 해 주십시오.`);
     phaseStart = performance.now() + 2500;
   } catch (e) {
+    if (e.name === 'Stale') return;
     $('#status', v).textContent = '카메라를 시작할 수 없습니다';
     $('#camErr', v).innerHTML = `<div class="note bad">${esc(e.name === 'Unsupported' ? e.message : cameraErrorHelp(e))}</div><button class="btn block" onclick="render()">다시 시도</button>`;
   }

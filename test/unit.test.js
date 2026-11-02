@@ -207,6 +207,38 @@ t('타원 피팅: 광택 반사(내부 흰 점)가 있어도 중심 오차 ≤ 0
   for (const k of ['P1', 'P2', 'P3']) near(Math.hypot(det.landmarks[k].x - sc[k].x, det.landmarks[k].y - sc[k].y), 0, 0.3, k);
 });
 
+// 10. 정밀 정렬 · 체중부하 형태 근거
+t('정렬: 중앙·적정 크기·수평이면 통과', () => { const d = C.detectStickers(makeImage(W, H, { stickers: footScene(W, H, 60).stickers })); ok(C.alignmentCheck(d, 'right').ok, JSON.stringify(C.alignmentCheck(d, 'right'))); });
+t('정렬: 발이 화면 왼쪽에 치우침 → 발가락 오른쪽이면 "앞으로" 안내', () => {
+  const sc = footScene(W, H, 60); const st = sc.stickers.map(s => ({ x: s.x - 120, y: s.y, r: s.r }));
+  const a = C.alignmentCheck(C.detectStickers(makeImage(W, H, { stickers: st })), 'right'); ok(!a.ok && a.code === 'SHIFT_RIGHT' && a.msg.includes('앞으로'), JSON.stringify(a));
+});
+t('정렬: 같은 치우침이라도 발가락이 왼쪽이면 "뒤로" 안내', () => {
+  const sc = footScene(W, H, 60, { toe: 'left' }); const st = sc.stickers.map(s => ({ x: s.x - 150, y: s.y, r: s.r }));
+  const a = C.alignmentCheck(C.detectStickers(makeImage(W, H, { stickers: st }), { toeDirection: 'left' }), 'left'); ok(!a.ok && a.msg.includes('뒤로'), JSON.stringify(a));
+});
+t('정렬: 너무 작게 보이면 "가까이"', () => { const sc = footScene(W, H, 40, { span: 0.38 }); const a = C.alignmentCheck(C.detectStickers(makeImage(W, H, { stickers: sc.stickers })), 'right'); ok(a.code === 'FAR', JSON.stringify(a)); });
+t('체중부하 근거: P2 높이 감소(지름 0.7배) → 확인', () => {
+  const pre = C.shapeOf(C.detectStickers(makeImage(W, H, { stickers: footScene(W, H, 80).stickers })));
+  const post = C.shapeOf(C.detectStickers(makeImage(W, H, { stickers: footScene(W, H, 60).stickers })));
+  const e = C.loadEvidence(pre, post); ok(e.confirmed && e.by === 'drop', JSON.stringify(e));
+});
+t('체중부하 근거: 변화 없음 → 미확인', () => {
+  const a = C.shapeOf(C.detectStickers(makeImage(W, H, { stickers: footScene(W, H, 70).stickers, seed: 1 })));
+  const b = C.shapeOf(C.detectStickers(makeImage(W, H, { stickers: footScene(W, H, 70).stickers, seed: 2 })));
+  ok(!C.loadEvidence(a, b).confirmed, JSON.stringify(C.loadEvidence(a, b)));
+});
+t('체중부하 근거: 발 길이 1% 증가(아치 변화 없음) → 확인', () => {
+  const a = C.shapeOf(C.detectStickers(makeImage(W, H, { stickers: footScene(W, H, 70).stickers })));
+  const b = C.shapeOf(C.detectStickers(makeImage(W, H, { stickers: footScene(W, H, 70, { span: 0.62 * 1.01 }).stickers })));
+  const e = C.loadEvidence(a, b); ok(e.confirmed && e.by === 'span', JSON.stringify(e));
+});
+t('체중부하 근거: 거리(축척)만 달라지면 미확인(지름 정규화)', () => {
+  const a = C.shapeOf(C.detectStickers(makeImage(W, H, { stickers: footScene(W, H, 70).stickers })));
+  const b = C.shapeOf(C.detectStickers(makeImage(W, H, { stickers: footScene(W, H, 70 * 1.1, { span: 0.62 * 1.1, r: 14 * 1.1 }).stickers })));
+  ok(!C.loadEvidence(a, b).confirmed, JSON.stringify(C.loadEvidence(a, b)));
+});
+
 const pass = results.filter(r => r[1] === 'PASS').length;
 for (const r of results) console.log(`${r[1]}  ${r[0]}${r[2] ? '  — ' + r[2] : ''}`);
 console.log(`\n${pass}/${results.length} 통과`);

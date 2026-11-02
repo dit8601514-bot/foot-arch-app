@@ -762,6 +762,55 @@
     return { ok: true, msg: '촬영 범위 적절', code: 'OK' };
   }
 
+  // ───────────────────────── 정밀 정렬 판정 ─────────────────────────
+  // 발(세 스티커)이 목표 영역에 '정확히' 들어왔는지. 영상 비율 기준.
+  const ALIGN = { cx: [0.38, 0.62], cy: [0.38, 0.82], span: [0.45, 0.85], maxAngleDeg: 10 };
+  /**
+   * 반환: { ok, code, msg, dx, dy } — msg는 사용자가 무엇을 하면 되는지(방향 포함).
+   * toe: 발가락이 향하는 화면 방향. 발을 앞으로(발가락 쪽) 옮기면 화면에서 그 방향으로 움직인다.
+   */
+  function alignmentCheck(det, toe, align) {
+    const A = align || ALIGN;
+    if (!det || !det.landmarks) return { ok: false, code: 'NONE', msg: '발 안쪽의 스티커 세 개가 화면에 보이게 해 주십시오' };
+    const [W, H] = det.imageSize, L = det.landmarks;
+    const cx = (L.P1.x + L.P2.x + L.P3.x) / 3 / W, cy = (L.P1.y + L.P2.y + L.P3.y) / 3 / H;
+    const span = Math.abs(L.P1.x - L.P3.x) / W, ang = Math.abs(L.axisAngleDeg || 0);
+    const out = { cx, cy, span, ang, ok: false };
+    if (span < A.span[0]) return Object.assign(out, { code: 'FAR', msg: '휴대폰을 발에 조금 더 가까이 두십시오' });
+    if (span > A.span[1]) return Object.assign(out, { code: 'NEAR', msg: '휴대폰을 발에서 조금 더 멀리 두십시오' });
+    if (cx < A.cx[0] || cx > A.cx[1]) {
+      const needRight = cx < A.cx[0]; // 화면에서 오른쪽으로 옮겨야 함
+      const forward = (toe === 'right') === needRight;
+      return Object.assign(out, { code: needRight ? 'SHIFT_RIGHT' : 'SHIFT_LEFT', msg: forward ? '발을 조금 앞으로 옮겨 주십시오' : '발을 조금 뒤로 옮겨 주십시오' });
+    }
+    if (cy < A.cy[0]) return Object.assign(out, { code: 'TOO_HIGH', msg: '휴대폰 화면이 발보다 아래를 향하고 있습니다. 휴대폰을 똑바로 세워 주십시오' });
+    if (cy > A.cy[1]) return Object.assign(out, { code: 'TOO_LOW', msg: '휴대폰 화면이 발보다 위를 향하고 있습니다. 휴대폰을 똑바로 세워 주십시오' });
+    if (ang > A.maxAngleDeg) return Object.assign(out, { code: 'TILT', msg: '휴대폰이 기울어져 있습니다. 바닥과 수평이 되게 세워 주십시오' });
+    return Object.assign(out, { ok: true, code: 'OK', msg: '발이 가이드에 정확히 들어왔습니다' });
+  }
+
+  // ───────────────────────── 체중부하 인지(형태 근거) ─────────────────────────
+  /**
+   * 비체중부하 기록(ref)과 현재 검출(cur)을 스티커 지름 단위로 비교해 체중이 실렸다는 형태 근거를 계산한다.
+   * - drop: P2 높이 감소(지름 배수) — 아치 하강
+   * - spanGain: P1–P3 거리 증가율 — 체중으로 발이 길어짐
+   * 거리·해상도와 무관하도록 모두 스티커 지름으로 정규화한다. 기준값은 초기 휴리스틱이며 실제 자료로 조정해야 한다.
+   */
+  const LOAD = { minDrop: 0.12, minSpanGain: 0.006 };
+  function loadEvidence(ref, cur, load) {
+    const T = load || LOAD;
+    const r = x => ({ h: x.heightPx / x.dia, span: x.spanPx / x.dia });
+    const a = r(ref), b = r(cur);
+    const drop = a.h - b.h, spanGain = (b.span - a.span) / a.span;
+    const confirmed = drop >= T.minDrop || spanGain >= T.minSpanGain;
+    return { drop, spanGain, confirmed, by: drop >= T.minDrop ? 'drop' : spanGain >= T.minSpanGain ? 'span' : null };
+  }
+  function shapeOf(det) {
+    if (!det || !det.landmarks) return null;
+    const L = det.landmarks;
+    return { heightPx: distanceToLine(L.P2, L.P1, L.P3), spanPx: dist(L.P1, L.P3), dia: det.quality.diameterPx };
+  }
+
   // ───────────────────────── 트래킹 보조 ─────────────────────────
   function cropImage(img, roi) {
     const [x0, y0, w, h] = roi, out = new Uint8ClampedArray(w * h * 4);
@@ -875,6 +924,6 @@
     rgbToHsv, detectStickers, labelLandmarks, signedDistanceToLine, distanceToLine, projectionT,
     measureImage, comparePrePost, classify, roundMm, errorMetrics,
     splitByParticipant, trainCalibration, applyCalibration, fitMethod, validateConversion,
-    motionBetween, framingCheck, laplacianVariance, cropImage, detectInRoi, labelsConsistent, combineDetections, createLandmarkKalman, chromaMap
+    motionBetween, framingCheck, laplacianVariance, cropImage, detectInRoi, labelsConsistent, combineDetections, createLandmarkKalman, chromaMap, ALIGN, alignmentCheck, LOAD, loadEvidence, shapeOf
   };
 });

@@ -229,7 +229,7 @@ route('/capture/:phase', '촬영', async (v, p) => {
   // 연속 촬영(12프레임 평균)
   async function capture(mode) {
     if (!vid.videoWidth) return toast('카메라 영상이 아직 준비되지 않았습니다.', true);
-    busy = true; tracker.pause(); cancelCountdown(); cd.textContent = '●'; $('#status', v).textContent = '연속 촬영 중… 움직이지 마세요';
+    busy = true; tracker.pause(); cancelCountdown(); cd.innerHTML = '<span class="recbadge">● 촬영 중</span>'; $('#status', v).textContent = '연속 촬영 중… 움직이지 마세요';
     const r = await burstCapture(vid, S.exam.toeDirection, tracker.priorNorm());
     cd.textContent = ''; tracker.stop();
     if (!r.canvas) { toast('카메라 프레임을 가져오지 못했습니다.', true); return start(); }
@@ -296,7 +296,7 @@ async function finalizeExam(ex, log) {
     pre: strip(ex.pre), post: strip(ex.post), comparison: cmp, category,
     measurementConfidence: Math.min(ex.pre.confidence, ex.post.confidence) * sdPenalty,
     algorithmVersion: C.ALGORITHM_VERSION, appVersion: APP_VERSION, calibrationModel: model ? model.version : null,
-    conversion: convSettings(), isTest: false, selfReport: {}
+    conversion: convSettings(), isTest: false, selfReport: {}, loadRecognition: ex.loadRecognition || null
   };
   for (const ph of ['pre', 'post']) if (ex[ph]._blob) {
     const bid = uid(); if (await save('blobs', { id: bid, kind: 'image', examId: rec.id, phase: ph, blob: ex[ph]._blob, createdAt: Date.now() })) rec[ph].imageId = bid;
@@ -344,6 +344,7 @@ route('/result/:id', '측정 결과', async (v, p) => {
       <dt>측정 신뢰도(휴리스틱)</dt><dd>${pct(e.measurementConfidence)}</dd>
       <dt>전·후 축척 차이</dt><dd>${c.scaleDiff != null ? (c.scaleDiff * 100).toFixed(1) + '%' : '—'}</dd>
       <dt>촬영 방식</dt><dd>${modeLabel(e.pre.mode)} / ${modeLabel(e.post.mode)}</dd>
+      ${e.loadRecognition ? `<dt>체중부하 인지</dt><dd>${loadRecText(e.loadRecognition)}</dd>` : ''}
     </dl><p class="tiny">신뢰도 값은 검출 형태·선명도에서 계산한 휴리스틱 지표이며, 실제 측정 정확도로 검증된 값이 아닙니다.</p></div>
     <div class="card"><b>결과 설명</b><p class="small">${esc(explain)}</p></div>
     ${flexSectionHtml(e)}
@@ -368,6 +369,11 @@ route('/result/:id', '측정 결과', async (v, p) => {
     drawOverlay(g, { stickers: e[ph].stickers, landmarks: e[ph].landmarks }, k);
   }
 });
+function loadRecText(r) {
+  const f = r.final || {}, pc = x => (x * 100).toFixed(1) + '%';
+  const shape = r.confirmed ? (f.by === 'drop' || (r.live && r.live.by === 'drop') ? '아치 하강 확인' : '발 길이 변화 확인') : '형태 변화 작음';
+  return `${r.transitionSeen ? '일어섬 확인' : '동작 미확인'} · ${shape}<div class="tiny">아치 하강 ${(f.drop || 0).toFixed(2)}×스티커 지름 · 발 길이 ${f.spanGain >= 0 ? '+' : ''}${pc(f.spanGain || 0)}</div>`;
+}
 function modeLabel(m) { return { auto: '자동', manual: '수동', upload: '파일', voice: '음성 자동' }[m] || m; }
 async function deleteExam(e) {
   for (const ph of ['pre', 'post']) if (e[ph] && e[ph].imageId) await DB.del('blobs', e[ph].imageId).catch(() => {});
