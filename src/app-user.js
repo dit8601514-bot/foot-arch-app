@@ -6,20 +6,24 @@ function convSettings() {
 }
 function defaultToe(foot) { return foot === 'left' ? 'right' : 'left'; } // 안쪽 면 촬영 시 자연스러운 발가락 방향
 function stepper(n) { return `<div class="stepper" aria-label="검사 ${n}/6단계">${[1, 2, 3, 4, 5, 6].map(i => `<span class="${i <= n ? 'on' : ''}"></span>`).join('')}</div>`; }
-const DISCLAIMER = '이 결과는 선별 및 자가 관리 목적의 참고 정보입니다. 이 애플리케이션만으로 평발을 확정 진단하지 않으며, 본 측정은 연구에서 정의한 기준점 간 거리 변화 방식으로 표준 임상 발배뼈 하강 검사(Navicular Drop Test)와 동일하다고 검증되지 않았습니다. 통증이나 불편이 있으면 전문가와 상담하세요.';
+const DISCLAIMER = '개인 건강관리용 앱입니다. 이 결과는 자가 확인과 관리를 위한 참고 정보입니다. 이 애플리케이션만으로 평발을 확정 진단하지 않으며, 본 측정은 연구에서 정의한 기준점 간 거리 변화 방식으로 표준 임상 발배뼈 하강 검사(Navicular Drop Test)와 동일하다고 검증되지 않았습니다. 통증이나 불편이 있으면 전문가와 상담하세요.';
 
 // ───── 홈 ─────
 route('/home', '발 아치 기능 평가', async (v) => {
   const exams = (await DB.all('exams')).filter(e => !e.isTest).sort((a, b) => b.createdAt - a.createdAt);
   const latest = f => exams.find(e => e.foot === f);
   const cv = convSettings();
+  const mgmt = ['left', 'right'].map(f => exams.find(e => e.foot === f && e.category)).filter(e => e && e.category.key !== 'normal').map(e => FOOT[e.foot]).join('·');
   v.innerHTML = `
     <h2>안녕하세요</h2>
-    <p class="muted">발에 붙인 파란 스티커 3개를 촬영해 체중부하 전·후 발 아치 높이 변화를 측정합니다.</p>
+    <p class="muted">발에 붙인 파란 스티커 3개를 촬영해 앉았을 때와 섰을 때의 발 아치 높이 변화(발배뼈 하강)를 측정하고, 유연성 평발 양상을 스스로 확인·관리합니다.</p>
     ${!cv.validated ? `<div class="note warn"><b>mm 환산이 아직 검증되지 않았습니다.</b> 연구자가 스티커 지름 설정과 보정 템플릿 시험을 마치기 전까지는 픽셀 값만 기록되고 평발 분류는 표시되지 않습니다.</div>` : ''}
+    <a class="btn primary block big" href="#/self">🔊 음성 안내 자가 검사</a>
+    <p class="tiny" style="text-align:center;margin-top:-2px">휴대폰을 두 발 사이에 두면 앉은 자세·선 자세를 자동으로 찍습니다</p>
+    ${mgmt ? `<a class="card" style="display:block;text-decoration:none;color:inherit" href="#/manage"><div class="row"><b class="grow">유연성 평발 관리 중</b><span class="badge b-warn">${esc(mgmt)}</span></div><div class="tiny">운동 기록과 하강량 변화를 확인하세요 ›</div></a>` : ''}
     <div class="grid2">
-      <button class="btn primary big" data-foot="left">왼발 검사</button>
-      <button class="btn primary big" data-foot="right">오른발 검사</button>
+      <button class="btn" data-foot="left">왼발 단계별 검사</button>
+      <button class="btn" data-foot="right">오른발 단계별 검사</button>
     </div>
     <h3>최근 결과</h3>
     <div class="grid2">${['left', 'right'].map(f => { const e = latest(f); return `<a class="card" style="margin:0;text-decoration:none;color:inherit" href="${e ? '#/result/' + e.id : '#/guide?foot=' + f}">
@@ -27,6 +31,7 @@ route('/home', '발 아치 기능 평가', async (v) => {
       ${e ? `<div style="font-size:22px;font-weight:800">${e.comparison.changeMm != null ? mm(e.comparison.changeMm) : statusBadge(e.comparison.status)}</div><div>${catBadge(e.category)}</div><div class="tiny">${fmtDate(e.createdAt)}</div>` : '<div class="muted small" style="margin-top:6px">기록 없음</div>'}
     </a>`; }).join('')}</div>
     <div class="card"><div class="list-item" style="padding-top:0"><span class="grow">운동 수행 기록</span><a class="btn sm" href="#/logs">보기</a></div>
+    <div class="list-item"><span class="grow">스티커 부착 위치</span><a class="btn sm" href="#/stickers-info">보기</a></div>
     <div class="list-item"><span class="grow">검사 이력 · 변화 그래프</span><a class="btn sm" href="#/history">보기</a></div>
     <div class="list-item" style="padding-bottom:0"><span class="grow">연구자·관리자 모드</span><a class="btn sm" href="#/r/home">열기</a></div></div>
     ${!isStandalone() && location.protocol === 'https:' ? `<div class="card small"><b>휴대폰 홈 화면에 앱으로 설치</b><p class="tiny">${installEvt ? '아래 버튼을 누르면 설치됩니다.' : /iPhone|iPad/.test(navigator.userAgent) ? 'Safari 아래쪽 공유 버튼 → “홈 화면에 추가”를 누르세요.' : '브라우저 메뉴 → “앱 설치” 또는 “홈 화면에 추가”를 누르세요.'} 설치하면 주소창 없이 열리고, 인터넷이 없어도 열립니다.</p>${installEvt ? '<button class="btn primary block" id="install">앱 설치</button>' : ''}</div>` : ''}
@@ -181,121 +186,54 @@ route('/capture/:phase', '촬영', async (v, p) => {
       <div id="camErr"></div>
     </div>
     <div id="review" class="hide"></div>`;
-  let auto = true, facing = 'environment', streak = 0, readySince = 0, badFrames = 0, cdStart = 0, busy = false, devices = [], inflight = false, lastOk = null, smooth = null, hist = [], fpsT = [];
-  const MAXSIDE = 1600, BURST = 12; // 촬영 해상도(긴 변)와 연속 촬영 프레임 수 — 전·후 모두 같은 값 사용
+  let auto = true, readySince = 0, badFrames = 0, cdStart = 0, busy = false;
   const vid = $('#vid', v), ov = $('#ov', v), cd = $('#cd', v);
   const paintAuto = () => $$('#autoSeg button', v).forEach(b => b.classList.toggle('on', (b.dataset.v === '1') === auto));
   $$('#autoSeg button', v).forEach(b => b.onclick = () => { auto = b.dataset.v === '1'; cancelCountdown(); paintAuto(); }); paintAuto();
-  const sleep = ms => new Promise(r => setTimeout(r, ms));
-
+  const tracker = createTracker({ video: vid, overlay: ov, wrap: $('#camwrap', v), getToe: () => S.exam.toeDirection, onFrame });
   async function start() {
-    stopCamera(); $('#camErr', v).innerHTML = ''; lastOk = null; smooth = null; hist = [];
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      $('#status', v).textContent = '카메라 사용 불가';
-      $('#camErr', v).innerHTML = `<div class="note bad">이 브라우저(또는 보안 연결이 아닌 주소)에서는 카메라 API를 사용할 수 없습니다. 최신 Chrome·Safari에서 HTTPS 주소로 열거나, “사진 파일 불러오기”로 미리 찍은 사진을 사용하세요.</div>`;
-      return;
-    }
-    try {
-      S.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facing, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
-      vid.srcObject = S.stream; await vid.play().catch(() => {});
-      try { devices = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput'); } catch (e) { devices = []; }
-      $('#flip', v).disabled = devices.length < 2;
-      await Detector.init();
-      loop();
-    } catch (e) {
-      $('#status', v).textContent = '카메라 오류';
-      $('#camErr', v).innerHTML = `<div class="note bad">${esc(cameraErrorHelp(e))}</div><button class="btn block" id="retryCam">다시 시도</button>`;
-      $('#retryCam', v).onclick = start;
+    $('#camErr', v).innerHTML = ''; busy = false; cancelCountdown();
+    try { await tracker.start(); $('#flip', v).disabled = tracker.deviceCount < 2; }
+    catch (e) {
+      $('#status', v).textContent = e.name === 'Unsupported' ? '카메라 사용 불가' : '카메라 오류';
+      $('#camErr', v).innerHTML = `<div class="note bad">${esc(e.name === 'Unsupported' ? e.message : cameraErrorHelp(e))}</div>${e.name === 'Unsupported' ? '' : '<button class="btn block" id="retryCam">다시 시도</button>'}`;
+      if ($('#retryCam', v)) $('#retryCam', v).onclick = start;
     }
   }
-  // 약 15fps 목표: 이전 분석이 끝나야 다음 프레임을 보낸다(밀림 방지)
-  function loop() {
-    if (!S.stream) return;
-    const t0 = performance.now();
-    const next = () => { S.loopTimer = setTimeout(loop, Math.max(0, 66 - (performance.now() - t0))); };
-    if (busy || inflight || !vid.videoWidth) return next();
-    inflight = true;
-    tick().catch(e => console.warn(e)).finally(() => { inflight = false; next(); });
-  }
-  function cancelCountdown(msg) { if (cdStart) { cdStart = 0; cd.textContent = ''; if (msg) toast(msg); } streak = 0; readySince = 0; badFrames = 0; }
-  function paintChecks(c) {
-    $('#checks', v).innerHTML = [['stickers', '스티커 3개'], ['sharp', '선명도'], ['still', '움직임 없음'], ['frame', '범위·각도']].map(([k, l]) => `<div class="${c[k] ? 'ok' : 'no'}">${c[k] ? '✓' : '•'} ${l}${c[k + 'Msg'] ? `<div class="tiny" style="color:inherit">${esc(c[k + 'Msg'])}</div>` : ''}</div>`).join('');
-  }
-  async function tick() {
-    const { img } = imageDataFromSource(vid, 640);
-    const IW = img.width, IH = img.height; // 워커로 넘기면 버퍼가 비워지므로 크기를 먼저 보관
-    const det = await Detector.run(img, { toeDirection: S.exam.toeDirection }, lastOk);
-    if (busy || !S.stream) return;
-    const now = performance.now(); fpsT.push(now); fpsT = fpsT.filter(t => now - t < 1000);
-    const codes = det.reasons.map(r => r.code);
-    const c = {};
-    c.stickers = det.stickers.length === 3 && !!det.landmarks && !codes.some(x => ['MISSING', 'EXTRA', 'OCCLUDED', 'SIZE_MISMATCH', 'BORDER', 'P2_OUTSIDE', 'P2_NEAR_TOE', 'P2_BELOW', 'SPAN_SHORT', 'TOE_DIR'].includes(x));
-    c.stickersMsg = c.stickers ? '' : (det.reasons[0] ? det.reasons[0].msg : '검출 중');
-    const consistent = C.labelsConsistent(lastOk, det);
-    if (c.stickers && !consistent) { c.stickers = false; c.stickersMsg = '기준점 라벨이 흔들립니다 — 발을 고정하세요'; }
-    c.sharp = !!(det.quality && det.quality.sharp); c.sharpMsg = c.sharp || !det.landmarks ? '' : '흐림 — 초점·조명 확인';
-    // 움직임: 최근 0.6초 동안 기준점의 최대 이동량(스티커 지름 대비)
-    if (det.ok) hist.push({ t: now, det }); else hist = [];
-    hist = hist.filter(h => now - h.t < 600);
-    const motion = hist.length >= 2 ? Math.max(...hist.map(h => C.motionBetween(h.det, det))) : Infinity;
-    c.still = c.stickers && motion < 0.15; c.stillMsg = c.stickers && !c.still ? (hist.length < 2 ? '안정 상태 확인 중' : '발이 움직이고 있습니다') : '';
-    const fr = det.landmarks ? C.framingCheck(det) : { ok: false, msg: '' };
-    const angleOk = det.quality && det.quality.minAxisRatio >= 0.9 && det.landmarks && Math.abs(det.landmarks.axisAngleDeg) < 15;
-    c.frame = fr.ok && !!angleOk; c.frameMsg = !fr.ok ? fr.msg : (!angleOk && det.landmarks ? '카메라를 발과 수직·수평으로' : '');
-    const ready = det.ok && c.stickers && c.sharp && c.still && c.frame;
-    lastOk = det.ok && consistent ? det : (det.ok && !lastOk ? det : null);
-    // 화면 표시용 떨림 보정(측정에는 원 좌표 사용)
-    if (det.landmarks && consistent && smooth) for (const k of ['P1', 'P2', 'P3']) smooth[k] = { x: smooth[k].x * 0.5 + det.landmarks[k].x * 0.5, y: smooth[k].y * 0.5 + det.landmarks[k].y * 0.5 };
-    else smooth = det.landmarks ? { P1: Object.assign({}, det.landmarks.P1), P2: Object.assign({}, det.landmarks.P2), P3: Object.assign({}, det.landmarks.P3) } : null;
-    paintChecks(c);
-    $('#hud', v).textContent = `${fpsT.length} fps · ${det.roi ? '추적 모드' : '전체 검색'} · ${Detector.usingWorker ? '백그라운드 분석' : '기본 분석'}`;
-    const wr = $('#camwrap', v).getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
-    ov.width = wr.width * dpr; ov.height = wr.height * dpr; const g = ov.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const k = Math.min(wr.width / IW, wr.height / IH), ox = (wr.width - IW * k) / 2, oy = (wr.height - IH * k) / 2;
-    g.strokeStyle = 'rgba(255,255,255,.55)'; g.setLineDash([8, 6]); g.lineWidth = 2; g.strokeRect(ox + IW * k * 0.04, oy + IH * k * 0.15, IW * k * 0.92, IH * k * 0.75); g.setLineDash([]);
-    drawOverlay(g, { stickers: det.stickers, rejected: det.rejected, landmarks: det.landmarks && smooth ? Object.assign({}, det.landmarks, smooth) : det.landmarks }, k, k, ox, oy);
-    if (!auto) { $('#status', v).textContent = ready ? '준비 완료 — 수동 촬영 버튼을 누르세요' : '준비 상태 확인 중'; return; }
+  function cancelCountdown(msg) { if (cdStart) { cdStart = 0; cd.textContent = ''; if (msg) toast(msg); } readySince = 0; badFrames = 0; }
+  function onFrame(f) {
+    if (busy) return;
+    paintChecksInto($('#checks', v), f.c);
+    $('#hud', v).textContent = `${f.fps} fps · ${f.roi ? '추적 모드' : '전체 검색'} · ${Detector.usingWorker ? '백그라운드 분석' : '기본 분석'}`;
+    const now = performance.now();
+    if (!auto) { $('#status', v).textContent = f.ready ? '준비 완료 — 수동 촬영 버튼을 누르세요' : '준비 상태 확인 중'; return; }
     if (cdStart) {
-      badFrames = ready ? 0 : badFrames + 1;
+      badFrames = f.ready ? 0 : badFrames + 1;
       if (badFrames >= 2) return cancelCountdown('움직임·가림·품질 저하가 감지되어 촬영을 취소했습니다. 다시 준비 상태를 확인합니다.');
       const left = 3 - Math.floor((Date.now() - cdStart) / 1000);
       if (left <= 0) { cd.textContent = ''; cdStart = 0; capture('auto'); } else { cd.textContent = left; $('#status', v).textContent = '움직이지 마세요'; }
       return;
     }
-    if (ready) { if (!readySince) readySince = now; $('#status', v).textContent = '준비 확인 중…'; if (now - readySince >= 500) { cdStart = Date.now(); cd.textContent = '3'; badFrames = 0; } }
+    if (f.ready) { if (!readySince) readySince = now; $('#status', v).textContent = '준비 확인 중…'; if (now - readySince >= 500) { cdStart = Date.now(); cd.textContent = '3'; badFrames = 0; } }
     else { readySince = 0; $('#status', v).textContent = '가이드 안에 발을 맞춰 주세요'; }
   }
   // 단일 이미지(파일) 분석
   async function analyzeSource(src, mode) {
     busy = true;
     const { canvas, img } = imageDataFromSource(src, MAXSIDE);
-    stopCamera();
+    tracker.stop();
     await Detector.init();
     const det = await Detector.run(img, { toeDirection: S.exam.toeDirection });
     showReview(canvas, det, C.measureImage(det, convSettings()), mode);
   }
-  // 연속 촬영: 12프레임을 찍어 흐린·튀는 프레임을 버리고 좌표를 평균한다
+  // 연속 촬영(12프레임 평균)
   async function capture(mode) {
     if (!vid.videoWidth) return toast('카메라 영상이 아직 준비되지 않았습니다.', true);
-    busy = true; cancelCountdown(); cd.textContent = '●'; $('#status', v).textContent = '연속 촬영 중… 움직이지 마세요';
-    const dets = new Array(BURST).fill(null), jobs = []; let keep = null; const mid = Math.floor(BURST / 2);
-    for (let i = 0; i < BURST; i++) {
-      if (!vid.videoWidth) break;
-      const { canvas, img } = imageDataFromSource(vid, MAXSIDE);
-      if (i === mid) keep = canvas;
-      jobs.push(Detector.run(img, { toeDirection: S.exam.toeDirection }).then(d => { dets[i] = d; }).catch(() => {}));
-      if (i >= 2) await jobs[i - 2]; // 동시에 처리 중인 프레임을 3개 이하로 제한(메모리)
-      await sleep(70);
-    }
-    await Promise.all(jobs); cd.textContent = ''; stopCamera();
-    if (!keep) { busy = false; return toast('카메라 프레임을 가져오지 못했습니다.', true); }
-    const cb = C.combineDetections(dets.filter(Boolean), 5);
-    if (!cb.ok) {
-      const m = dets[mid] || {};
-      const fail = { ok: false, reasons: [{ msg: cb.reason }].concat(m.ok === false ? m.reasons : []), stickers: m.stickers || [], rejected: m.rejected || [], landmarks: null, imageSize: m.imageSize };
-      return showReview(keep, fail, C.measureImage(fail, convSettings()), mode);
-    }
-    showReview(keep, cb.det, C.measureImage(cb.det, convSettings()), mode);
+    busy = true; tracker.pause(); cancelCountdown(); cd.textContent = '●'; $('#status', v).textContent = '연속 촬영 중… 움직이지 마세요';
+    const r = await burstCapture(vid, S.exam.toeDirection);
+    cd.textContent = ''; tracker.stop();
+    if (!r.canvas) { toast('카메라 프레임을 가져오지 못했습니다.', true); return start(); }
+    showReview(r.canvas, r.det, r.meas, mode);
   }
   function showReview(canvas, det, meas, mode) {
     $('#live', v).classList.add('hide'); const r = $('#review', v); r.classList.remove('hide');
@@ -318,25 +256,18 @@ route('/capture/:phase', '촬영', async (v, p) => {
     const rv = $('#rv', r); const rr = rv.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
     rv.width = rr.width * dpr; rv.height = rr.height * dpr; const g = rv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0);
     const k = rr.width / W; g.drawImage(canvas, 0, 0, rr.width, H * k); drawOverlay(g, det, k);
-    $('#again', r).onclick = () => { r.classList.add('hide'); $('#live', v).classList.remove('hide'); busy = false; streak = 0; start(); };
+    $('#again', r).onclick = () => { r.classList.add('hide'); $('#live', v).classList.remove('hide'); start(); };
     if (det.ok) $('#use', r).onclick = async () => {
-      const rec = {
-        capturedAt: Date.now(), mode, imageSize: det.imageSize, toeDirection: S.exam.toeDirection,
-        landmarks: { P1: pick(det.landmarks.P1), P2: pick(det.landmarks.P2), P3: pick(det.landmarks.P3), axisAngleDeg: det.landmarks.axisAngleDeg, tFromHeel: det.landmarks.tFromHeel },
-        stickers: det.stickers.map(s => ({ cx: s.cx, cy: s.cy, major: s.major, minor: s.minor, axisRatio: s.axisRatio, score: s.score })),
-        confidence: det.confidence, detectionConfidence: det.detectionConfidence, labelConfidence: det.landmarks.labelConfidence, quality: det.quality,
-        measure: Object.assign({}, meas, { imageSize: det.imageSize })
-      };
+      const rec = captureRecord(det, meas, mode, S.exam.toeDirection);
       if (S.settings.savePhotos) rec._blob = await blobFromCanvas(canvas);
       S.exam[phase] = rec;
       go(phase === 'pre' ? '#/capture/post' : '#/analyze');
     };
   }
-  const pick = p => ({ x: p.x, y: p.y });
   $('#shot', v).onclick = () => { if (!busy) capture('manual'); };
-  $('#flip', v).onclick = () => { facing = facing === 'environment' ? 'user' : 'environment'; start(); };
+  $('#flip', v).onclick = () => { tracker.flip().catch(e => toast(cameraErrorHelp(e), true)); };
   $('#file', v).onchange = e => {
-    const f = e.target.files[0]; if (!f) return; stopCamera();
+    const f = e.target.files[0]; if (!f) return; tracker.stop();
     const im = new Image(); im.onload = () => { analyzeSource(im, 'upload'); URL.revokeObjectURL(im.src); };
     im.onerror = () => toast('이미지를 읽을 수 없습니다.', true); im.src = URL.createObjectURL(f);
   };
@@ -349,33 +280,38 @@ async function activeModel() {
   const m = await DB.get('models', S.settings.activeModelId).catch(() => null);
   return m && m.deployed ? m : null;
 }
-route('/analyze', 'AI 분석 및 측정', async (v) => {
-  const ex = S.exam; if (!ex || !ex.pre || !ex.post) return go('#/guide');
-  v.innerHTML = `${stepper(6)}<h2>분석 중</h2><div class="card"><ol class="steps" id="prog"></ol></div>`;
-  const log = (t, cls) => { const li = document.createElement('li'); li.innerHTML = t; if (cls) li.className = cls; $('#prog', v).appendChild(li); };
-  const wait = ms => new Promise(r => setTimeout(r, ms));
-  log(`기준점 좌표 확인: 전 신뢰도 ${pct(ex.pre.confidence)}, 후 신뢰도 ${pct(ex.post.confidence)}`); await wait(150);
-  log(`픽셀 거리: 전 ${px(ex.pre.measure.heightPx)}, 후 ${px(ex.post.measure.heightPx)}`); await wait(150);
+// 전·후 촬영으로 결과를 계산하고 저장한다(단계별 검사·음성 자가 검사 공용)
+async function finalizeExam(ex, log) {
+  log = log || (() => {});
+  log(`기준점 좌표 확인: 전 신뢰도 ${pct(ex.pre.confidence)}, 후 신뢰도 ${pct(ex.post.confidence)}`);
+  log(`픽셀 거리: 전 ${px(ex.pre.measure.heightPx)}, 후 ${px(ex.post.measure.heightPx)}`);
   const model = await activeModel();
   const cmp = C.comparePrePost(ex.pre.measure, ex.post.measure, convSettings(), model ? Object.assign({ version: model.version }, model.params) : null);
-  log(`mm 환산 및 전·후 촬영 조건 비교: ${statusBadge(cmp.status)}`); await wait(150);
+  log(`mm 환산 및 전·후 촬영 조건 비교: ${statusBadge(cmp.status)}`);
   const category = cmp.status === '측정 가능' ? C.classify(cmp.changeMm) : null;
-  log(category ? `연구 기준 분류: ${catBadge(category)}` : '연구 기준 분류: mm 값이 없어 분류하지 않음'); await wait(150);
+  log(category ? `연구 기준 분류: ${catBadge(category)}` : '연구 기준 분류: mm 값이 없어 분류하지 않음');
   const sdPenalty = cmp.scaleDiff != null ? 1 - Math.min(1, cmp.scaleDiff / 0.05) * 0.3 : 1;
   const rec = {
-    id: ex.id, createdAt: Date.now(), participantId: ex.participantId, foot: ex.foot, toeDirection: ex.toeDirection,
+    id: ex.id, createdAt: Date.now(), participantId: ex.participantId, foot: ex.foot, toeDirection: ex.toeDirection, method: ex.method || 'stepwise',
     pre: strip(ex.pre), post: strip(ex.post), comparison: cmp, category,
     measurementConfidence: Math.min(ex.pre.confidence, ex.post.confidence) * sdPenalty,
     algorithmVersion: C.ALGORITHM_VERSION, appVersion: APP_VERSION, calibrationModel: model ? model.version : null,
-    conversion: convSettings(), isTest: false
+    conversion: convSettings(), isTest: false, selfReport: {}
   };
   for (const ph of ['pre', 'post']) if (ex[ph]._blob) {
     const bid = uid(); if (await save('blobs', { id: bid, kind: 'image', examId: rec.id, phase: ph, blob: ex[ph]._blob, createdAt: Date.now() })) rec[ph].imageId = bid;
   }
-  const okSave = await save('exams', rec);
-  log(okSave ? '검사 결과 저장 완료' : '<b>저장 실패</b> — 결과는 표시되지만 이력에 남지 않습니다.', okSave ? '' : 'bad');
-  S.lastResult = rec; S.exam = null;
-  await wait(250); go('#/result/' + rec.id);
+  rec._saved = await save('exams', rec);
+  log(rec._saved ? '검사 결과 저장 완료' : '<b>저장 실패</b> — 결과는 표시되지만 이력에 남지 않습니다.');
+  S.lastResult = rec;
+  return rec;
+}
+route('/analyze', 'AI 분석 및 측정', async (v) => {
+  const ex = S.exam; if (!ex || !ex.pre || !ex.post) return go('#/guide');
+  v.innerHTML = `${stepper(6)}<h2>분석 중</h2><div class="card"><ol class="steps" id="prog"></ol></div>`;
+  const rec = await finalizeExam(ex, t => { const li = document.createElement('li'); li.innerHTML = t; $('#prog', v).appendChild(li); });
+  S.exam = null;
+  await new Promise(r => setTimeout(r, 400)); go('#/result/' + rec.id);
 });
 function strip(r) { const o = Object.assign({}, r); delete o._blob; return o; }
 
@@ -410,6 +346,7 @@ route('/result/:id', '측정 결과', async (v, p) => {
       <dt>촬영 방식</dt><dd>${modeLabel(e.pre.mode)} / ${modeLabel(e.post.mode)}</dd>
     </dl><p class="tiny">신뢰도 값은 검출 형태·선명도에서 계산한 휴리스틱 지표이며, 실제 측정 정확도로 검증된 값이 아닙니다.</p></div>
     <div class="card"><b>결과 설명</b><p class="small">${esc(explain)}</p></div>
+    ${flexSectionHtml(e)}
     <div id="imgs"></div>
     <h3>운동 중재</h3>
     ${cat ? (exs.length ? exs.map(x => `<a class="list-item card" style="margin:6px 0" href="#/exercise/${x.id}?exam=${e.id}"><span class="grow"><b>${esc(x.name)}</b><br><span class="tiny">${x.videoBlobId || x.videoUrl ? '영상 있음' : '영상 등록 필요'}</span></span>›</a>`).join('')
@@ -418,7 +355,8 @@ route('/result/:id', '측정 결과', async (v, p) => {
     <p class="tiny">${esc(DISCLAIMER)}</p>
     <div class="grid2"><button class="btn primary" id="other">${FOOT[e.foot === 'left' ? 'right' : 'left']} 검사</button><a class="btn" href="#/history">검사 이력</a></div>
     <button class="btn ghost block" id="del">이 결과 삭제</button>`;
-  $('#other', v).onclick = () => go('#/guide?foot=' + (e.foot === 'left' ? 'right' : 'left'));
+  bindFlexSection(v, e);
+  $('#other', v).onclick = () => go(e.method === 'voice' ? '#/self?feet=' + (e.foot === 'left' ? 'right' : 'left') : '#/guide?foot=' + (e.foot === 'left' ? 'right' : 'left'));
   $('#del', v).onclick = async () => { if (await confirmModal('이 검사 결과를 삭제할까요? 되돌릴 수 없습니다.', '삭제', true)) { await deleteExam(e); toast('삭제했습니다.'); go('#/history'); } };
   // 저장된 사진이 있으면 저장된 좌표와 함께 표시
   for (const ph of ['pre', 'post']) if (e[ph].imageId) {
@@ -430,7 +368,7 @@ route('/result/:id', '측정 결과', async (v, p) => {
     drawOverlay(g, { stickers: e[ph].stickers, landmarks: e[ph].landmarks }, k);
   }
 });
-function modeLabel(m) { return { auto: '자동', manual: '수동', upload: '파일' }[m] || m; }
+function modeLabel(m) { return { auto: '자동', manual: '수동', upload: '파일', voice: '음성 자동' }[m] || m; }
 async function deleteExam(e) {
   for (const ph of ['pre', 'post']) if (e[ph] && e[ph].imageId) await DB.del('blobs', e[ph].imageId).catch(() => {});
   await DB.del('exams', e.id);

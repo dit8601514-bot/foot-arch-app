@@ -1,0 +1,158 @@
+'use strict';
+/* ═════════════ 실시간 촬영 공통 모듈: 음성 안내 · 트래킹 루프 · 연속 촬영 ═════════════ */
+
+// 음성 안내 (Web Speech API). iOS/Safari는 사용자가 버튼을 누른 순간에 한 번 말해야 이후에도 말할 수 있다.
+const Voice = (() => {
+  let enabled = true, unlocked = false, ctx = null, voice = null;
+  const ok = () => 'speechSynthesis' in window && 'SpeechSynthesisUtterance' in window;
+  function pickVoice() {
+    if (!ok()) return null;
+    const vs = speechSynthesis.getVoices();
+    return vs.find(v => /ko[-_]KR/i.test(v.lang)) || vs.find(v => /^ko/i.test(v.lang)) || null;
+  }
+  if (ok()) { voice = pickVoice(); speechSynthesis.onvoiceschanged = () => { voice = pickVoice(); }; }
+  function say(text, opts) {
+    const o = Object.assign({ interrupt: true }, opts);
+    showCaption(text);
+    if (!enabled || !ok()) return Promise.resolve(false);
+    return new Promise(res => {
+      try {
+        if (o.interrupt) speechSynthesis.cancel();
+        const u = new SpeechSynthesisUtterance(text); u.lang = 'ko-KR'; if (voice) u.voice = voice; u.rate = 1.0;
+        const t = setTimeout(() => res(true), Math.min(9000, 1200 + text.length * 160)); // onend가 오지 않는 기기 대비
+        u.onend = () => { clearTimeout(t); res(true); }; u.onerror = () => { clearTimeout(t); res(false); };
+        speechSynthesis.speak(u);
+      } catch (e) { res(false); }
+    });
+  }
+  function beep(freq, ms) {
+    try {
+      ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
+      const o = ctx.createOscillator(), g = ctx.createGain(); o.frequency.value = freq || 880; g.gain.value = 0.15;
+      o.connect(g); g.connect(ctx.destination); o.start(); o.stop(ctx.currentTime + (ms || 150) / 1000);
+    } catch (e) { /* 소리 미지원 */ }
+  }
+  function unlock() { unlocked = true; beep(660, 60); if (ok()) { try { const u = new SpeechSynthesisUtterance(' '); u.lang = 'ko-KR'; u.volume = 0; speechSynthesis.speak(u); } catch (e) {} } }
+  let capTimer = null;
+  function showCaption(text) {
+    const el = document.getElementById('voiceCap'); if (!el) return;
+    el.textContent = '🔊 ' + text; el.classList.remove('hide'); clearTimeout(capTimer); capTimer = setTimeout(() => el.classList.add('hide'), 6000);
+  }
+  return { say, beep, unlock, get supported() { return ok(); }, get hasKorean() { return !!voice; }, get enabled() { return enabled; }, set enabled(v) { enabled = !!v; if (!v && ok()) speechSynthesis.cancel(); }, get unlocked() { return unlocked; } };
+})();
+
+// 화면 가이드(점선) — 판정에 쓰는 C.GUIDE와 같은 영역을 그린다
+function drawGuide(g, ox, oy, w, h, okState) {
+  const G = C.GUIDE;
+  g.strokeStyle = okState ? 'rgba(46,204,113,.95)' : 'rgba(255,255,255,.6)'; g.setLineDash([8, 6]); g.lineWidth = okState ? 3 : 2;
+  g.strokeRect(ox + w * G.x0, oy + h * G.y0, w * (G.x1 - G.x0), h * (G.y1 - G.y0)); g.setLineDash([]);
+}
+
+/**
+ * 실시간 트래킹: 약 15fps로 프레임을 분석하고, 준비 상태(스티커·선명도·움직임·범위)를 판정한다.
+ * onFrame({det, c, ready, motion}) 콜백으로 결과를 넘긴다.
+ */
+function createTracker(opts) {
+  const { video, overlay, wrap, getToe, onFrame } = opts;
+  const st = { lastOk: null, smooth: null, hist: [], fpsT: [], inflight: false, paused: false, timer: null, stream: null, facing: opts.facing || 'environment', devices: [] };
+  function assess(det, now) {
+    const codes = det.reasons.map(r => r.code);
+    const c = {};
+    c.stickers = det.stickers.length === 3 && !!det.landmarks && !codes.some(x => ['MISSING', 'EXTRA', 'OCCLUDED', 'SIZE_MISMATCH', 'BORDER', 'P2_OUTSIDE', 'P2_NEAR_TOE', 'P2_BELOW', 'SPAN_SHORT', 'TOE_DIR'].includes(x));
+    c.stickersMsg = c.stickers ? '' : (det.reasons[0] ? det.reasons[0].msg : '스티커를 찾는 중');
+    c.stickersCode = c.stickers ? '' : (det.reasons[0] ? det.reasons[0].code : 'MISSING');
+    const consistent = C.labelsConsistent(st.lastOk, det);
+    if (c.stickers && !consistent) { c.stickers = false; c.stickersMsg = '기준점 라벨이 흔들립니다 — 발을 고정하세요'; c.stickersCode = 'LABEL'; }
+    c.sharp = !!(det.quality && det.quality.sharp); c.sharpMsg = c.sharp || !det.landmarks ? '' : '흐림 — 초점·조명 확인';
+    if (det.ok) st.hist.push({ t: now, det }); else st.hist = [];
+    st.hist = st.hist.filter(h => now - h.t < 600);
+    const motion = st.hist.length >= 2 ? Math.max(...st.hist.map(h => C.motionBetween(h.det, det))) : Infinity;
+    c.still = c.stickers && motion < 0.15; c.stillMsg = c.stickers && !c.still ? (st.hist.length < 2 ? '안정 상태 확인 중' : '발이 움직이고 있습니다') : '';
+    const fr = det.landmarks ? C.framingCheck(det) : { ok: false, msg: '', code: 'NONE' };
+    const angleOk = det.quality && det.quality.minAxisRatio >= 0.9 && det.landmarks && Math.abs(det.landmarks.axisAngleDeg) < 15;
+    c.frame = fr.ok && !!angleOk; c.frameMsg = !fr.ok ? fr.msg : (!angleOk && det.landmarks ? '휴대폰을 발 안쪽 면과 수직·수평으로 맞춰 주세요' : ''); c.frameCode = !fr.ok ? fr.code : (angleOk ? '' : 'ANGLE');
+    const ready = det.ok && c.stickers && c.sharp && c.still && c.frame;
+    st.lastOk = det.ok && consistent ? det : (det.ok && !st.lastOk ? det : null);
+    if (det.landmarks && consistent && st.smooth) for (const k of ['P1', 'P2', 'P3']) st.smooth[k] = { x: st.smooth[k].x * 0.5 + det.landmarks[k].x * 0.5, y: st.smooth[k].y * 0.5 + det.landmarks[k].y * 0.5 };
+    else st.smooth = det.landmarks ? { P1: Object.assign({}, det.landmarks.P1), P2: Object.assign({}, det.landmarks.P2), P3: Object.assign({}, det.landmarks.P3) } : null;
+    return { c, ready, motion };
+  }
+  async function tick() {
+    const { img } = imageDataFromSource(video, 640);
+    const IW = img.width, IH = img.height;
+    const det = await Detector.run(img, { toeDirection: getToe() }, st.lastOk);
+    if (st.paused || !st.stream) return;
+    const now = performance.now(); st.fpsT.push(now); st.fpsT = st.fpsT.filter(t => now - t < 1000);
+    const a = assess(det, now);
+    const wr = wrap.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+    overlay.width = wr.width * dpr; overlay.height = wr.height * dpr; const g = overlay.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const k = Math.min(wr.width / IW, wr.height / IH), ox = (wr.width - IW * k) / 2, oy = (wr.height - IH * k) / 2;
+    drawGuide(g, ox, oy, IW * k, IH * k, a.ready);
+    drawOverlay(g, { stickers: det.stickers, rejected: det.rejected, landmarks: det.landmarks && st.smooth ? Object.assign({}, det.landmarks, st.smooth) : det.landmarks }, k, k, ox, oy);
+    onFrame(Object.assign({ det, fps: st.fpsT.length, roi: !!det.roi }, a));
+  }
+  function loop() {
+    if (!st.stream) return;
+    const t0 = performance.now();
+    const next = () => { st.timer = setTimeout(loop, Math.max(0, 66 - (performance.now() - t0))); S.loopTimer = st.timer; };
+    if (st.paused || st.inflight || !video.videoWidth) return next();
+    st.inflight = true;
+    tick().catch(e => console.warn(e)).finally(() => { st.inflight = false; next(); });
+  }
+  async function start() {
+    stop();
+    st.lastOk = null; st.smooth = null; st.hist = [];
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { const e = new Error('이 브라우저(또는 보안 연결이 아닌 주소)에서는 카메라 API를 사용할 수 없습니다. 최신 Chrome·Safari에서 HTTPS 주소로 열거나, “사진 파일 불러오기”를 사용하세요.'); e.name = 'Unsupported'; throw e; }
+    st.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: st.facing, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
+    if (!video.isConnected) { st.stream.getTracks().forEach(t => t.stop()); st.stream = null; const e = new Error('화면이 바뀌어 카메라를 시작하지 않았습니다.'); e.name = 'Stale'; throw e; }
+    S.stream = st.stream;
+    video.srcObject = st.stream; await video.play().catch(() => {});
+    try { st.devices = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput'); } catch (e) { st.devices = []; }
+    await Detector.init();
+    st.paused = false; loop();
+  }
+  function stop() { if (st.timer) clearTimeout(st.timer); st.timer = null; stopCamera(); st.stream = null; }
+  function resetHistory() { st.hist = []; st.lastOk = null; st.smooth = null; }
+  return { start, stop, resetHistory, pause() { st.paused = true; }, resume() { st.paused = false; resetHistory(); }, flip() { st.facing = st.facing === 'environment' ? 'user' : 'environment'; return start(); }, get deviceCount() { return st.devices.length; }, get running() { return !!st.stream; } };
+}
+
+/**
+ * 연속 촬영: 12프레임을 찍어 흐린·튀는 프레임을 버리고 좌표를 평균한다(카메라는 끄지 않음).
+ * 반환: { canvas, det, meas, combined }
+ */
+const BURST = 12, MAXSIDE = 1600;
+async function burstCapture(video, toe) {
+  const dets = new Array(BURST).fill(null), jobs = []; let keep = null; const mid = Math.floor(BURST / 2);
+  for (let i = 0; i < BURST; i++) {
+    if (!video.videoWidth) break;
+    const { canvas, img } = imageDataFromSource(video, MAXSIDE);
+    if (i === mid) keep = canvas;
+    jobs.push(Detector.run(img, { toeDirection: toe }).then(d => { dets[i] = d; }).catch(() => {}));
+    if (i >= 2) await jobs[i - 2]; // 동시에 처리 중인 프레임을 3개 이하로 제한(메모리)
+    await new Promise(r => setTimeout(r, 70));
+  }
+  await Promise.all(jobs);
+  if (!keep) return { canvas: null, det: { ok: false, reasons: [{ msg: '카메라 프레임을 가져오지 못했습니다.' }], stickers: [], rejected: [] }, meas: null };
+  const cb = C.combineDetections(dets.filter(Boolean), 5);
+  if (!cb.ok) {
+    const m = dets[mid] || {};
+    const fail = { ok: false, reasons: [{ msg: cb.reason }].concat(m.ok === false ? m.reasons : []), stickers: m.stickers || [], rejected: m.rejected || [], landmarks: null, imageSize: m.imageSize };
+    return { canvas: keep, det: fail, meas: C.measureImage(fail, convSettings()) };
+  }
+  return { canvas: keep, det: cb.det, meas: C.measureImage(cb.det, convSettings()) };
+}
+
+// 검출 결과를 검사 기록용으로 정리
+function captureRecord(det, meas, mode, toe) {
+  const pick = p => ({ x: p.x, y: p.y });
+  return {
+    capturedAt: Date.now(), mode, imageSize: det.imageSize, toeDirection: toe,
+    landmarks: { P1: pick(det.landmarks.P1), P2: pick(det.landmarks.P2), P3: pick(det.landmarks.P3), axisAngleDeg: det.landmarks.axisAngleDeg, tFromHeel: det.landmarks.tFromHeel },
+    stickers: det.stickers.map(s => ({ cx: s.cx, cy: s.cy, major: s.major, minor: s.minor, axisRatio: s.axisRatio, score: s.score })),
+    confidence: det.confidence, detectionConfidence: det.detectionConfidence, labelConfidence: det.landmarks.labelConfidence, quality: det.quality,
+    measure: Object.assign({}, meas, { imageSize: det.imageSize })
+  };
+}
+function paintChecksInto(el, c) {
+  el.innerHTML = [['stickers', '스티커 3개'], ['sharp', '선명도'], ['still', '움직임 없음'], ['frame', '가이드 안·각도']].map(([k, l]) => `<div class="${c[k] ? 'ok' : 'no'}">${c[k] ? '✓' : '•'} ${l}${c[k + 'Msg'] ? `<div class="tiny" style="color:inherit">${esc(c[k + 'Msg'])}</div>` : ''}</div>`).join('');
+}

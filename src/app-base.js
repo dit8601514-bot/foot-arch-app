@@ -1,7 +1,7 @@
 'use strict';
 /* ═════════════ 기본: 저장소 · 상태 · 유틸 · 라우터 ═════════════ */
 const C = window.FootCore;
-const APP_VERSION = '1.1.0';
+const APP_VERSION = '1.2.0';
 const STORES = ['settings', 'exams', 'exercises', 'logs', 'errors', 'models', 'blobs', 'validations'];
 
 const DB = (() => {
@@ -125,6 +125,7 @@ const routes = {};
 function route(pattern, title, fn, opts) { routes[pattern] = { title, fn, opts: opts || {} }; }
 function go(hash) { if (location.hash === hash) render(); else location.hash = hash; }
 async function render() {
+  if (!S.booted) return; // 초기화(저장소·설정) 전에 들어온 주소 변경은 무시 — 초기화 후 현재 주소로 그린다
   stopCamera();
   const h = location.hash.replace(/^#/, '') || '/home';
   const [path, query] = h.split('?');
@@ -141,17 +142,20 @@ async function render() {
   params.q = Object.fromEntries(new URLSearchParams(query || ''));
   if (match.opts.researcher && !S.researcherUnlocked) { location.hash = '#/r/login?next=' + encodeURIComponent(h); return; }
   $('#title').textContent = match.title;
-  const view = $('#view'); view.innerHTML = '<p class="muted">불러오는 중…</p>';
-  $$('#tabs a').forEach(a => a.classList.toggle('on', ('/' + parts[0]) === ('/' + a.dataset.tab) || (parts[0] === 'stickers' || parts[0] === 'posture' || parts[0] === 'capture') && a.dataset.tab === 'guide'));
-  $('#tabs').classList.toggle('hide', parts[0] === 'r' || parts[0] === 'capture');
-  try { await match.fn(view, params); } catch (e) { console.error(e); view.innerHTML = `<div class="note bad">화면을 표시하는 중 오류가 발생했습니다: ${esc(e.message)}</div><a class="btn block" href="#/home">홈으로</a>`; }
+  // 화면마다 새 컨테이너를 쓴다: 늦게 끝난 이전 화면 그리기는 떨어져 나간 컨테이너에만 쓰므로 현재 화면을 덮지 않는다
+  const main = $('#view'); main.innerHTML = ''; const view = document.createElement('div'); main.appendChild(view);
+  view.innerHTML = '<p class="muted">불러오는 중…</p>';
+  const tabOf = { guide: 'self', stickers: 'self', 'stickers-info': 'self', posture: 'self', capture: 'self', analyze: 'self', result: 'self', pair: 'self', exercise: 'exercises', logs: 'exercises', history: 'manage', compare: 'manage' };
+  $$('#tabs a').forEach(a => a.classList.toggle('on', (tabOf[parts[0]] || parts[0]) === a.dataset.tab));
+  $('#tabs').classList.toggle('hide', parts[0] === 'r' || parts[0] === 'capture' || (parts[0] === 'self' && parts[1] === 'run'));
+  try { await match.fn(view, params); } catch (e) { if (!view.isConnected) return; console.error(e); view.innerHTML = `<div class="note bad">화면을 표시하는 중 오류가 발생했습니다: ${esc(e.message)}</div><a class="btn block" href="#/home">홈으로</a>`; }
   window.scrollTo(0, 0);
 }
 window.addEventListener('hashchange', render);
 document.addEventListener('DOMContentLoaded', async () => {
   $('#backBtn').onclick = () => history.length > 1 ? history.back() : go('#/home');
   $('#homeBtn').onclick = () => go('#/home');
-  await DB.ready(); await loadSettings();
+  await DB.ready(); await loadSettings(); S.booted = true;
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
   registerSW();
   render();

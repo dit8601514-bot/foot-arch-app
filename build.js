@@ -2,7 +2,7 @@
 const fs = require('fs'), path = require('path'), crypto = require('crypto');
 const r = f => fs.readFileSync(path.join(__dirname, 'src', f), 'utf8');
 const safe = s => s.replace(/<\/script/gi, '<\\/script');
-const core = r('core.js'), app = r('app-base.js') + '\n' + r('app-user.js') + '\n' + r('app-research.js');
+const core = r('core.js'), app = r('app-base.js') + '\n' + r('app-live.js') + '\n' + r('app-user.js') + '\n' + r('app-self.js') + '\n' + r('app-research.js');
 let html = r('index.html')
   .replace('<!--CORE-->', () => '<script id="core-script">\n' + safe(core) + '\n</script>')
   .replace('<!--APP-->', () => '<script>\n' + safe(app) + '\n</script>');

@@ -533,16 +533,22 @@
     const d = Math.max(...k.map(n => dist(a.landmarks[n], b.landmarks[n])));
     return d / (a.quality.diameterPx || 1); // 스티커 지름 대비 이동량
   }
-  function framingCheck(det) {
-    if (!det.landmarks) return { ok: false, msg: '스티커를 찾는 중' };
+  // 화면 가이드 영역(이미지 비율). 화면에 그리는 점선 가이드와 같은 값을 쓴다.
+  const GUIDE = { x0: 0.04, y0: 0.12, x1: 0.96, y1: 0.92 };
+  function framingCheck(det, guide) {
+    if (!det.landmarks) return { ok: false, msg: '스티커를 찾는 중', code: 'NONE' };
+    const g = guide || GUIDE;
     const [W, H] = det.imageSize; const { P1, P3 } = det.landmarks;
     const span = Math.abs(P1.x - P3.x) / W;
     const all = ['P1', 'P2', 'P3'].map(k => det.landmarks[k]);
     const m = det.quality.diameterPx * 1.5;
-    if (all.some(p => p.x < m || p.y < m || p.x > W - m || p.y > H - m)) return { ok: false, msg: '발을 가이드 중앙으로 옮겨 주세요' };
-    if (span < 0.35) return { ok: false, msg: '카메라를 조금 더 가까이 하세요' };
-    if (span > 0.92) return { ok: false, msg: '카메라를 조금 더 멀리 하세요' };
-    return { ok: true, msg: '촬영 범위 적절' };
+    const gx0 = Math.max(m, g.x0 * W), gy0 = Math.max(m, g.y0 * H), gx1 = Math.min(W - m, g.x1 * W), gy1 = Math.min(H - m, g.y1 * H);
+    if (all.some(p => p.x < gx0)) return { ok: false, msg: '발을 화면 오른쪽으로 조금 옮겨 주세요', code: 'LEFT_OUT' };
+    if (all.some(p => p.x > gx1)) return { ok: false, msg: '발을 화면 왼쪽으로 조금 옮겨 주세요', code: 'RIGHT_OUT' };
+    if (all.some(p => p.y < gy0 || p.y > gy1)) return { ok: false, msg: '발이 가이드 위아래 밖에 있습니다. 휴대폰 각도를 맞춰 주세요', code: 'VERT_OUT' };
+    if (span < 0.35) return { ok: false, msg: '휴대폰을 발에 조금 더 가까이 두세요', code: 'FAR' };
+    if (span > 0.92) return { ok: false, msg: '휴대폰을 발에서 조금 더 멀리 두세요', code: 'NEAR' };
+    return { ok: true, msg: '촬영 범위 적절', code: 'OK' };
   }
 
   // ───────────────────────── 트래킹 보조 ─────────────────────────
@@ -609,7 +615,7 @@
   function round(v, d) { const f = 10 ** d; return Math.round(v * f) / f; }
 
   return {
-    ALGORITHM_VERSION, DEFAULT_DETECT, DEFAULT_CONVERSION, CATEGORIES, TEMPLATE,
+    ALGORITHM_VERSION, GUIDE, DEFAULT_DETECT, DEFAULT_CONVERSION, CATEGORIES, TEMPLATE,
     rgbToHsv, detectStickers, labelLandmarks, signedDistanceToLine, distanceToLine, projectionT,
     measureImage, comparePrePost, classify, roundMm, errorMetrics,
     splitByParticipant, trainCalibration, applyCalibration, fitMethod, validateConversion,

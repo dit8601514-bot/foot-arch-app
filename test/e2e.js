@@ -13,7 +13,7 @@ const R = []; const log = (n, ok, d) => { R.push([n, ok ? 'PASS' : 'FAIL', d || 
   const shot = n => pg.screenshot({ path: path.join(__dirname, 'shots', n + '.png'), fullPage: true });
   fs.mkdirSync(path.join(__dirname, 'shots'), { recursive: true });
   const U = 'http://localhost:8765/';
-  await pg.goto(U + '#/home'); await pg.waitForSelector('text=왼발 검사'); await shot('01-home');
+  await pg.goto(U + '#/home'); await pg.waitForSelector('text=음성 안내 자가 검사'); await shot('01-home');
   log('홈: 환산 미검증 경고 표시', await pg.isVisible('text=mm 환산이 아직 검증되지 않았습니다'));
   // 연구자: PIN 설정 → 지름 → 템플릿 검증
   await pg.goto(U + '#/r/calib'); await pg.fill('#p1', '1234'); await pg.fill('#p2', '1234'); await pg.click('#go');
@@ -47,7 +47,7 @@ const R = []; const log = (n, ok, d) => { R.push([n, ok ? 'PASS' : 'FAIL', d || 
   log('결과: 변화량 ≈7.14mm(허용 ±0.15) · 경증 평발 의심', Math.abs(parseFloat(big) - 7.14) <= 0.15 && (await pg.isVisible('text=경증 평발 의심')), big);
   log('결과: 확정 진단 아님 고지', await pg.isVisible('text=확정 진단하지 않으며'));
   // 새로고침 후 유지
-  await pg.reload(); await pg.goto(U + '#/history'); await pg.waitForSelector('text=전체 기록'); await pg.waitForTimeout(300); await shot('10-history');
+  await pg.reload(); await pg.goto(U + '#/history'); await pg.waitForSelector('text=전체 기록').catch(async e => { console.log('DEBUG', await pg.evaluate(() => [location.href, document.title, S.booted, document.querySelector('#title').textContent, document.querySelector('main').innerText.slice(0, 300)])); throw e; }); await pg.waitForTimeout(300); await shot('10-history');
   log('새로고침 후 이력 유지', (await pg.locator('a.list-item[href^="#/result/"]').count()) === 1);
   // 운동: 연결 지정 → 완료 기록
   await pg.goto(U + '#/r/content'); await pg.fill('#p1', '1234').catch(() => {}); if (await pg.isVisible('#go')) await pg.click('#go');
@@ -70,7 +70,7 @@ const R = []; const log = (n, ok, d) => { R.push([n, ok ? 'PASS' : 'FAIL', d || 
   const swOk = await pg.evaluate(async () => { const r = await navigator.serviceWorker.ready; return !!r.active; });
   log('PWA: 서비스 워커 활성화', swOk);
   await pg.reload(); await pg.waitForTimeout(500); await ctx.setOffline(true);
-  const off = await pg.goto(U + '#/home').then(() => pg.waitForSelector('text=왼발 검사', { timeout: 5000 })).then(() => true).catch(() => false);
+  const off = await pg.goto(U + '#/home').then(() => pg.waitForSelector('text=음성 안내 자가 검사', { timeout: 5000 })).then(() => true).catch(() => false);
   log('PWA: 오프라인에서도 앱 열림', off); await ctx.setOffline(false);
   // 카메라 권한 거부 처리
   const ctx2 = await b.newContext({ viewport: { width: 390, height: 844 } }); const p2 = await ctx2.newPage();
