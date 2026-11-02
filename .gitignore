@@ -3,3 +3,7 @@ dist/
 test/shots/
 test/img/*.y4m
 test/*-results.json
+bench/data/
+bench/holdout/
+bench/ci/
+bench/result-*.json

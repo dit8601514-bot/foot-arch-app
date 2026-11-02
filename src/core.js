@@ -9,7 +9,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  const ALGORITHM_VERSION = 'ALG-1.1.0';
+  const ALGORITHM_VERSION = 'ALG-2.0.0';
 
   // 기본 검출 파라미터 (휴리스틱 값 — 실제 사진으로 검증 후 연구자가 조정해야 함)
   const DEFAULT_DETECT = {
@@ -18,10 +18,21 @@
     blueMargin: 25,                // B 채널이 R,G 보다 커야 하는 최소 차이
     minDiaFrac: 0.012,             // 이미지 짧은 변 대비 최소 스티커 지름
     maxDiaFrac: 0.20,              // 최대 지름
-    minAxisRatio: 0.75,            // 원형 판정 최소 단축/장축 비
-    fillMin: 0.85, fillMax: 1.15,  // 모멘트 타원 대비 채움 비율
-    bboxFillMin: 0.66, bboxFillMax: 0.90,
+    minAxisRatio: 0.72,            // 원형 판정 최소 단축/장축 비
+    fillMin: 0.8, fillMax: 1.2,    // 모멘트 타원 대비 채움 비율
+    bboxFillMin: 0.62, bboxFillMax: 0.92,
     sizeTolerance: 0.25,           // 3개 스티커 크기 허용 편차(중앙값 대비)
+    chromaStrong: 0.55,            // ALG-2: 파란 정도 강한 임계(씨앗)
+    chromaWeak: 0.32,              // ALG-2: 파란 정도 약한 임계(성장)
+    minLum: 6,                     // 너무 어두운 픽셀 제외(밝기 0~255)
+    minEdgeCoverage: 0.6,          // 가장자리 점이 잡힌 방사선 비율 하한
+    maxEdgeGapDeg: 75,             // 가장자리 점 사이 최대 각도 공백(가림 판정)
+    blurMinPx: 6.5, blurRelR: 0.45,// 흐림 판정: 가장자리 10–90% 폭 ≤ max(6.5px, 0.45×반지름) (3×3 평활 포함)
+    priorGate: 1.5,                // 추적 중 예측 위치 허용 거리(스티커 지름 배수)
+    useLumEdges: false,            // 밝기 가장자리 보조(벤치마크에서 색 가장자리만 쓰는 편이 더 정확해 기본 끔)
+    preAxisRatio: 0.5,             // 1차 거르기 축비(느슨)
+    rawEdges: true,                // 가장자리 탐색은 평활 전 지표 맵에서(광택 반사 근처 번짐 감소)
+    tukey: true,                   // 후반 반복에서 Tukey 가중(이상치 강하게 배제)
     minConfidence: 0.60,           // 이 미만이면 재촬영
     maxNavicularT: 0.55            // 발꿈치→P1 방향 P2 위치 상한(해부학 휴리스틱, 미검증)
   };
@@ -272,66 +283,252 @@
    * 이미지에서 파란색 원형 스티커 3개를 검출하고 P1/P2/P3를 지정한다.
    * 반환: { ok, reasons[], stickers[], landmarks, quality, confidence }
    */
+  // ═══════════════ ALG-2 검출: 조명 불변 색 지표 → 히스테리시스 → 구멍 메움 → 서브픽셀 타원 피팅 ═══════════════
+  /**
+   * 파란 정도(조명 세기 불변 반대색 지표): o = (B − (R+G)/2) / (밝기 + 10)
+   * 밝기로 나누므로 어두운 곳·밝은 곳에서 같은 스티커가 비슷한 값을 갖고, 색온도가 바뀌어도 배경 대비 순위가 유지된다.
+   * 반환: 3×3 평균으로 잡음을 줄인 지표 맵(Float32Array)과 밝기 맵
+   */
+  function chromaMap(img) {
+    const { data, width: W, height: H } = img, n = W * H;
+    const o = new Float32Array(n), lum = new Float32Array(n);
+    for (let i = 0, j = 0; j < n; i += 4, j++) {
+      const r = data[i], g = data[i + 1], b = data[i + 2], m = (r + g + b) / 3;
+      lum[j] = m; o[j] = (b - (r + g) / 2) / (m + 10);
+    }
+    // 분리형 3×3 상자 필터
+    const tmp = new Float32Array(n), sm = new Float32Array(n);
+    for (let y = 0; y < H; y++) { const row = y * W; for (let x = 0; x < W; x++) { const a = x > 0 ? x - 1 : x, c = x < W - 1 ? x + 1 : x; tmp[row + x] = (o[row + a] + o[row + x] + o[row + c]) / 3; } }
+    for (let y = 0; y < H; y++) { const a = (y > 0 ? y - 1 : y) * W, b = y * W, c = (y < H - 1 ? y + 1 : y) * W; for (let x = 0; x < W; x++) sm[b + x] = (tmp[a + x] + tmp[b + x] + tmp[c + x]) / 3; }
+    const tl = new Float32Array(n), sl = new Float32Array(n);
+    for (let y = 0; y < H; y++) { const row = y * W; for (let x = 0; x < W; x++) { const a = x > 0 ? x - 1 : x, c = x < W - 1 ? x + 1 : x; tl[row + x] = (lum[row + a] + lum[row + x] + lum[row + c]) / 3; } }
+    for (let y = 0; y < H; y++) { const a = (y > 0 ? y - 1 : y) * W, b = y * W, c = (y < H - 1 ? y + 1 : y) * W; for (let x = 0; x < W; x++) sl[b + x] = (tl[a + x] + tl[b + x] + tl[c + x]) / 3; }
+    return { o: sm, oRaw: o, lum, lumS: sl, W, H };
+  }
+  // 프로파일(바깥→안 방향 탐색)에서 수준 t를 지나는 반지름(서브픽셀). up=true면 안쪽 값이 큰 경우.
+  function crossing(prof, rAt, t, innerHigh) {
+    for (let i = prof.length - 1; i > 0; i--) {
+      const a = prof[i - 1], b = prof[i];
+      if (innerHigh ? (a >= t && b < t) : (a <= t && b > t)) return rAt(i - 1) + 0.25 * (a - t) / (a - b);
+    }
+    return null;
+  }
+  // 영상 전체 지표 분포(중앙값·MAD)로 배경 수준을 추정 — 표본 추출로 빠르게
+  function robustStats(arr, step) {
+    const s = []; for (let i = 0; i < arr.length; i += step) s.push(arr[i]);
+    s.sort((a, b) => a - b); const med = s[s.length >> 1];
+    const dev = s.map(v => Math.abs(v - med)).sort((a, b) => a - b);
+    return { med, mad: dev[dev.length >> 1] * 1.4826 };
+  }
+  // 히스테리시스 이진화: 강한 씨앗 픽셀에서 출발해 약한 픽셀까지만 자란다(가장자리 음영·그라데이션 대응)
+  function hysteresis(cm, strong, weak, minLum) {
+    const { o, lum, W, H } = cm, n = W * H, mask = new Uint8Array(n), q = new Int32Array(n);
+    let qt = 0;
+    for (let j = 0; j < n; j++) if (o[j] >= strong && lum[j] >= minLum) { mask[j] = 1; q[qt++] = j; }
+    let qh = 0;
+    while (qh < qt) {
+      const p = q[qh++], x = p % W, y = (p / W) | 0;
+      for (let dy = -1; dy <= 1; dy++) { const ny = y + dy; if (ny < 0 || ny >= H) continue; for (let dx = -1; dx <= 1; dx++) { const nx = x + dx; if (nx < 0 || nx >= W) continue; const k = ny * W + nx; if (!mask[k] && o[k] >= weak) { mask[k] = 1; q[qt++] = k; } } }
+    }
+    return mask;
+  }
+  // 성분 내부의 구멍(광택 반사 등)을 메운다: 경계상자 바깥에서 닿지 않는 비마스크 픽셀 = 구멍
+  function fillHoles(mask, labels, comp, W, H) {
+    const x0 = Math.max(0, comp.minx - 1), y0 = Math.max(0, comp.miny - 1), x1 = Math.min(W - 1, comp.maxx + 1), y1 = Math.min(H - 1, comp.maxy + 1);
+    const bw = x1 - x0 + 1, bh = y1 - y0 + 1, seen = new Uint8Array(bw * bh), q = new Int32Array(bw * bh);
+    let qt = 0;
+    const inside = (x, y) => labels[y * W + x] === comp.id;
+    for (let x = 0; x < bw; x++) for (const y of [0, bh - 1]) { const k = y * bw + x; if (!seen[k] && !inside(x0 + x, y0 + y)) { seen[k] = 1; q[qt++] = k; } }
+    for (let y = 0; y < bh; y++) for (const x of [0, bw - 1]) { const k = y * bw + x; if (!seen[k] && !inside(x0 + x, y0 + y)) { seen[k] = 1; q[qt++] = k; } }
+    let qh = 0;
+    while (qh < qt) { const k = q[qh++], x = k % bw, y = (k / bw) | 0; for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const nx = x + dx, ny = y + dy; if (nx < 0 || ny < 0 || nx >= bw || ny >= bh) continue; const kk = ny * bw + nx; if (!seen[kk] && !inside(x0 + nx, y0 + ny)) { seen[kk] = 1; q[qt++] = kk; } } }
+    let filled = 0;
+    for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) {
+      const k = y * bw + x, X = x0 + x, Y = y0 + y;
+      if (!seen[k] && !inside(X, Y)) { labels[Y * W + X] = comp.id; mask[Y * W + X] = 1; filled++; comp.area++; comp.sx += X; comp.sy += Y; comp.sxx += X * X; comp.syy += Y * Y; comp.sxy += X * Y; }
+    }
+    return filled;
+  }
+  function labelComponents(mask, W, H) {
+    const labels = new Int32Array(mask.length), comps = [], q = new Int32Array(mask.length);
+    let next = 1;
+    for (let s = 0; s < mask.length; s++) {
+      if (!mask[s] || labels[s]) continue;
+      const id = next++; let qh = 0, qt = 0; q[qt++] = s; labels[s] = id;
+      const c = { id, area: 0, sx: 0, sy: 0, sxx: 0, syy: 0, sxy: 0, perim: 0, minx: W, miny: H, maxx: 0, maxy: 0 };
+      while (qh < qt) {
+        const p = q[qh++], x = p % W, y = (p / W) | 0;
+        c.area++; c.sx += x; c.sy += y; c.sxx += x * x; c.syy += y * y; c.sxy += x * y;
+        if (x < c.minx) c.minx = x; if (x > c.maxx) c.maxx = x; if (y < c.miny) c.miny = y; if (y > c.maxy) c.maxy = y;
+        for (let dy = -1; dy <= 1; dy++) { const ny = y + dy; if (ny < 0 || ny >= H) continue; for (let dx = -1; dx <= 1; dx++) { const nx = x + dx; if (nx < 0 || nx >= W) continue; const k = ny * W + nx; if (mask[k] && !labels[k]) { labels[k] = id; q[qt++] = k; } } }
+      }
+      comps.push(c);
+    }
+    return { labels, comps };
+  }
+  function bilinear(arr, W, H, x, y) {
+    if (x < 0 || y < 0 || x > W - 1.001 || y > H - 1.001) return NaN;
+    const x0 = x | 0, y0 = y | 0, fx = x - x0, fy = y - y0, i = y0 * W + x0;
+    return arr[i] * (1 - fx) * (1 - fy) + arr[i + 1] * fx * (1 - fy) + arr[i + W] * (1 - fx) * fy + arr[i + W + 1] * fx * fy;
+  }
+  /**
+   * 서브픽셀 가장자리 + 타원 피팅.
+   * 각 방사선(64개)마다 안쪽·바깥쪽 수준의 중간값을 지나는 위치를 바깥에서 안쪽으로 찾는다(내부 광택에 속지 않음).
+   * 가장자리 점들에 타원(중심·장단축·각도)을 Huber 가중 반복 재가중 가우스–뉴턴으로 맞춘다.
+   */
+  function fitEllipse(cm, d) {
+    const { lumS, W, H } = cm, o = cm.rawEdges ? cm.oRaw : cm.o, R = d.major / 2, N = 64, pts = [], widths = [], contrasts = [];
+    let lumUsed = 0;
+    for (let k = 0; k < N; k++) {
+      const a = (k / N) * Math.PI * 2, ca = Math.cos(a), sa = Math.sin(a), prof = [], lp = [], sp = [];
+      // 방사선 양옆 ±0.75px 평행선 3개를 평균해 잡음을 줄인다
+      const px = -sa * 0.75, py = ca * 0.75;
+      for (let r = 0.3 * R; r <= 1.85 * R; r += 0.25) {
+        const x = d.cx + ca * r, y = d.cy + sa * r;
+        prof.push((bilinear(o, W, H, x, y) + bilinear(o, W, H, x + px, y + py) + bilinear(o, W, H, x - px, y - py)) / 3);
+        sp.push(bilinear(cm.o, W, H, x, y));
+        lp.push((bilinear(lumS, W, H, x, y) + bilinear(lumS, W, H, x + px, y + py) + bilinear(lumS, W, H, x - px, y - py)) / 3);
+      }
+      if (prof.some(Number.isNaN)) continue;
+      const rAt = i => 0.3 * R + i * 0.25;
+      const inIdx = (_, i) => rAt(i) >= 0.35 * R && rAt(i) <= 0.65 * R, outIdx = (_, i) => rAt(i) >= 1.4 * R;
+      const inner = median(prof.filter(inIdx)), outer = median(prof.filter(outIdx));
+      const ctr = inner - outer; if (ctr < 0.15) continue;
+      const ec = crossing(prof, rAt, (inner + outer) / 2, true);
+      if (ec === null) continue;
+      // 밝기 가장자리(전체 해상도): 색 채널은 카메라·JPEG에서 해상도가 절반(4:2:0)이라 가장자리가 넓고 흐리다.
+      // 밝기 대비가 충분하고 색 가장자리와 일치하면 밝기 가장자리를 쓴다. 바깥→안 탐색이라 내부 광택에 속지 않는다.
+      const lOut = lp.filter(outIdx), li = median(lp.filter(inIdx)), lo = median(lOut), lc = li - lo;
+      const loMad = median(lOut.map(v => Math.abs(v - lo)));
+      let edge = ec, prf = prof, inr = inner, otr = outer, hi = true;
+      // 조건: 충분한 밝기 대비 + 바깥(피부) 밝기가 고른 방향 + 색 가장자리와 0.8px 이내로 일치
+      if (cm.useLum !== false && Math.abs(lc) >= Math.max(10, 0.12 * Math.max(li, lo)) && loMad <= 0.15 * Math.abs(lc)) {
+        const el = crossing(lp, rAt, (li + lo) / 2, lc > 0);
+        if (el !== null && Math.abs(el - ec) <= 0.8) { edge = el; prf = lp; inr = li; otr = lo; hi = lc > 0; lumUsed++; }
+      }
+      // 10–90% 전이 폭(흐림 지표) — 잡음에 덜 민감한 평활 맵에서 측정(밝기 가장자리를 쓴 경우는 밝기 맵)
+      const wprof = prf === prof ? sp : prf;
+      const winr = prf === prof ? median(sp.filter(inIdx)) : inr, wotr = prf === prof ? median(sp.filter(outIdx)) : otr;
+      const span = winr - wotr, r10 = crossing(wprof, rAt, wotr + 0.1 * span, hi), r90 = crossing(wprof, rAt, wotr + 0.9 * span, hi);
+      if (r90 !== null && r10 !== null) widths.push(Math.max(0, r10 - r90));
+      pts.push({ x: d.cx + ca * edge, y: d.cy + sa * edge, ang: a }); contrasts.push(ctr);
+    }
+    if (pts.length < 24) return null;
+    // 매개변수: cx, cy, a, b, th — 방사 거리 잔차 모델(원에 가까운 타원에 정확)
+    let P = [d.cx, d.cy, d.major / 2, d.minor / 2, 0.5 * Math.atan2(2 * d.mxy, d.mxx - d.myy)];
+    const resid = (Q, p) => { const dx = p.x - Q[0], dy = p.y - Q[1], c = Math.cos(Q[4]), s = Math.sin(Q[4]); const u = dx * c + dy * s, v = -dx * s + dy * c, rr = Math.hypot(u, v) || 1e-9; const re = Q[2] * Q[3] / Math.hypot(Q[3] * u / rr, Q[2] * v / rr); return rr - re; };
+    let w = pts.map(() => 1), scale = 1;
+    for (let it = 0; it < 14; it++) {
+      const r0 = pts.map(p => resid(P, p));
+      scale = Math.max(0.15, 1.4826 * median(r0.map(Math.abs)));
+      if (cm.tukey && it >= 6) { const c = 4.685 * scale; w = r0.map(r => Math.abs(r) >= c ? 0 : (1 - (r / c) ** 2) ** 2); } // Tukey(재하강): 큰 이상치는 0
+      else w = r0.map(r => Math.abs(r) <= 1.5 * scale ? 1 : (1.5 * scale) / Math.abs(r)); // Huber
+      const J = pts.map(p => P.map((_, j) => { const h = j === 4 ? 1e-4 : 1e-3; const Q = P.slice(); Q[j] += h; return (resid(Q, p) - resid(P, p)) / h; }));
+      const A = [...Array(5)].map(() => new Array(5).fill(0)), g = new Array(5).fill(0);
+      for (let i = 0; i < pts.length; i++) for (let a = 0; a < 5; a++) { g[a] += w[i] * J[i][a] * r0[i]; for (let b = 0; b < 5; b++) A[a][b] += w[i] * J[i][a] * J[i][b]; }
+      for (let a = 0; a < 5; a++) A[a][a] *= 1.001; A[4][4] += 1e-6;
+      const step = solve5(A, g.map(v => -v)); if (!step) break;
+      P = P.map((v, j) => v + step[j]);
+      if (Math.hypot(step[0], step[1], step[2], step[3]) < 1e-4) break;
+    }
+    if (P[3] > P[2]) { [P[2], P[3]] = [P[3], P[2]]; P[4] += Math.PI / 2; }
+    const rf = pts.map(p => resid(P, p));
+    const inl = rf.map(r => Math.abs(r) <= Math.max(0.6, 2.5 * scale));
+    const nIn = inl.filter(Boolean).length;
+    // 각도 범위: 정상 가장자리 점이 없는 가장 큰 각도 공백(가림 판정)
+    const angs = pts.filter((_, i) => inl[i]).map(p => p.ang).sort((a, b) => a - b);
+    let gap = 0; for (let i = 0; i < angs.length; i++) gap = Math.max(gap, ((i + 1 < angs.length ? angs[i + 1] : angs[0] + 2 * Math.PI) - angs[i]));
+    const rms = Math.sqrt(rf.filter((_, i) => inl[i]).reduce((s, r) => s + r * r, 0) / Math.max(1, nIn));
+    return { cx: P[0], cy: P[1], a: P[2], b: P[3], th: P[4], rms, inlierFrac: nIn / pts.length, coverage: nIn / N, maxGapDeg: gap * 180 / Math.PI, edgeWidth: widths.length ? median(widths) : null, contrast: median(contrasts), nEdges: pts.length, lumFrac: lumUsed / pts.length };
+  }
+  function solve5(A, b) {
+    const n = 5, M = A.map((r, i) => r.concat([b[i]]));
+    for (let c = 0; c < n; c++) {
+      let piv = c; for (let r = c + 1; r < n; r++) if (Math.abs(M[r][c]) > Math.abs(M[piv][c])) piv = r;
+      if (Math.abs(M[piv][c]) < 1e-12) return null; [M[c], M[piv]] = [M[piv], M[c]];
+      for (let r = 0; r < n; r++) if (r !== c) { const f = M[r][c] / M[c][c]; for (let k = c; k <= n; k++) M[r][k] -= f * M[c][k]; }
+    }
+    return M.map((r, i) => r[n] / r[i]);
+  }
+
+  /**
+   * 이미지에서 파란색 원형 스티커 3개를 검출하고 P1/P2/P3를 지정한다 (ALG-2).
+   * opts: { toeDirection, detect, colorModel(이전 프레임에서 학습한 스티커 색 수준), prior(예측 위치 {P1,P2,P3}) }
+   */
   function detectStickers(img, opts) {
     const p = Object.assign({}, DEFAULT_DETECT, opts && opts.detect);
     const toeDirection = (opts && opts.toeDirection) || 'right';
     const W = img.width, H = img.height, S = Math.min(W, H);
-    const mask = blueMask(img, p);
-    const comps = components(mask, W, H);
+    const cm = chromaMap(img); cm.useLum = p.useLumEdges; cm.rawEdges = p.rawEdges; cm.tukey = p.tukey;
+    const st = robustStats(cm.o, Math.max(1, Math.floor(W * H / 20000)));
+    // 임계값: 배경 분포 + 하한. 이전 프레임의 스티커 색 수준을 알면(적응형 색 모델) 그에 맞춘다.
+    const model = opts && opts.colorModel;
+    let strong = Math.max(p.chromaStrong, st.med + 8 * st.mad), weak = Math.max(p.chromaWeak, st.med + 4 * st.mad);
+    if (model && model.inner > 0) { strong = Math.max(st.med + 4 * st.mad, Math.min(strong, 0.6 * model.inner)); weak = Math.max(st.med + 2.5 * st.mad, Math.min(weak, 0.4 * model.inner)); }
+    const mask = hysteresis(cm, strong, weak, p.minLum);
+    const { labels, comps } = labelComponents(mask, W, H);
     const minA = Math.PI * (p.minDiaFrac * S / 2) ** 2, maxA = Math.PI * (p.maxDiaFrac * S / 2) ** 2;
     const candidates = [], rejected = [];
     for (const c of comps) {
-      if (c.area < minA * 0.5) continue; // 잡음
+      if (c.area < minA * 0.5 || c.area > maxA * 4) continue;
+      const holes = fillHoles(mask, labels, c, W, H);
       const d = describeComponent(c, W, H);
+      d.mxx = c.sxx / c.area - d.cx * d.cx; d.myy = c.syy / c.area - d.cy * d.cy; d.mxy = c.sxy / c.area - d.cx * d.cy;
+      d.holeFrac = holes / c.area;
       const why = [];
       if (c.area < minA) why.push('너무 작음');
       if (c.area > maxA) why.push('너무 큼');
       if (d.touchesBorder) why.push('화면 가장자리에 걸림');
-      if (d.axisRatio < p.minAxisRatio) why.push('원형이 아님(가림·겹침 의심)');
-      if (d.fill < p.fillMin || d.fill > p.fillMax) why.push('형태 불량');
-      if (d.bboxFill < p.bboxFillMin || d.bboxFill > p.bboxFillMax) why.push('형태 불량');
-      d.score = scoreCandidate(d, p);
-      if (why.length) { d.reject = [...new Set(why)]; rejected.push(d); } else candidates.push(d);
+      // 1차(느슨한) 형태 거르기 — 최종 판정은 타원 피팅 품질로 한다(광택 반사가 가장자리에 닿아 생긴 홈 등 허용)
+      if (d.axisRatio < p.preAxisRatio) why.push('원형이 아님(가림·겹침 의심)');
+      if (d.fill < 0.65 || d.fill > 1.35 || d.bboxFill < 0.5 || d.bboxFill > 0.95) why.push('형태 불량');
+      if (!why.length) {
+        const f = fitEllipse(cm, d);
+        if (!f) why.push('가장자리를 찾지 못함');
+        else {
+          d.fit = f;
+          if (f.maxGapDeg > p.maxEdgeGapDeg || f.coverage < p.minEdgeCoverage) why.push('원형이 아님(가림·겹침 의심)');
+          else if (f.b / f.a < p.minAxisRatio) why.push('원형이 아님(가림·겹침 의심)');
+          else if (f.rms > Math.max(0.6, 0.08 * f.a)) why.push('형태 불량');
+          else if (Math.hypot(f.cx - d.cx, f.cy - d.cy) > 0.35 * f.a) why.push('형태 불량');
+        }
+      }
+      if (why.length) { d.reject = [...new Set(why)]; rejected.push(d); continue; }
+      const f = d.fit;
+      d.cx = f.cx; d.cy = f.cy; d.major = 2 * f.a; d.minor = 2 * f.b; d.axisRatio = f.b / f.a; d.diameterPx = 2 * f.a;
+      d.score = round(clamp01((d.axisRatio - 0.6) / 0.3) * 0.35 + clamp01(1 - f.rms / Math.max(0.6, 0.08 * f.a)) * 0.35 + clamp01(f.coverage / 0.95) * 0.15 + clamp01(f.contrast / 0.6) * 0.15, 3);
+      candidates.push(d);
     }
-    const result = { ok: false, reasons: [], stickers: candidates, rejected, landmarks: null, quality: {}, confidence: 0, imageSize: [W, H], algorithm: ALGORITHM_VERSION };
-
-    if (candidates.length < 3) {
-      result.reasons.push({ code: 'MISSING', msg: `스티커 ${candidates.length}개만 검출되었습니다(3개 필요).` });
+    const result = { ok: false, reasons: [], stickers: candidates, rejected, landmarks: null, quality: {}, confidence: 0, imageSize: [W, H], algorithm: ALGORITHM_VERSION, thresholds: { strong, weak, bgMed: st.med, bgMad: st.mad } };
+    let set = candidates;
+    // 3개 초과: 예측 위치가 있으면(추적 중) 예측과 가장 잘 맞는 3개를 고르고, 없으면 크기가 크게 다른 것부터 제외
+    if (set.length > 3 && opts && opts.prior) set = pickByPrior(set, opts.prior, p.priorGate);
+    if (set.length > 3) {
+      const md = median(set.map(c => c.diameterPx));
+      const same = set.filter(c => Math.abs(c.diameterPx - md) / md <= 0.35);
+      if (same.length === 3) set = same;
+    }
+    result.stickers = set;
+    if (set.length < 3) {
+      result.reasons.push({ code: 'MISSING', msg: `스티커 ${set.length}개만 검출되었습니다(3개 필요).` });
       const big = rejected.filter(r => r.area >= minA);
       if (big.some(r => r.reject.includes('원형이 아님(가림·겹침 의심)'))) result.reasons.push({ code: 'OCCLUDED', msg: '일부 스티커가 가려졌거나 겹쳐 원형으로 검출되지 않았습니다.' });
       if (big.some(r => r.touchesBorder)) result.reasons.push({ code: 'BORDER', msg: '스티커가 화면 가장자리에 걸려 있습니다. 발 전체가 가이드 안에 들어오게 해 주세요.' });
       return result;
     }
-    if (candidates.length > 3) {
-      result.reasons.push({ code: 'EXTRA', msg: `파란색 원형 물체가 ${candidates.length}개 검출되었습니다. 배경의 파란 물체를 치워 주세요.` });
-      return result;
-    }
-    const dias = candidates.map(c => c.major);
-    const med = dias.slice().sort((a, b) => a - b)[1];
-    if (dias.some(dd => Math.abs(dd - med) / med > p.sizeTolerance)) {
-      result.reasons.push({ code: 'SIZE_MISMATCH', msg: '세 스티커의 크기가 서로 크게 다릅니다. 같은 스티커를 사용했는지, 카메라 각도가 바른지 확인해 주세요.' });
-      return result;
-    }
-    // 서브픽셀 중심
-    const pts = candidates.map(c => { const r = refineCenter(img, c); c.diameterPx = r.diameter; return { x: r.x, y: r.y, ref: c }; });
-    const fineDias = candidates.map(c => c.diameterPx);
-    const fineMed = fineDias.slice().sort((a, b) => a - b)[1];
+    if (set.length > 3) { result.reasons.push({ code: 'EXTRA', msg: `파란색 원형 물체가 ${set.length}개 검출되었습니다. 배경의 파란 물체를 치워 주세요.` }); return result; }
+    const dias = set.map(c => c.diameterPx), med = median(dias);
+    if (dias.some(dd => Math.abs(dd - med) / med > p.sizeTolerance)) { result.reasons.push({ code: 'SIZE_MISMATCH', msg: '세 스티커의 크기가 서로 크게 다릅니다. 같은 스티커를 사용했는지, 카메라 각도가 바른지 확인해 주세요.' }); return result; }
+    const pts = set.map(c => ({ x: c.cx, y: c.cy, ref: c }));
     const lm = labelLandmarks(pts, toeDirection, med, { maxNavicularT: p.maxNavicularT });
-    // 품질
-    const radius = med / 2;
-    const ew = pts.map(pt => edgeWidth(img, pt, radius)).filter(v => v != null);
-    const edgePx = ew.length ? ew.reduce((a, b) => a + b, 0) / ew.length : null;
-    const xs = pts.map(q => q.x), ys = pts.map(q => q.y);
-    const pad = med * 2;
-    const roi = [Math.max(0, Math.floor(Math.min(...xs) - pad)), Math.max(0, Math.floor(Math.min(...ys) - pad))];
-    roi.push(Math.min(W - roi[0], Math.ceil(Math.max(...xs) - Math.min(...xs) + 2 * pad)), Math.min(H - roi[1], Math.ceil(Math.max(...ys) - Math.min(...ys) + 2 * pad)));
-    const lapVar = laplacianVariance(img, roi);
-    const sharpLimit = Math.max(2.5, 0.22 * radius);
+    const ews = set.map(c => c.fit.edgeWidth).filter(v => v != null);
+    const edgePx = ews.length ? median(ews) : null;
+    const sharpLimit = Math.max(p.blurMinPx, p.blurRelR * med / 2);
     const sharp = edgePx != null && edgePx <= sharpLimit;
-    result.quality = { edgeWidthPx: edgePx, edgeLimitPx: sharpLimit, sharp, laplacianVar: lapVar, diameterPx: fineMed, sizeCv: cv(fineDias), minAxisRatio: Math.min(...candidates.map(c => c.axisRatio)) };
+    result.quality = { edgeWidthPx: edgePx, edgeLimitPx: sharpLimit, sharp, diameterPx: med, sizeCv: cv(dias), minAxisRatio: Math.min(...set.map(c => c.axisRatio)), fitRmsPx: Math.max(...set.map(c => c.fit.rms)), minCoverage: Math.min(...set.map(c => c.fit.coverage)) };
+    result.colorModel = { inner: median(set.map(c => c.fit.contrast + st.med)) };
     if (!sharp) result.reasons.push({ code: 'BLUR', msg: '이미지가 흐립니다. 카메라를 고정하고 초점을 맞춘 뒤 다시 촬영해 주세요.' });
-
-    const detConf = Math.min(...candidates.map(c => c.score)) * clamp01(1 - cv(dias) / 0.5);
+    const detConf = Math.min(...set.map(c => c.score)) * clamp01(1 - cv(dias) / 0.5);
     const sharpConf = edgePx == null ? 0 : clamp01(1.5 - edgePx / sharpLimit);
     result.landmarks = lm;
     result.detectionConfidence = round(detConf, 3);
@@ -340,6 +537,20 @@
     if (result.confidence < p.minConfidence && !result.reasons.length) result.reasons.push({ code: 'LOW_CONF', msg: `검출 신뢰도(${(result.confidence * 100).toFixed(0)}%)가 기준(${p.minConfidence * 100}%) 미만입니다.` });
     result.ok = result.reasons.length === 0;
     return result;
+  }
+  // 예측 위치와 후보의 최적 대응(3개 선택 × 순서) — 모든 조합 중 총거리 최소, 각 거리 ≤ 게이트
+  function pickByPrior(cands, prior, gate) {
+    const keys = ['P1', 'P2', 'P3'], md = median(cands.map(c => c.diameterPx)), lim = gate * md;
+    let best = null;
+    for (let i = 0; i < cands.length; i++) for (let j = 0; j < cands.length; j++) for (let k = 0; k < cands.length; k++) {
+      if (i === j || j === k || i === k) continue;
+      const ch = [cands[i], cands[j], cands[k]];
+      const ds = ch.map((c, n) => Math.hypot(c.cx - prior[keys[n]].x, c.cy - prior[keys[n]].y));
+      if (ds.some(v => v > lim)) continue;
+      const tot = ds.reduce((a, b) => a + b, 0);
+      if (!best || tot < best.tot) best = { tot, ch };
+    }
+    return best ? best.ch : cands;
   }
 
   // ───────────────────────── 단일 이미지 측정 ─────────────────────────
@@ -567,7 +778,8 @@
     const w = x1 - x0, h = y1 - y0; if (w < 20 || h < 20) return null;
     const k = Math.min(img.width, img.height) / Math.min(w, h);
     const base = Object.assign({}, DEFAULT_DETECT, opts && opts.detect);
-    const det = detectStickers(cropImage(img, [x0, y0, w, h]), Object.assign({}, opts, { detect: Object.assign({}, base, { minDiaFrac: base.minDiaFrac * k, maxDiaFrac: Math.min(0.9, base.maxDiaFrac * k) }) }));
+    const shiftPrior = opts && opts.prior ? Object.fromEntries(['P1', 'P2', 'P3'].map(n => [n, { x: opts.prior[n].x - x0, y: opts.prior[n].y - y0 }])) : null;
+    const det = detectStickers(cropImage(img, [x0, y0, w, h]), Object.assign({}, opts, { prior: shiftPrior, detect: Object.assign({}, base, { minDiaFrac: base.minDiaFrac * k, maxDiaFrac: Math.min(0.9, base.maxDiaFrac * k) }) }));
     const shift = p => { p.x += x0; p.y += y0; };
     for (const s of det.stickers.concat(det.rejected)) { s.cx += x0; s.cy += y0; s.bbox[0] += x0; s.bbox[1] += y0; }
     if (det.landmarks) ['P1', 'P2', 'P3'].forEach(n => shift(det.landmarks[n]));
@@ -593,18 +805,62 @@
     const med = median(h), mad = median(h.map(v => Math.abs(v - med))) || 0.1;
     const keep = good.filter((d, i) => Math.abs(h[i] - med) <= Math.max(1.0, 3 * 1.4826 * mad));
     if (keep.length < need) return { ok: false, reason: '프레임마다 측정값이 크게 달라 결과가 불안정합니다. 움직임 없이 다시 촬영하세요.', used: keep.length, total: dets.length };
-    const avg = k => ({ x: mean(keep.map(d => d.landmarks[k].x)), y: mean(keep.map(d => d.landmarks[k].y)) });
+    // 프레임 가중치: 타원 피팅 잔차가 작을수록(가장자리가 깨끗할수록) 크게
+    const wts = keep.map(d => 1 / ((d.quality.fitRmsPx != null ? d.quality.fitRmsPx : 0.3) ** 2 + 0.01));
+    const wsum = wts.reduce((a, b) => a + b, 0);
+    const wmean = f => keep.reduce((s, d, i) => s + wts[i] * f(d), 0) / wsum;
+    const avg = k => ({ x: wmean(d => d.landmarks[k].x), y: wmean(d => d.landmarks[k].y) });
     const base = keep[Math.floor(keep.length / 2)];
     const out = Object.assign({}, base);
     const P1 = avg('P1'), P2 = avg('P2'), P3 = avg('P3');
     out.landmarks = Object.assign({}, base.landmarks, { P1, P2, P3, signedDistancePx: signedDistanceToLine(P2, P1, P3), spanPx: dist(P1, P3), axisAngleDeg: mean(keep.map(d => d.landmarks.axisAngleDeg)), tFromHeel: projectionT(P2, P3, P1) });
     const hk = keep.map(d => distanceToLine(d.landmarks.P2, d.landmarks.P1, d.landmarks.P3));
     out.quality = Object.assign({}, base.quality, {
-      diameterPx: mean(keep.map(d => d.quality.diameterPx)), sizeCv: mean(keep.map(d => d.quality.sizeCv)), minAxisRatio: Math.min(...keep.map(d => d.quality.minAxisRatio)),
+      diameterPx: wmean(d => d.quality.diameterPx), sizeCv: mean(keep.map(d => d.quality.sizeCv)), minAxisRatio: Math.min(...keep.map(d => d.quality.minAxisRatio)),
       burst: { total: dets.length, used: keep.length, heightSdPx: keep.length > 1 ? Math.sqrt(hk.reduce((s, v) => s + (v - mean(hk)) ** 2, 0) / (keep.length - 1)) : 0 }
     });
     out.confidence = median(keep.map(d => d.confidence)); out.detectionConfidence = median(keep.map(d => d.detectionConfidence));
     return { ok: true, det: out, baseIndex: dets.indexOf(base) };
+  }
+  /**
+   * 기준점 칼만 필터(축별 등속 모델). 예측 위치로 탐색 영역과 라벨 대응을 정하고, 화면 표시를 부드럽게 한다.
+   * q: 가속 잡음(px/s²)², 측정 잡음은 update 시 타원 피팅 잔차로 정한다.
+   */
+  function createLandmarkKalman(q) {
+    const Q = q || 4000; const keys = ['P1', 'P2', 'P3'];
+    let st = null, lastT = null, misses = 0;
+    const axis = () => ({ x: 0, v: 0, P: [[1e4, 0], [0, 1e4]] });
+    function predictAxis(a, dt) {
+      a.x += a.v * dt;
+      const [[p00, p01], [p10, p11]] = a.P;
+      const n00 = p00 + dt * (p10 + p01) + dt * dt * p11 + Q * dt ** 3 / 3, n01 = p01 + dt * p11 + Q * dt * dt / 2, n11 = p11 + Q * dt;
+      a.P = [[n00, n01], [n01, n11]];
+    }
+    function updateAxis(a, z, R) {
+      const S = a.P[0][0] + R, k0 = a.P[0][0] / S, k1 = a.P[1][0] / S, y = z - a.x;
+      a.x += k0 * y; a.v += k1 * y;
+      const [[p00, p01], [p10, p11]] = a.P;
+      a.P = [[(1 - k0) * p00, (1 - k0) * p01], [p10 - k1 * p00, p11 - k1 * p01]];
+    }
+    return {
+      predict(t) {
+        if (!st) return null;
+        const dt = Math.max(0, Math.min(0.5, (t - lastT) / 1000)); lastT = t;
+        for (const k of keys) { predictAxis(st[k].x, dt); predictAxis(st[k].y, dt); }
+        return this.positions();
+      },
+      update(lm, rPx, t) {
+        const R = Math.max(0.01, rPx * rPx);
+        if (!st) { st = {}; for (const k of keys) { st[k] = { x: axis(), y: axis() }; st[k].x.x = lm[k].x; st[k].y.x = lm[k].y; st[k].x.P = [[R, 0], [0, 400]]; st[k].y.P = [[R, 0], [0, 400]]; } lastT = t; misses = 0; return; }
+        for (const k of keys) { updateAxis(st[k].x, lm[k].x, R); updateAxis(st[k].y, lm[k].y, R); }
+        misses = 0;
+      },
+      miss() { misses++; if (misses > 6) st = null; },
+      positions() { return st ? Object.fromEntries(keys.map(k => [k, { x: st[k].x.x, y: st[k].y.x }])) : null; },
+      speed() { return st ? Math.max(...keys.map(k => Math.hypot(st[k].x.v, st[k].y.v))) : Infinity; }, // px/s
+      get active() { return !!st; },
+      reset() { st = null; misses = 0; }
+    };
   }
   function median(a) { const s = a.slice().sort((x, y) => x - y), n = s.length; return n ? (n % 2 ? s[n >> 1] : (s[n / 2 - 1] + s[n / 2]) / 2) : NaN; }
 
@@ -619,6 +875,6 @@
     rgbToHsv, detectStickers, labelLandmarks, signedDistanceToLine, distanceToLine, projectionT,
     measureImage, comparePrePost, classify, roundMm, errorMetrics,
     splitByParticipant, trainCalibration, applyCalibration, fitMethod, validateConversion,
-    motionBetween, framingCheck, laplacianVariance, cropImage, detectInRoi, labelsConsistent, combineDetections
+    motionBetween, framingCheck, laplacianVariance, cropImage, detectInRoi, labelsConsistent, combineDetections, createLandmarkKalman, chromaMap
   };
 });

@@ -100,7 +100,7 @@ route('/self/run', '자가 검사 진행', async (v) => {
     busy = true; tracker.pause();
     await Voice.say('찍습니다');
     cd.textContent = '●'; $('#status', v).textContent = '촬영 중… 움직이지 마세요';
-    const r = await burstCapture(vid, toe());
+    const r = await burstCapture(vid, toe(), tracker.priorNorm());
     cd.textContent = ''; Voice.beep(990, 120);
     if (!r.det.ok) {
       $('#status', v).textContent = '다시 촬영합니다';

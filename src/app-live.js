@@ -54,36 +54,45 @@ function drawGuide(g, ox, oy, w, h, okState) {
  */
 function createTracker(opts) {
   const { video, overlay, wrap, getToe, onFrame } = opts;
-  const st = { lastOk: null, smooth: null, hist: [], fpsT: [], inflight: false, paused: false, timer: null, stream: null, facing: opts.facing || 'environment', devices: [] };
-  function assess(det, now) {
+  const st = { lastOk: null, smooth: null, hist: [], fpsT: [], inflight: false, paused: false, timer: null, stream: null, facing: opts.facing || 'environment', devices: [], kf: C.createLandmarkKalman(), colorModel: null, dia: null };
+  function assess(det, now, pred) {
     const codes = det.reasons.map(r => r.code);
     const c = {};
     c.stickers = det.stickers.length === 3 && !!det.landmarks && !codes.some(x => ['MISSING', 'EXTRA', 'OCCLUDED', 'SIZE_MISMATCH', 'BORDER', 'P2_OUTSIDE', 'P2_NEAR_TOE', 'P2_BELOW', 'SPAN_SHORT', 'TOE_DIR'].includes(x));
     c.stickersMsg = c.stickers ? '' : (det.reasons[0] ? det.reasons[0].msg : '스티커를 찾는 중');
     c.stickersCode = c.stickers ? '' : (det.reasons[0] ? det.reasons[0].code : 'MISSING');
-    const consistent = C.labelsConsistent(st.lastOk, det);
+    // 라벨 일관성: 칼만 예측 위치와 비교(없으면 직전 검출)
+    const consistent = C.labelsConsistent(pred ? { landmarks: pred } : st.lastOk, det);
     if (c.stickers && !consistent) { c.stickers = false; c.stickersMsg = '기준점 라벨이 흔들립니다 — 발을 고정하세요'; c.stickersCode = 'LABEL'; }
     c.sharp = !!(det.quality && det.quality.sharp); c.sharpMsg = c.sharp || !det.landmarks ? '' : '흐림 — 초점·조명 확인';
     if (det.ok) st.hist.push({ t: now, det }); else st.hist = [];
     st.hist = st.hist.filter(h => now - h.t < 600);
     const motion = st.hist.length >= 2 ? Math.max(...st.hist.map(h => C.motionBetween(h.det, det))) : Infinity;
-    c.still = c.stickers && motion < 0.15; c.stillMsg = c.stickers && !c.still ? (st.hist.length < 2 ? '안정 상태 확인 중' : '발이 움직이고 있습니다') : '';
+    const speedDia = st.dia ? st.kf.speed() / st.dia : Infinity; // 칼만 추정 속도(스티커 지름/초)
+    c.still = c.stickers && motion < 0.15 && speedDia < 0.6; c.stillMsg = c.stickers && !c.still ? (st.hist.length < 2 ? '안정 상태 확인 중' : '발이 움직이고 있습니다') : '';
     const fr = det.landmarks ? C.framingCheck(det) : { ok: false, msg: '', code: 'NONE' };
     const angleOk = det.quality && det.quality.minAxisRatio >= 0.9 && det.landmarks && Math.abs(det.landmarks.axisAngleDeg) < 15;
     c.frame = fr.ok && !!angleOk; c.frameMsg = !fr.ok ? fr.msg : (!angleOk && det.landmarks ? '휴대폰을 발 안쪽 면과 수직·수평으로 맞춰 주세요' : ''); c.frameCode = !fr.ok ? fr.code : (angleOk ? '' : 'ANGLE');
     const ready = det.ok && c.stickers && c.sharp && c.still && c.frame;
     st.lastOk = det.ok && consistent ? det : (det.ok && !st.lastOk ? det : null);
-    if (det.landmarks && consistent && st.smooth) for (const k of ['P1', 'P2', 'P3']) st.smooth[k] = { x: st.smooth[k].x * 0.5 + det.landmarks[k].x * 0.5, y: st.smooth[k].y * 0.5 + det.landmarks[k].y * 0.5 };
-    else st.smooth = det.landmarks ? { P1: Object.assign({}, det.landmarks.P1), P2: Object.assign({}, det.landmarks.P2), P3: Object.assign({}, det.landmarks.P3) } : null;
-    return { c, ready, motion };
+    // 칼만 갱신: 측정 잡음 = 타원 피팅 잔차. 실패 프레임은 '놓침'으로 처리(7회 연속이면 추적 초기화)
+    if (det.ok && consistent) { st.kf.update(det.landmarks, Math.max(0.15, det.quality.fitRmsPx || 0.3), now); st.colorModel = det.colorModel || st.colorModel; st.dia = det.quality.diameterPx; }
+    else if (det.ok && !pred) { st.kf.reset(); st.kf.update(det.landmarks, 0.3, now); st.colorModel = det.colorModel || null; st.dia = det.quality.diameterPx; }
+    else { st.kf.miss(); if (!st.kf.active) { st.colorModel = null; st.dia = null; } }
+    st.smooth = st.kf.positions() || (det.landmarks ? { P1: det.landmarks.P1, P2: det.landmarks.P2, P3: det.landmarks.P3 } : null);
+    return { c, ready, motion, speedDia };
   }
   async function tick() {
     const { img } = imageDataFromSource(video, 640);
     const IW = img.width, IH = img.height;
-    const det = await Detector.run(img, { toeDirection: getToe() }, st.lastOk);
+    const t0 = performance.now();
+    const pred = st.kf.predict(t0); // 칼만 예측 위치 → 탐색 영역·후보 대응·라벨 확인에 사용
+    const roiPrev = pred && st.dia ? { ok: true, landmarks: pred, quality: { diameterPx: st.dia } } : st.lastOk;
+    const det = await Detector.run(img, { toeDirection: getToe(), colorModel: st.colorModel, prior: pred }, roiPrev);
     if (st.paused || !st.stream) return;
     const now = performance.now(); st.fpsT.push(now); st.fpsT = st.fpsT.filter(t => now - t < 1000);
-    const a = assess(det, now);
+    st.liveW = IW;
+    const a = assess(det, now, pred);
     const wr = wrap.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
     overlay.width = wr.width * dpr; overlay.height = wr.height * dpr; const g = overlay.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0);
     const k = Math.min(wr.width / IW, wr.height / IH), ox = (wr.width - IW * k) / 2, oy = (wr.height - IH * k) / 2;
@@ -101,7 +110,7 @@ function createTracker(opts) {
   }
   async function start() {
     stop();
-    st.lastOk = null; st.smooth = null; st.hist = [];
+    resetHistory();
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { const e = new Error('이 브라우저(또는 보안 연결이 아닌 주소)에서는 카메라 API를 사용할 수 없습니다. 최신 Chrome·Safari에서 HTTPS 주소로 열거나, “사진 파일 불러오기”를 사용하세요.'); e.name = 'Unsupported'; throw e; }
     st.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: st.facing, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
     if (!video.isConnected) { st.stream.getTracks().forEach(t => t.stop()); st.stream = null; const e = new Error('화면이 바뀌어 카메라를 시작하지 않았습니다.'); e.name = 'Stale'; throw e; }
@@ -112,8 +121,10 @@ function createTracker(opts) {
     st.paused = false; loop();
   }
   function stop() { if (st.timer) clearTimeout(st.timer); st.timer = null; stopCamera(); st.stream = null; }
-  function resetHistory() { st.hist = []; st.lastOk = null; st.smooth = null; }
-  return { start, stop, resetHistory, pause() { st.paused = true; }, resume() { st.paused = false; resetHistory(); }, flip() { st.facing = st.facing === 'environment' ? 'user' : 'environment'; return start(); }, get deviceCount() { return st.devices.length; }, get running() { return !!st.stream; } };
+  function resetHistory() { st.hist = []; st.lastOk = null; st.smooth = null; st.kf.reset(); st.colorModel = null; st.dia = null; }
+  // 현재 추적 위치(가로 폭 대비 비율) — 고해상도 연속 촬영에서 후보 대응에 사용
+  function priorNorm() { const p = st.kf.positions(); if (!p || !st.liveW) return null; return Object.fromEntries(['P1', 'P2', 'P3'].map(k => [k, { x: p[k].x / st.liveW, y: p[k].y / st.liveW }])); }
+  return { priorNorm, start, stop, resetHistory, pause() { st.paused = true; }, resume() { st.paused = false; resetHistory(); }, flip() { st.facing = st.facing === 'environment' ? 'user' : 'environment'; return start(); }, get deviceCount() { return st.devices.length; }, get running() { return !!st.stream; } };
 }
 
 /**
@@ -121,13 +132,14 @@ function createTracker(opts) {
  * 반환: { canvas, det, meas, combined }
  */
 const BURST = 12, MAXSIDE = 1600;
-async function burstCapture(video, toe) {
+async function burstCapture(video, toe, priorNorm) {
   const dets = new Array(BURST).fill(null), jobs = []; let keep = null; const mid = Math.floor(BURST / 2);
   for (let i = 0; i < BURST; i++) {
     if (!video.videoWidth) break;
     const { canvas, img } = imageDataFromSource(video, MAXSIDE);
     if (i === mid) keep = canvas;
-    jobs.push(Detector.run(img, { toeDirection: toe }).then(d => { dets[i] = d; }).catch(() => {}));
+    const prior = priorNorm ? Object.fromEntries(['P1', 'P2', 'P3'].map(k => [k, { x: priorNorm[k].x * img.width, y: priorNorm[k].y * img.width }])) : null;
+    jobs.push(Detector.run(img, { toeDirection: toe, prior }).then(d => { dets[i] = d; }).catch(() => {}));
     if (i >= 2) await jobs[i - 2]; // 동시에 처리 중인 프레임을 3개 이하로 제한(메모리)
     await new Promise(r => setTimeout(r, 70));
   }

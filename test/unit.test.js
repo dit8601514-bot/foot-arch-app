@@ -162,6 +162,51 @@ t('버스트: 튀는 프레임 제외', () => {
 });
 t('버스트: 유효 프레임 부족 → 실패', () => { const d = C.detectStickers(makeImage(W, H, { stickers: footScene(W, H, 60).stickers })); ok(!C.combineDetections([d, d]).ok); });
 
+// 9. ALG-2 트래킹 계층 (칼만 · 예측 기반 대응 · 적응형 색 모델)
+t('칼만: 등속 이동(120px/s) 추종 — 30프레임 후 1프레임 앞 예측 오차 < 0.5px', () => {
+  const K = C.createLandmarkKalman(); let s = 3; const rnd = () => { s = (s * 16807) % 2147483647; return s / 2147483647 - 0.5; };
+  let err = 0;
+  for (let i = 0; i < 40; i++) {
+    const tt = i * 66, x = 100 + 0.12 * tt, lm = { P1: { x: x + rnd() * 0.6, y: 200 + rnd() * 0.6 }, P2: { x: x + 80, y: 150 }, P3: { x: x - 200, y: 200 } };
+    const pr = K.predict(tt); if (pr && i > 30) err = Math.max(err, Math.abs(pr.P1.x - x));
+    K.update(lm, 0.3, tt);
+  }
+  ok(err < 0.5, '예측 오차 ' + err.toFixed(3));
+});
+t('칼만: 정지 시 속도 ≈ 0, 놓치면 7프레임 후 초기화', () => {
+  const K = C.createLandmarkKalman(); const lm = { P1: { x: 10, y: 10 }, P2: { x: 20, y: 5 }, P3: { x: 0, y: 10 } };
+  for (let i = 0; i < 20; i++) { K.predict(i * 66); K.update(lm, 0.2, i * 66); }
+  ok(K.speed() < 1, '속도 ' + K.speed()); for (let i = 0; i < 7; i++) K.miss(); ok(!K.active);
+});
+t('예측 기반 대응: 추적 중 파란 방해물(4번째 원)이 나타나도 올바른 3개 선택', () => {
+  const sc = footScene(W, H, 60);
+  const im = makeImage(W, H, { stickers: sc.stickers, extraBlue: [{ x: sc.P2.x + 120, y: sc.P2.y - 40, r: 14 }] });
+  ok(!C.detectStickers(im).ok, '사전 정보 없이는 거부해야 함');
+  const det = C.detectStickers(im, { prior: { P1: sc.P1, P2: sc.P2, P3: sc.P3 } });
+  ok(det.ok, JSON.stringify(det.reasons)); for (const k of ['P1', 'P2', 'P3']) near(Math.hypot(det.landmarks[k].x - sc[k].x, det.landmarks[k].y - sc[k].y), 0, 0.3, k);
+});
+t('예측 기반 대응: 예측이 크게 틀리면(게이트 밖) 임의로 고르지 않고 거부', () => {
+  const sc = footScene(W, H, 60);
+  const fake = { P1: sc.P1, P2: { x: sc.P2.x + 200, y: sc.P2.y }, P3: sc.P3 }; // 예측이 크게 틀린 경우
+  const im = makeImage(W, H, { stickers: sc.stickers, extraBlue: [{ x: sc.P2.x + 200, y: sc.P2.y + 120, r: 14 }] });
+  ok(!C.detectStickers(im, { prior: fake }).ok);
+});
+t('적응형 색 모델: 어둡고 노란 조명에서 이전 프레임 색 수준으로 검출 유지', () => {
+  const sc = footScene(W, H, 60);
+  const dim = makeImage(W, H, { stickers: sc.stickers, bg: [110, 95, 70], skin: [120, 90, 70], noise: 6 });
+  for (let i = 0; i < dim.data.length; i += 4) { dim.data[i + 2] *= 0.55; }
+  const first = C.detectStickers(dim); const model = first.colorModel || { inner: 0.5 };
+  const det = C.detectStickers(dim, { colorModel: model });
+  ok(det.ok, JSON.stringify(det.reasons) + ' th=' + JSON.stringify(det.thresholds));
+});
+t('타원 피팅: 광택 반사(내부 흰 점)가 있어도 중심 오차 ≤ 0.3px', () => {
+  const sc = footScene(W, H, 60, { r: 16 });
+  const im = makeImage(W, H, { stickers: sc.stickers });
+  for (const st of sc.stickers) for (let y = -4; y <= 4; y++) for (let x = -3; x <= 3; x++) { const i = (Math.round(st.y - 5 + y) * W + Math.round(st.x + 4 + x)) * 4; im.data[i] = im.data[i + 1] = im.data[i + 2] = 245; }
+  const det = C.detectStickers(im); ok(det.ok, JSON.stringify(det.reasons));
+  for (const k of ['P1', 'P2', 'P3']) near(Math.hypot(det.landmarks[k].x - sc[k].x, det.landmarks[k].y - sc[k].y), 0, 0.3, k);
+});
+
 const pass = results.filter(r => r[1] === 'PASS').length;
 for (const r of results) console.log(`${r[1]}  ${r[0]}${r[2] ? '  — ' + r[2] : ''}`);
 console.log(`\n${pass}/${results.length} 통과`);
