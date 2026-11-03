@@ -9,11 +9,12 @@ const srv = http.createServer((q, s) => { let u = decodeURIComponent(q.url.split
 const R = []; const log = (n, ok, d) => { R.push([n, ok ? 'PASS' : 'FAIL', d || '']); console.log(ok ? 'PASS' : 'FAIL', n, d || ''); };
 fs.mkdirSync(path.join(__dirname, 'shots'), { recursive: true });
 
-async function scenario(tag, video, expectConfirmed, expectMm) {
+async function scenario(tag, video, expectConfirmed, expectMm, opt) {
+  opt = opt || {};
   expectMm = expectMm == null ? 7.14 : expectMm;
   const b = await chromium.launch({ args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--use-file-for-fake-video-capture=' + path.join(__dirname, 'img', video)] });
   const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, permissions: ['camera'] });
-  await ctx.addInitScript(() => { window.__spoken = []; const sy = window.speechSynthesis; if (sy) { const orig = sy.speak.bind(sy); sy.speak = u => { if (u.text.trim()) window.__spoken.push(u.text); try { orig(u); } catch (e) {} }; } });
+  await ctx.addInitScript(() => { window.__workers = []; const OW = window.Worker; window.Worker = function (u, o) { const w = new OW(u, o); window.__workers.push(w); return w; }; window.__spoken = []; const sy = window.speechSynthesis; if (sy) { const orig = sy.speak.bind(sy); sy.speak = u => { if (u.text.trim()) window.__spoken.push(u.text); try { orig(u); } catch (e) {} }; } });
   const pg = await ctx.newPage(); const errors = [];
   pg.on('pageerror', e => errors.push(e.message)); pg.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
   const shot = n => pg.screenshot({ path: path.join(__dirname, 'shots', n + '.png'), fullPage: true });
@@ -24,6 +25,10 @@ async function scenario(tag, video, expectConfirmed, expectMm) {
   await pg.goto(U + '#/self'); await pg.waitForSelector('#feetSeg'); await pg.click('#feetSeg button[data-v="left"]');
   if (tag === 'A') await shot('s02-self-setup');
   const t0 = Date.now(); await pg.click('#go');
+  if (opt.killAfterPre) { // 앉은 자세 촬영 직후 분석 워커가 응답 없이 죽는 상황(휴대폰 메모리 부족) 재현
+    await pg.waitForFunction(() => window.__spoken.includes('촬영되었습니다.'), null, { timeout: 40000 });
+    await pg.evaluate(() => window.__workers.forEach(w => w.terminate())); // onerror 없이 종료
+  }
   await pg.waitForSelector('#vid'); await pg.waitForTimeout(4500); if (tag === 'A') await shot('s03-self-align'); if (tag === 'C') await shot('s03-std-align'); if (tag === 'R1') await shot('s03-rot-align');
   // 체중부하 단계 화면(인지 카드) 캡처
   await pg.waitForFunction(() => document.querySelector('#lcMove') && document.querySelector('#lcMove').textContent === '확인', null, { timeout: 45000 }).catch(() => {});
@@ -76,6 +81,9 @@ async function scenario(tag, video, expectConfirmed, expectMm) {
   if (!which || which === 'B') await scenario('B', 'self_nochange.y4m', false);
   if (!which || which === 'C') await scenario('C', 'self_std.y4m', true, 8.0);
   // 휴대폰을 가로로 눕혔는데 화면은 세로로 고정된 경우(영상이 세로로 들어옴) — 양쪽 방향 모두
+  // 일어선 뒤 발이 목표 원에서 조금 벗어난 경우(실사용) — 그래도 선 자세가 찍혀야 한다
+  if (!which || which === 'S') await scenario('S', 'self_std_shift.y4m', true, 8.0);
+  if (!which || which === 'K') await scenario('K', 'self_std.y4m', true, 8.0, { killAfterPre: true });
   if (!which || which === 'R1') await scenario('R1', 'self_std_rot90.y4m', true, 8.0);
   if (!which || which === 'R2') await scenario('R2', 'self_std_rot270.y4m', true, 8.0);
   srv.close();

@@ -72,6 +72,7 @@ route('/self/run', '자가 검사 진행', async (v) => {
     <div class="statusline" id="status" aria-live="polite">카메라 준비 중…</div><div class="tiny" id="hud" style="text-align:center"></div>
     <div class="checks" id="checks"></div>
     <div class="card small" id="loadCard" style="display:none"><b>체중부하 인지</b><dl class="kv" style="margin-top:6px"><dt>일어서는 동작</dt><dd id="lcMove">대기</dd><dt>선 자세 안정</dt><dd id="lcStable">대기</dd><dt>아치 하강</dt><dd id="lcDrop">—</dd><dt>발 길이 변화</dt><dd id="lcSpan">—</dd></dl></div>
+    <button class="btn primary block hide" id="postNow">지금 선 자세 촬영</button>
     <button class="btn block" id="rot">가이드 방향 돌리기 (자동)</button>
     <div class="grid2"><button class="btn" id="mute">${Voice.enabled ? '음성 끄기' : '음성 켜기'}</button><button class="btn" id="stop">중지</button></div>
     <div id="camErr"></div>`;
@@ -118,6 +119,15 @@ route('/self/run', '자가 검사 진행', async (v) => {
     if (S.settings.savePhotos) rec._blob = await blobFromCanvas(r.canvas);
     rec._shape = C.shapeOf(r.det);
     return rec;
+  }
+  // 촬영 단계에서 예외가 나도 화면이 멈추지 않게: 알리고 같은 단계를 다시 시도
+  async function guarded(fn, label) {
+    try { await fn(); }
+    catch (e) {
+      console.error(e); busy = false; tracker.resume(); readySince = 0; phaseStart = performance.now() + 1500;
+      $('#status', v).textContent = label + ' 중 오류 — 다시 시도합니다';
+      say('문제가 생겨서, 다시 시도하겠습니다. 그대로 계십시오.');
+    }
   }
   async function shootPre() {
     tracker.lockRotation(true); // 앉은 자세·선 자세를 같은 방향으로 분석
@@ -169,6 +179,7 @@ route('/self/run', '자가 검사 진행', async (v) => {
     $('#lcSpan', v).textContent = ev ? `${ev.spanGain >= C.LOAD.minSpanGain ? '✓ ' : ''}${ev.spanGain >= 0 ? '+' : ''}${pctTxt(ev.spanGain)} (기준 +${pctTxt(C.LOAD.minSpanGain)})` : '—';
   }
   function onFrame(f) {
+    const pn = $('#postNow', v); if (pn) pn.classList.toggle('hide', busy || !(cur && cur.pre && !cur.post && (phase === 'stand' || phase === 'settle') && performance.now() - phaseStart > 15000));
     if (busy) return;
     const now = performance.now();
     paintChecksInto($('#checks', v), f.c);
@@ -179,7 +190,7 @@ route('/self/run', '자가 검사 진행', async (v) => {
         preLive.push(C.shapeOf(f.det)); if (preLive.length > 20) preLive.shift();
         if (!readySince) { readySince = now; if (!announcedAlign) { announcedAlign = true; say('발이 정확히 들어왔습니다. 그대로 계십시오.'); } }
         $('#status', v).textContent = '정확히 들어왔습니다. 그대로 계십시오';
-        if (now - readySince >= T.alignHold && preLive.length >= 5) shootPre();
+        if (now - readySince >= T.alignHold && preLive.length >= 5) { busy = true; guarded(shootPre, '앉은 자세 촬영'); }
       } else { readySince = 0; $('#status', v).textContent = (!f.c.stickers ? f.c.stickersMsg : !f.c.frame ? f.c.frameMsg : !f.c.sharp ? f.c.sharpMsg : f.c.stillMsg) || '가이드 안에 발을 맞춰 주십시오'; hint(f, now); }
       return;
     }
@@ -196,23 +207,38 @@ route('/self/run', '자가 검사 진행', async (v) => {
       return;
     }
     if (phase === 'settle') {
-      if (!f.ready) { readySince = 0; settleWin = []; $('#status', v).textContent = (!f.c.stickers ? f.c.stickersMsg : !f.c.frame ? f.c.frameMsg : f.c.stillMsg) || '가만히 서 계십시오'; hint(f, now); updateLoadCard(lastEv); return; }
+      // 같은 카메라 위치인지: 스티커 크기가 앉은 자세 때와 비슷해야 한다
+      const preDia = preLive.length ? median(preLive.map(s => s.dia)) : 0, nowDia = f.det.quality && f.det.quality.diameterPx;
+      const sameCam = !preDia || !nowDia || Math.abs(nowDia - preDia) / preDia <= 0.12;
+      const okPost = f.readyLoose && sameCam;
+      const settleFor = now - phaseStart;
+      if (!okPost) {
+        readySince = 0; settleWin = [];
+        const msg = !f.c.stickers ? f.c.stickersMsg : !sameCam ? '휴대폰이 움직인 것 같습니다. 휴대폰은 그대로 두십시오' : !f.c.sharp ? f.c.sharpMsg : f.c.stillMsg;
+        $('#status', v).textContent = msg || '가만히 서 계십시오';
+        // 오래 안 찍히면 무엇이 문제인지 말로 알려 준다(조용히 멈춰 있지 않게)
+        if (settleFor > 8000 && now - lastHint.t > 7000) { lastHint = { t: now, msg }; say((msg || '가만히 서 계십시오') + '.', { interrupt: false }); }
+        else if (!f.c.stickers) hint(f, now);
+        updateLoadCard(lastEv); return;
+      }
       if (!readySince) { readySince = now; recheckAt = now + T.settleHold; }
       settleWin.push(C.shapeOf(f.det)); if (settleWin.length > 10) settleWin.shift();
       const ev = liveRef && settleWin.length >= 5 ? C.loadEvidence(liveRef, medShape(settleWin)) : null; lastEv = ev;
       updateLoadCard(ev);
       if (now < recheckAt) { $('#status', v).textContent = '선 자세 확인 중… 그대로 계십시오'; return; }
-      if (ev && ev.confirmed) { shootPost(true, ev); return; }
+      if (ev && ev.confirmed) { busy = true; guarded(() => shootPost(true, ev), '선 자세 촬영'); return; }
       if (!reprompted) {
         reprompted = true; recheckAt = now + T.recheck; settleWin = [];
         $('#status', v).textContent = '양발에 체중을 고르게 실어 주십시오';
         say('발 모양 변화가 아직 작습니다. 양발에 체중을 똑같이 실어 주십시오.');
         return;
       }
-      shootPost(false, ev); // 정상 아치처럼 변화가 작은 발 — 촬영하되 "형태 근거 미확인"으로 기록
+      busy = true; guarded(() => shootPost(false, ev), '선 자세 촬영'); // 정상 아치처럼 변화가 작은 발 — 촬영하되 "형태 근거 미확인"으로 기록
     }
   }
   $('#mute', v).onclick = () => { Voice.enabled = !Voice.enabled; $('#mute', v).textContent = Voice.enabled ? '음성 끄기' : '음성 켜기'; };
+  // 자동 촬영이 오래 안 되면(선 자세) 직접 찍을 수 있게
+  $('#postNow', v).onclick = () => { if (busy || !cur || !cur.pre || cur.post) return; busy = true; guarded(() => shootPost(false, lastEv), '선 자세 촬영'); };
   $('#rot', v).onclick = () => { if (cur && cur.pre) return toast('촬영 중에는 방향을 바꿀 수 없습니다.', true); const r = tracker.rotate(); $('#rot', v).textContent = `가이드 방향 돌리기 (${r}°)`; };
   $('#stop', v).onclick = () => { tracker.stop(); S.selfRun = null; go('#/self'); };
   beginFoot();

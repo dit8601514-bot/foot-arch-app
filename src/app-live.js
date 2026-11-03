@@ -5,7 +5,7 @@
 // 알아듣기 쉽게: 기기에서 가장 자연스러운 한국어 목소리를 고르고, 조금 천천히, 문장마다 잠깐 쉬어 말한다.
 // 안내 시작 전에 짧은 알림음을 내어 주의를 끈다. 화면 자막은 쓰지 않는다.
 const Voice = (() => {
-  let enabled = true, unlocked = false, ctx = null, voice = null, gen = 0;
+  let enabled = true, unlocked = false, ctx = null, voice = null, gen = 0, talking = false; const keep = [];
   const RATE = 0.88, PAUSE_MS = 350;
   const ok = () => 'speechSynthesis' in window && 'SpeechSynthesisUtterance' in window;
   function score(v) {
@@ -33,17 +33,34 @@ const Voice = (() => {
     return new Promise(res => {
       if (my !== gen) return res(false);
       const u = new SpeechSynthesisUtterance(text); u.lang = 'ko-KR'; if (voice) u.voice = voice; u.rate = RATE; u.pitch = 1; u.volume = 1;
-      const t = setTimeout(() => res(true), Math.min(9000, 1400 + text.length * 190)); // onend가 오지 않는 기기 대비
+      keep.push(u); if (keep.length > 8) keep.shift(); // Chrome: 참조가 없으면 말하는 도중 사라져 onend가 오지 않는 문제
+      let started = false, tries = 0;
+      const t = setTimeout(() => res(true), Math.min(10000, 1800 + text.length * 190)); // onend가 오지 않는 기기 대비
+      u.onstart = () => { started = true; };
       u.onend = () => { clearTimeout(t); res(true); }; u.onerror = () => { clearTimeout(t); res(false); };
-      try { speechSynthesis.speak(u); } catch (e) { clearTimeout(t); res(false); }
+      const go = () => { try { if (speechSynthesis.paused) speechSynthesis.resume(); speechSynthesis.speak(u); } catch (e) { clearTimeout(t); res(false); } };
+      go();
+      // 음성 엔진이 멈춰 말을 시작하지 않으면 한 번 초기화하고 다시 말한다
+      const kick = () => { if (started || my !== gen || tries >= 1) return; tries++; try { speechSynthesis.cancel(); } catch (e) {} setTimeout(go, 120); };
+      setTimeout(kick, 2500);
     });
   }
   async function say(text, opts) {
     const o = Object.assign({ interrupt: true, chime: true }, opts);
     if (!enabled || !ok()) return false;
-    if (o.interrupt) { gen++; try { speechSynthesis.cancel(); } catch (e) {} }
-    else if (speechSynthesis.speaking) return false; // 다른 안내를 말하는 중이면 보조 안내는 건너뛴다(겹침 방지)
-    const my = gen;
+    let my;
+    if (o.interrupt) { my = ++gen; try { speechSynthesis.cancel(); } catch (e) {} await wait(80); } // 취소 직후 바로 말하면 무시하는 기기 대비
+    else {
+      // 보조 안내: 앞 안내가 끝날 때까지 최대 6초 기다렸다가 말한다(버리지 않음). 기기의 speaking 값은 믿지 않고 앱이 직접 추적.
+      my = gen; const t0 = Date.now();
+      while (talking && Date.now() - t0 < 6000) { await wait(150); if (my !== gen) return false; }
+      if (talking) return false;
+      my = ++gen;
+    }
+    talking = true;
+    try { return await sayParts(text, o, my); } finally { if (my === gen) talking = false; }
+  }
+  async function sayParts(text, o, my) {
     if (o.chime) { chime(); await wait(260); }
     const parts = sentences(text);
     for (let i = 0; i < parts.length; i++) {
@@ -184,13 +201,15 @@ function createTracker(opts) {
     c.frameMsg = !det.landmarks ? '' : !fr.ok ? fr.msg : !al.ok ? al.msg : !faceOn ? '휴대폰이 발 안쪽 면을 정면으로 향하게 해 주십시오' : '';
     c.frameCode = !det.landmarks ? 'NONE' : !fr.ok ? fr.code : !al.ok ? al.code : faceOn ? '' : 'FACE';
     const ready = det.ok && c.stickers && c.sharp && c.still && c.frame;
+    // 선 자세용 완화 기준: 일어서면 발이 조금 움직이므로 목표 원 정렬은 요구하지 않는다(카메라 고정·선명·정지·스티커 정면만)
+    const readyLoose = det.ok && c.stickers && c.sharp && c.still && !!(det.quality && det.quality.minAxisRatio >= 0.85);
     st.lastOk = det.ok && consistent ? det : (det.ok && !st.lastOk ? det : null);
     // 칼만 갱신: 측정 잡음 = 타원 피팅 잔차. 실패 프레임은 '놓침'으로 처리(7회 연속이면 추적 초기화)
     if (det.ok && consistent) { st.kf.update(det.landmarks, Math.max(0.15, det.quality.fitRmsPx || 0.3), now); st.colorModel = det.colorModel || st.colorModel; st.dia = det.quality.diameterPx; }
     else if (det.ok && !pred) { st.kf.reset(); st.kf.update(det.landmarks, 0.3, now); st.colorModel = det.colorModel || null; st.dia = det.quality.diameterPx; }
     else { st.kf.miss(); if (!st.kf.active) { st.colorModel = null; st.dia = null; } }
     st.smooth = st.kf.positions() || (det.landmarks ? { P1: det.landmarks.P1, P2: det.landmarks.P2, P3: det.landmarks.P3 } : null);
-    return { c, ready, motion, speedDia, guide: al };
+    return { c, ready, readyLoose, motion, speedDia, guide: al };
   }
   // 영상 회전(0/90/180/270): 처음엔 중력 센서로 추정, 이후 스티커 배치로 보정. 촬영이 시작되면 고정.
   function autoRotation() { return Orient.guess(video.videoHeight > video.videoWidth); }
@@ -239,8 +258,9 @@ function createTracker(opts) {
     if (!st.stream) return;
     const t0 = performance.now();
     const next = () => { st.timer = setTimeout(loop, Math.max(0, 66 - (performance.now() - t0))); S.loopTimer = st.timer; };
+    if (st.inflight && performance.now() - st.inflightAt > 9000) st.inflight = false; // 감시: 한 프레임 처리가 멈추면 풀어 준다
     if (st.paused || st.inflight || !video.videoWidth) return next();
-    st.inflight = true;
+    st.inflight = true; st.inflightAt = performance.now();
     tick().catch(e => console.warn(e)).finally(() => { st.inflight = false; next(); });
   }
   async function start() {

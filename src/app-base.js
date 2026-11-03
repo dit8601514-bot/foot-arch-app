@@ -1,7 +1,7 @@
 'use strict';
 /* ═════════════ 기본: 저장소 · 상태 · 유틸 · 라우터 ═════════════ */
 const C = window.FootCore;
-const APP_VERSION = '2.1.0';
+const APP_VERSION = '2.1.1';
 const STORES = ['settings', 'exams', 'exercises', 'logs', 'errors', 'models', 'blobs', 'validations'];
 
 const DB = (() => {
@@ -303,12 +303,26 @@ const Detector = (() => {
     });
     return initP;
   }
-  function run(img, opts, prev) {
+  // 워커가 응답 없이 죽는 경우(휴대폰 메모리 부족 등) 대비: 요청마다 제한 시간, 넘으면 워커를 새로 띄운다.
+  // (응답이 영영 오지 않으면 추적 루프가 멈춰 촬영·음성 안내가 모두 끊긴다)
+  function restart() {
+    try { if (w) w.terminate(); } catch (e) {}
+    w = null; ready = false; initP = null;
+    for (const p of pending.values()) p.rej(new Error('worker restart')); pending.clear();
+    init();
+  }
+  function run(img, opts, prev, timeoutMs) {
     if (!w || !ready) return Promise.resolve(local(img, opts, prev));
-    return new Promise((res, rej) => { const id = ++seq; pending.set(id, { res, rej }); w.postMessage({ id, img, opts, prev: prev ? slim(prev) : null }, [img.data.buffer]); });
+    return new Promise((res, rej) => {
+      const id = ++seq;
+      const t = setTimeout(() => { if (pending.has(id)) { pending.delete(id); rej(new Error('검출 시간 초과')); restart(); } }, timeoutMs || 6000);
+      pending.set(id, { res: v => { clearTimeout(t); res(v); }, rej: e => { clearTimeout(t); rej(e); } });
+      try { w.postMessage({ id, img, opts, prev: prev ? slim(prev) : null }, [img.data.buffer]); }
+      catch (e) { pending.delete(id); clearTimeout(t); res(local(img, opts, prev)); }
+    });
   }
   const slim = d => ({ ok: d.ok, landmarks: d.landmarks, quality: { diameterPx: d.quality.diameterPx } });
-  return { init, run, get usingWorker() { return ready; } };
+  return { init, run, restart, _kill() { try { w.onmessage = null; w.terminate(); } catch (e) {} }, get usingWorker() { return ready; } }; // _kill: 시험용(응답 없이 죽는 워커 재현)
 })();
 
 /* ═════════════ 이미지 · 오버레이 ═════════════ */
