@@ -21,7 +21,7 @@ function phoneSetupSvg(foot) {
 }
 
 route('/self', '측정하기', async (v, p) => {
-  const feetSel = p.q.feet || 'both';
+  const feetSel = p.q.feet === 'right' ? 'right' : 'left';
   const cv = convSettings();
   const dly0 = S.settings.shutterDelay ?? 10;
   v.innerHTML = `${stepper(1)}
@@ -33,7 +33,7 @@ route('/self', '측정하기', async (v, p) => {
         <li><b>가이드에 맞추면 촬영</b><span>발 윤곽이 초록색이 되면 앉은 자세를 찍습니다</span></li>
         <li><b>일어서기</b><span>그대로 일어서면 <em id="dlyTxt2"></em> 뒤 선 자세(체중부하)를 찍습니다</span></li>
       </ol>
-      <div class="seg" id="feetSeg">${[['left', '왼발'], ['right', '오른발'], ['both', '양발']].map(([k, l]) => `<button data-v="${k}" class="${feetSel === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+      <div class="seg" id="feetSeg">${[['left', '왼발'], ['right', '오른발']].map(([k, l]) => `<button data-v="${k}" class="${feetSel === k ? 'on' : ''}">${l}</button>`).join('')}</div>
       <div class="bracket"><i></i><div id="svgBox"></div></div>
       <button class="shutter" id="go" aria-label="촬영 시작">${ICON.camera}</button>
       <div class="tiny" id="goHint" style="margin-top:4px"></div>
@@ -44,11 +44,11 @@ route('/self', '측정하기', async (v, p) => {
     <details class="card"><summary>촬영 방법 보기</summary><ol class="steps small" style="margin-top:10px">
       <li>발 안쪽에 지름 ${esc(String(S.settings.stickerDiameterMm || 16))} mm 파란 스티커 3개를 붙입니다. <a href="#/stickers-info">부착 위치 보기</a></li>
       <li>의자에 앉아 두 발을 바닥에 편하게 둡니다.</li>
-      <li>휴대폰을 <b>가로로 세워 두 발 사이 바닥</b>에 두고, <b>뒷면 카메라</b>가 검사할 발 안쪽을 향하게 합니다. 발에서 20 cm 정도 떨어지면 좋습니다(가까우면 0.5× 광각 카메라를 고르세요).</li>
+      <li>휴대폰을 <b>가로로 세워 두 발 사이 바닥</b>에 두고, <b>뒷면 카메라</b>가 검사할 발 안쪽을 향하게 합니다. 거리는 정해져 있지 않습니다. <b>가까이 두어도 되고</b>, 스티커 3개가 화면 안에 선명하게 보이기만 하면 됩니다.</li>
       <li><b>촬영 버튼</b>을 누릅니다. “10초 뒤에 시작합니다” 안내와 함께 10초 타이머가 돌아가는 동안 휴대폰을 놓고 의자에 앉습니다.</li>
-      <li>음성에 따라 발을 움직여 화면의 발 윤곽에 맞춥니다. 윤곽이 <b>초록색</b>이 되면 “발이 정확히 들어왔습니다 → 앉은 자세를 촬영합니다” 후 자동으로 찍습니다.</li>
+      <li>AI가 스티커 3개의 색을 찾고, 실제 발 윤곽을 따라 선을 그립니다. 스티커가 모두 보이고 윤곽이 <b>초록색</b>이 되면 “발이 정확히 들어왔습니다 → 앉은 자세를 촬영합니다” 후 자동으로 찍습니다.</li>
       <li>“이제 그대로 일어서서, 양발에 체중을 똑같이 실어 주십시오. 10초 뒤에 체중부하 사진을 찍습니다” 안내가 나오면 <b>휴대폰은 그대로 두고</b> 일어섭니다. 삑 소리와 함께 10초가 지나면 선 자세를 찍습니다(마지막 3초는 높은 소리).</li>
-      <li>“검사가 끝났습니다” 안내 후 결과 화면이 열립니다. 양발 검사는 왼발이 끝나면 휴대폰을 돌려 오른발을 같은 방법으로 찍습니다.</li>
+      <li>“검사가 끝났습니다” 안내 후 결과 화면이 열립니다. 다른 발도 검사하려면 결과 화면에서 따로 시작합니다.</li>
       <li><b>AI 자동 인지</b>를 고르면 타이머 대신 앱이 일어서는 동작과 발 모양 변화를 확인한 뒤 “체중부하 확인했습니다. 촬영합니다”라고 말하고 찍습니다.</li>
       <li>검사 중에는 <b>휴대폰을 움직이지 마세요.</b></li>
     </ol></details>
@@ -70,7 +70,7 @@ route('/self', '측정하기', async (v, p) => {
   $('#go', v).onclick = () => {
     S.settings.shutterDelay = dly; S.settings.postMode = pm; S.settings.privacyAck = true; saveSettings();
     Voice.enabled = $('#voiceOn', v).checked; Voice.unlock(); Orient.request();
-    S.selfRun = { feet: sel === 'both' ? ['left', 'right'] : [sel], results: [] };
+    S.selfRun = { feet: [sel], results: [] };
     go('#/self/run');
   };
 });

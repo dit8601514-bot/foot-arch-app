@@ -31,9 +31,14 @@ for (const toe of ['right', 'left']) {
     near(C.distanceToLine(det.landmarks.P2, det.landmarks.P1, det.landmarks.P3), 60, 0.5, '높이px');
   });
 }
-t('합성: 발가락 방향을 반대로 지정하면 불확실로 재촬영', () => {
+t('합성: 발가락 방향을 반대로 지정해도 자동 인지로 P1·P3를 바르게 지정', () => {
   const sc = footScene(W, H, 60, { toe: 'right' });
   const det = C.detectStickers(makeImage(W, H, { stickers: sc.stickers }), { toeDirection: 'left' });
+  ok(det.ok && det.landmarks.toeDirection === 'right' && det.landmarks.P1.x > det.landmarks.P3.x, JSON.stringify(det.reasons));
+});
+t('합성: 방향 고정(strictToe)으로 반대 지정하면 불확실로 재촬영', () => {
+  const sc = footScene(W, H, 60, { toe: 'right' });
+  const det = C.detectStickers(makeImage(W, H, { stickers: sc.stickers }), { toeDirection: 'left', strictToe: true });
   ok(!det.ok && det.reasons.some(r => r.code === 'P2_NEAR_TOE'), JSON.stringify(det.reasons));
 });
 t('합성: 스티커 2개 → 재촬영', () => {
@@ -86,8 +91,12 @@ t('mm 환산: 지름 미설정 → 보정 필요', () => {
 });
 t('mm 환산: 28px=10mm, 높이 84px → 30.0mm ±0.3', () => { const m = measured(84, 14); eq(m.status, '측정 가능'); near(m.heightMm, 30, 0.3); });
 t('mm 환산: 기울어진 스티커(타원) → 보정 필요', () => {
-  const sc = footScene(W, H, 60); const st = sc.stickers.map(s => ({ x: s.x, y: s.y, r: 14, rx: 14, ry: 11 }));
+  const sc = footScene(W, H, 60); const st = sc.stickers.map(s => ({ x: s.x, y: s.y, r: 14, rx: 14, ry: 9.5 }));
   const det = C.detectStickers(makeImage(W, H, { stickers: st })); ok(det.ok, JSON.stringify(det.reasons)); eq(C.measureImage(det, conv).status, '보정 필요');
+});
+t('mm 환산: 발 곡면에서 약간 타원(단축/장축 0.82)은 그대로 측정', () => {
+  const sc = footScene(W, H, 60); const st = sc.stickers.map(s => ({ x: s.x, y: s.y, r: 14, rx: 14, ry: 11.5 }));
+  const det = C.detectStickers(makeImage(W, H, { stickers: st })); ok(det.ok, JSON.stringify(det.reasons)); ok(C.measureImage(det, conv).status !== '보정 필요', C.measureImage(det, conv).status);
 });
 t('mm 환산: 스티커 크기 불균일(원근) → 보정 필요', () => {
   const sc = footScene(W, H, 60); const st = sc.stickers.map((s, i) => ({ x: s.x, y: s.y, r: [12, 14, 16][i] }));
@@ -302,8 +311,12 @@ t('AI 보정: 검사 기록에서 특징 추출(없는 값은 null)', () => {
   ok(C.errorFeatures({ comparison: { changeMm: null } }) === null);
 });
 t('적응형 가이드: 거리가 달라도(0.8배·1배) 발 전체가 보이면 통과', () => { for (const m of [0.8, 1.0]) { const sc = guideScene(GW, GH, { scaleMul: m }); const a = C.guideCheck(C.detectStickers(gimg(sc)), 'right'); ok(a.ok && a.adaptive, m + ' ' + a.msg); } });
-t('적응형 가이드: 뒤꿈치가 화면 밖이면 "앞으로" 안내', () => { const sc = guideScene(GW, GH, { dx: -150 }); const a = C.guideCheck(C.detectStickers(gimg(sc)), 'right'); ok(!a.ok && a.code === 'HEEL_CUT' && a.msg.includes('앞으로'), a.code + ' ' + a.msg); });
-t('적응형 가이드: 너무 작게 보이면 "가까이" 안내', () => { const sc = guideScene(GW, GH, { scaleMul: 0.5 }); const a = C.guideCheck(C.detectStickers(gimg(sc)), 'right'); ok(!a.ok && a.code === 'FAR', a.code); });
+t('적응형 가이드: 가까이 찍어 뒤꿈치가 화면 밖이어도 스티커 3개가 보이면 촬영 가능', () => { const sc = guideScene(GW, GH, { dx: -150 }); const a = C.guideCheck(C.detectStickers(gimg(sc)), 'right'); ok(a.ok, a.code + ' ' + a.msg); });
+t('적응형 가이드: 거리는 촬영을 막지 않음(작게 보이면 참고 안내만)', () => { const sc = guideScene(GW, GH, { scaleMul: 0.5 }); const d = C.detectStickers(gimg(sc)), a = C.guideCheck(d, 'right'); ok(a.ok || a.code !== 'FAR', a.code); });
+t('스티커 색: 파란 기운만 있는 원(청록·보라)은 스티커로 보지 않음', () => {
+  const sc = footScene(W, H, 60), st = sc.stickers.map((s, i) => Object.assign({}, s, i === 1 ? { color: [120, 40, 200] } : {}));
+  const det = C.detectStickers(makeImage(W, H, { stickers: st })); ok(!det.ok && det.rejected.some(r => (r.reject || []).includes('스티커 색이 아님')), JSON.stringify(det.reasons));
+});
 t('적응형 가이드: 표준 발 모델을 실제 P3·P1에 정확히 맞춤', () => { const L = { P3: { x: 100, y: 300 }, P1: { x: 390, y: 300 }, P2: { x: 230, y: 250 } }; const F = C.fitFootModel(L, 'right'); ok(Math.abs(F.scale - 20) < 1e-9 && Math.abs(F.X(4, 2).x - 100) < 1e-9 && Math.abs(F.X(4, 2).y - 300) < 1e-9 && Math.abs(F.X(4, 0).y - 340) < 1e-9 && Math.abs(F.X(0, 2).x - 20) < 1e-9); const G = C.fitFootModel({ P3: { x: 390, y: 300 }, P1: { x: 100, y: 300 } }, 'left'); ok(Math.abs(G.X(4, 0).y - 340) < 1e-9 && Math.abs(G.X(0, 2).x - 470) < 1e-9); });
 t('가이드: 가운데 스티커가 너무 낮으면 발배뼈 위치 확인 안내', () => { const sc = guideScene(GW, GH, { p2Cm: 1.2 }); const d = C.detectStickers(gimg(sc)); const a = C.guideCheck(d, 'right'); ok(!a.ok && a.code === 'P2_ZONE', JSON.stringify(a)); });
 t('바닥선: 평평한 발바닥 경계 검출, P2 바닥 높이 오차 ≤ 0.3px', () => {

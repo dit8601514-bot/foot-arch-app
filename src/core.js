@@ -9,7 +9,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  const ALGORITHM_VERSION = 'ALG-2.1.0';
+  const ALGORITHM_VERSION = 'ALG-2.2.0';
 
   // 기본 검출 파라미터 (휴리스틱 값 — 실제 사진으로 검증 후 연구자가 조정해야 함)
   const DEFAULT_DETECT = {
@@ -17,8 +17,9 @@
     satMin: 0.40, valMin: 0.18,    // 채도·명도 하한
     blueMargin: 25,                // B 채널이 R,G 보다 커야 하는 최소 차이
     minDiaFrac: 0.012,             // 이미지 짧은 변 대비 최소 스티커 지름
-    maxDiaFrac: 0.20,              // 최대 지름
-    minAxisRatio: 0.72,            // 원형 판정 최소 단축/장축 비
+    maxDiaFrac: 0.36,              // 최대 지름(가까이 찍어도 되게)
+    stickerHue: 214, hueTol: 24,   // 스티커 고유 색상(실측: 파란 원형 스티커 212~216°)과 허용 폭 — 추적 중에는 실제 색으로 갱신
+    minAxisRatio: 0.66,            // 원형 판정 최소 단축/장축 비(발 곡면·가까운 촬영에서는 스티커가 약간 타원)
     fillMin: 0.8, fillMax: 1.2,    // 모멘트 타원 대비 채움 비율
     bboxFillMin: 0.62, bboxFillMax: 0.92,
     sizeTolerance: 0.25,           // 3개 스티커 크기 허용 편차(중앙값 대비)
@@ -38,7 +39,7 @@
   };
 
   const DEFAULT_CONVERSION = {
-    minAxisRatioForMm: 0.90,       // 이 미만이면 촬영 각도 기울어짐 → 보정 필요
+    minAxisRatioForMm: 0.75,       // 이 미만이면 촬영 각도 기울어짐 → 보정 필요(지름은 장축으로 재므로 곡면의 약한 타원은 허용)
     maxSizeCv: 0.06,               // 3개 스티커 지름 변동계수 상한(원근/회전)
     minDiameterPx: 20,             // 해상도 하한
     maxScaleDiffPrePost: 0.05,     // 전·후 축척 차이 허용
@@ -77,6 +78,142 @@
     const r = data[idx], g = data[idx + 1], b = data[idx + 2];
     const v = (b - Math.max(r, g)) / 255;
     return v <= 0 ? 0 : Math.min(1, v * 1.6);
+  }
+
+  // 스티커 내부(반지름 60%)의 색상·채도 중앙값 — 피부·바닥·청바지처럼 파란 기운만 있는 것과 실제 스티커 색을 구분
+  function innerHue(img, f) {
+    const { data, width: W, height: H } = img, hs = [], ss = [], r = 0.6 * Math.min(f.a, f.b), st = Math.max(1, r / 6);
+    for (let dy = -r; dy <= r; dy += st) for (let dx = -r; dx <= r; dx += st) {
+      if (dx * dx + dy * dy > r * r) continue;
+      const x = Math.round(f.cx + dx), y = Math.round(f.cy + dy); if (x < 0 || y < 0 || x >= W || y >= H) continue;
+      const i = (y * W + x) * 4, [h, sa, v] = rgbToHsv(data[i], data[i + 1], data[i + 2]);
+      if (v > 0.93 && sa < 0.35) continue; // 광택 반사는 빼고
+      hs.push(h); ss.push(sa);
+    }
+    return { hue: hs.length ? circMeanHue(hs) : 0, sat: ss.length ? median(ss) : 0, n: hs.length };
+  }
+  function circMeanHue(a) { let x = 0, y = 0; for (const h of a) { x += Math.cos(h * Math.PI / 180); y += Math.sin(h * Math.PI / 180); } let m = Math.atan2(y, x) * 180 / Math.PI; return m < 0 ? m + 360 : m; }
+  function hueDist(a, b) { const d = Math.abs(a - b) % 360; return d > 180 ? 360 - d : d; }
+
+  /**
+   * 발 윤곽 정밀 추적: 표준 발 모델을 스티커에 맞춰 놓은 윤곽(pts)의 각 점에서, 법선 방향으로 ±range 안의
+   * 가장 뚜렷한 색 경계(피부 ↔ 바닥·벽)를 찾아 붙인다. 이웃끼리 중앙값·평균으로 다듬어 튀는 점을 없앤다.
+   * rgb: {data(Uint8 RGB), w, h, s(원본→축소 배율)}. 반환 { pts, conf(0~1 각 점), score(평균) }
+   */
+  function snapOutline(rgb, pts, range, avoid) {
+    const { data, w, h, s } = rgb, n = pts.length, off = new Float32Array(n), cf = new Float32Array(n);
+    const px = (x, y, c) => { const xi = Math.max(0, Math.min(w - 1, Math.round(x))), yi = Math.max(0, Math.min(h - 1, Math.round(y))); return data[(yi * w + xi) * 3 + c]; };
+    const R = Math.max(4, range * s);
+    for (let i = 0; i < n; i++) {
+      const a = pts[Math.max(0, i - 1)], b = pts[Math.min(n - 1, i + 1)];
+      let tx = b.x - a.x, ty = b.y - a.y; const L = Math.hypot(tx, ty) || 1; tx /= L; ty /= L;
+      const nx = -ty, ny = tx, x0 = pts[i].x * s, y0 = pts[i].y * s;
+      if (avoid && avoid.some(q => Math.hypot(q.x - pts[i].x, q.y - pts[i].y) < q.r)) continue;
+      let best = 0, bt = 0;
+      for (let t = -R; t <= R; t += 1) {
+        const xa = x0 + nx * (t - 2), ya = y0 + ny * (t - 2), xb = x0 + nx * (t + 2), yb = y0 + ny * (t + 2);
+        let d = 0; for (let c = 0; c < 3; c++) d += Math.abs(px(xa, ya, c) - px(xb, yb, c));
+        const sc = d * Math.exp(-(t * t) / (2 * (0.7 * R) ** 2));
+        if (sc > best) { best = sc; bt = t; }
+      }
+      cf[i] = clamp01((best - 18) / 70); off[i] = cf[i] > 0.15 ? bt / s : 0;
+    }
+    // 다듬기: 5점 중앙값 → 3점 평균(신뢰도 가중)
+    const med = new Float32Array(n);
+    for (let i = 0; i < n; i++) { const w5 = []; for (let j = -2; j <= 2; j++) { const k = i + j; if (k >= 0 && k < n) w5.push(off[k]); } med[i] = median(w5); }
+    const out = [], conf = [];
+    for (let i = 0; i < n; i++) {
+      let sw = 0, sv = 0; for (let j = -1; j <= 1; j++) { const k = i + j; if (k < 0 || k >= n) continue; const ww = 0.3 + cf[k]; sw += ww; sv += med[k] * ww; }
+      const o = sv / sw, a = pts[Math.max(0, i - 1)], b = pts[Math.min(n - 1, i + 1)], L = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+      out.push({ x: pts[i].x - (b.y - a.y) / L * o, y: pts[i].y + (b.x - a.x) / L * o }); conf.push(cf[i]);
+    }
+    return { pts: out, conf, score: conf.reduce((x, y) => x + y, 0) / n };
+  }
+  /**
+   * 실제 발 영역 분할(정밀 발 윤곽 추적): 스티커 둘레의 피부색을 그 자리에서 배워(사람마다·조명마다 다름)
+   * 화면 위·아래 띠(벽·바닥)의 색과 비교해 피부 픽셀을 고르고, 스티커와 이어진 덩어리만 남긴 뒤 윤곽을 만든다.
+   * rgb: {data(RGB), w, h, s(분석 좌표 → 축소 배율)}, L: 스티커 좌표(분석 좌표), dia: 스티커 지름(분석 px)
+   * 반환 { pts(분석 좌표 윤곽: 발등·발목 앞 → 뒤꿈치 → 발바닥), score(0~1), area } 또는 null
+   */
+  function segmentFoot(rgb, L, dia) {
+    const { data, w, h, s } = rgb, N = w * h, F = new Float32Array(N * 3);
+    for (let i = 0; i < N; i++) { const r = data[i * 3], g = data[i * 3 + 1], b = data[i * 3 + 2], t = r + g + b + 1, mx = Math.max(r, g, b), mn = Math.min(r, g, b); F[i * 3] = r / t; F[i * 3 + 1] = g / t; F[i * 3 + 2] = mx ? (mx - mn) / mx * 0.35 : 0; }
+    const gauss = idx => {
+      if (idx.length < 12) return null; const m = [0, 0, 0];
+      for (const i of idx) for (let c = 0; c < 3; c++) m[c] += F[i * 3 + c] / idx.length;
+      const S = [[1e-5, 0, 0], [0, 1e-5, 0], [0, 0, 1e-5]];
+      for (const i of idx) { const d = [0, 1, 2].map(c => F[i * 3 + c] - m[c]); for (let a = 0; a < 3; a++) for (let b = 0; b < 3; b++) S[a][b] += d[a] * d[b] / idx.length; }
+      const [[a, b, c], [d, e, f], [g, hh, k]] = S, det3 = a * (e * k - f * hh) - b * (d * k - f * g) + c * (d * hh - e * g);
+      if (!(det3 > 0)) return null;
+      const I = [[(e * k - f * hh) / det3, (c * hh - b * k) / det3, (b * f - c * e) / det3], [(f * g - d * k) / det3, (a * k - c * g) / det3, (c * d - a * f) / det3], [(d * hh - e * g) / det3, (b * g - a * hh) / det3, (a * e - b * d) / det3]];
+      return { m, I };
+    };
+    const md = (G, i) => { const d0 = F[i * 3] - G.m[0], d1 = F[i * 3 + 1] - G.m[1], d2 = F[i * 3 + 2] - G.m[2]; return d0 * (G.I[0][0] * d0 + G.I[0][1] * d1 + G.I[0][2] * d2) + d1 * (G.I[1][0] * d0 + G.I[1][1] * d1 + G.I[1][2] * d2) + d2 * (G.I[2][0] * d0 + G.I[2][1] * d1 + G.I[2][2] * d2); };
+    const isBlue = i => data[i * 3 + 2] > Math.max(data[i * 3], data[i * 3 + 1]) + 25;
+    // 피부 표본: 세 스티커 둘레 고리(지름 0.75~1.3배)
+    const sk = [], R = dia * s;
+    for (const P of [L.P1, L.P2, L.P3]) {
+      const cx = P.x * s, cy = P.y * s;
+      for (let y = Math.floor(cy - 1.3 * R); y <= cy + 1.3 * R; y++) for (let x = Math.floor(cx - 1.3 * R); x <= cx + 1.3 * R; x++) {
+        if (x < 0 || y < 0 || x >= w || y >= h) continue; const r = Math.hypot(x - cx, y - cy) / R; if (r < 0.75 || r > 1.3) continue;
+        const i = y * w + x; if (!isBlue(i)) sk.push(i);
+      }
+    }
+    // 배경 표본: 화면 위·아래 띠(벽·바닥) — 발이 닿는 곳은 피부 모델과 가까우므로 제외
+    const G0 = gauss(sk); if (!G0) return null;
+    const bgT = [], bgB = [], band = Math.max(2, Math.round(h * 0.07));
+    for (let y = 0; y < band; y++) for (let x = 0; x < w; x += 2) { const i = y * w + x; if (md(G0, i) > 6) bgT.push(i); }
+    // 바닥: 가장 낮은 스티커보다 아래쪽 전부(발바닥 아래는 바닥) — 피부와 색이 비슷해도 바닥으로 배운다
+    const yLow = Math.max(L.P1.y, L.P3.y) * s + 1.6 * R;
+    for (let y = Math.min(h - band, Math.round(yLow)); y < h; y += 2) for (let x = 0; x < w; x += 2) bgB.push(y * w + x);
+    const BG = [gauss(bgT), gauss(bgB)].filter(Boolean);
+    const m = new Uint8Array(N);
+    for (let i = 0; i < N; i++) {
+      if (isBlue(i)) { m[i] = 1; continue; }
+      const dS = md(G0, i); if (dS > 14) continue;
+      let dB = Infinity; for (const B of BG) dB = Math.min(dB, md(B, i));
+      if (dS * 1.6 < dB) m[i] = 1;
+    }
+    // 다듬기: 닫기·열기(3×3)
+    const morph = (src, keepIfAll) => { const o = new Uint8Array(N); for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) { let c = 0; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) c += src[(y + dy) * w + x + dx]; o[y * w + x] = keepIfAll ? (c === 9 ? 1 : 0) : (c > 0 ? 1 : 0); } return o; };
+    let mm = morph(morph(m, false), true); mm = morph(morph(mm, true), false);
+    // 스티커에서 시작하는 덩어리만
+    const lab = new Uint8Array(N), q = new Int32Array(N); let qh = 0, qt = 0;
+    for (const P of [L.P1, L.P2, L.P3]) { const i = Math.round(P.y * s) * w + Math.round(P.x * s); if (i >= 0 && i < N && mm[i] && !lab[i]) { lab[i] = 1; q[qt++] = i; } }
+    while (qh < qt) { const i = q[qh++], x = i % w, y = (i / w) | 0; for (const j of [x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, y > 0 ? i - w : -1, y < h - 1 ? i + w : -1]) if (j >= 0 && mm[j] && !lab[j]) { lab[j] = 1; q[qt++] = j; } }
+    if (qt < 50) return null;
+    // 열마다 위·아래 경계(발 옆모습). 스티커 기준선 쪽으로 이어진 구간만.
+    const top = new Float32Array(w).fill(-1), bot = new Float32Array(w).fill(-1);
+    for (let x = 0; x < w; x++) { for (let y = 0; y < h; y++) if (lab[y * w + x]) { top[x] = y; break; } for (let y = h - 1; y >= 0; y--) if (lab[y * w + x]) { bot[x] = y; break; } }
+    let x0 = 0, x1 = w - 1; while (x0 < w && top[x0] < 0) x0++; while (x1 > 0 && top[x1] < 0) x1--;
+    if (x1 - x0 < 10) return null;
+    const med5 = (A, x) => { const v = []; for (let k = -2; k <= 2; k++) { const xx = x + k; if (xx >= x0 && xx <= x1 && A[xx] >= 0) v.push(A[xx]); } return v.length ? median(v) : -1; };
+    const step = Math.max(1, Math.round(w / 110)), pts = [];
+    for (let x = x0; x <= x1; x += step) { const y = med5(top, x); if (y >= 0) pts.push({ x: x / s, y: y / s }); }
+    // 발바닥 경계: P1·P3 스티커는 바닥에서 약 2 cm(≈1.25×지름) 위 → 기준선 아래 1.7×지름을 넘는 것은 바닥(카펫 등)이 섞인 것
+    const k13 = (L.P3.y - L.P1.y) / ((L.P3.x - L.P1.x) || 1e-6), baseY = xs => (L.P1.y + k13 * (xs / s - L.P1.x)) * s;
+    const bc = new Float32Array(w).fill(-1);
+    for (let x = x0; x <= x1; x++) if (bot[x] >= 0) { const lim = baseY(x) + 1.7 * R, lo = baseY(x) - 0.2 * R; let y = Math.min(bot[x], lim); if (y < lo) y = lo; bc[x] = y; }
+    const med9 = (A, x) => { const v = []; for (let k = -4; k <= 4; k++) { const xx = x + k; if (xx >= x0 && xx <= x1 && A[xx] >= 0) v.push(A[xx]); } return v.length ? median(v) : -1; };
+    const nTop = pts.length;
+    for (let x = x1; x >= x0; x -= step) { const y = med9(bc, x); if (y >= 0) pts.push({ x: x / s, y: (y + 1) / s }); }
+    // 신뢰도: 피부·배경 분리 정도(경계 바로 안팎 색 차이)와 덩어리가 스티커 셋을 모두 품는지
+    const allIn = [L.P1, L.P2, L.P3].every(P => lab[Math.round(P.y * s) * w + Math.round(P.x * s)]);
+    let sep = 0, ns = 0; for (let x = x0 + 2; x <= x1 - 2; x += step) { const y = top[x]; if (y > 2 && y < h - 3) { sep += Math.min(1, md(G0, (y - 3) * w + x) / 30); ns++; } }
+    return { pts, nTop, score: clamp01((ns ? sep / ns : 0) * (allIn ? 1 : 0.5)), area: qt / s / s, allIn };
+  }
+  // 닫힌 윤곽을 길이 기준으로 n개 점으로 다시 나눈다(프레임 간 같은 번호 점끼리 부드럽게 잇기 위해)
+  function resampleClosed(pts, n) {
+    const P = pts.concat([pts[0]]), cum = [0]; for (let i = 1; i < P.length; i++) cum.push(cum[i - 1] + Math.hypot(P[i].x - P[i - 1].x, P[i].y - P[i - 1].y));
+    const T = cum[cum.length - 1] || 1, out = []; let j = 1;
+    for (let k = 0; k < n; k++) { const d = T * k / n; while (j < cum.length - 1 && cum[j] < d) j++; const a = P[j - 1], b = P[j], u = (d - cum[j - 1]) / ((cum[j] - cum[j - 1]) || 1); out.push({ x: a.x + (b.x - a.x) * u, y: a.y + (b.y - a.y) * u }); }
+    return out;
+  }
+  // 점 사이를 촘촘하게(곡선 따라) 나눈다
+  function densify(pts, step) {
+    const out = [];
+    for (let i = 0; i < pts.length - 1; i++) { const a = pts[i], b = pts[i + 1], k = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / step)); for (let j = 0; j < k; j++) out.push({ x: a.x + (b.x - a.x) * j / k, y: a.y + (b.y - a.y) * j / k }); }
+    out.push(pts[pts.length - 1]); return out;
   }
 
   // ───────────────────────── 연결 요소 ─────────────────────────
@@ -253,6 +390,15 @@
     const e1 = pts[best.i], e2 = pts[best.j], mid = pts[best.k];
     const axis = { x: e2.x - e1.x, y: e2.y - e1.y };
     // 발가락 방향 벡터
+    // 발가락 방향 자동 인지: 발배뼈(P2)는 해부학적으로 발꿈치 쪽(축의 0.2~0.5)에 있다 → 두 방향 중 P2가 발꿈치 쪽에 오는 쪽을 고른다.
+    // (왼발/오른발 선택이나 휴대폰 방향이 안내와 달라도 라벨이 뒤바뀌지 않게) 애매하면(가운데) 안내 방향을 따른다.
+    if (opts && opts.autoToe && Math.abs(axis.x) > 1e-6) {
+      const tA = projectionT(mid, e1, e2); // e1을 발꿈치로 볼 때
+      const right = axis.x > 0; // e1→e2가 화면 오른쪽
+      const want = toeDirection === 'left' ? 'left' : 'right';
+      if (Math.abs(tA - 0.5) > 0.06) { const heelIsE1 = tA < 0.5; toeDirection = (heelIsE1 === right) ? 'right' : 'left'; }
+      else toeDirection = want;
+    }
     const toeVec = toeDirection === 'left' ? { x: -1, y: 0 } : { x: 1, y: 0 };
     const dot = axis.x * toeVec.x + axis.y * toeVec.y;
     const P1 = dot >= 0 ? e2 : e1;   // 발가락 쪽 끝 = 제1중족골두
@@ -276,7 +422,7 @@
     conf *= clamp01((Math.min(tFromHeel, 0.88 - tFromHeel) ) / 0.2 + 0.2);
     conf *= clamp01(1 - Math.max(0, Math.abs(axisAngleDeg) - 15) / 20);
     conf *= Math.abs(signed) < 0.5 * diaPx ? 0.8 : 1;
-    return { P1, P2, P3, axisAngleDeg, tFromHeel, signedDistancePx: signed, spanPx: span, labelConfidence: clamp01(conf), issues };
+    return { P1, P2, P3, axisAngleDeg, tFromHeel, signedDistancePx: signed, spanPx: span, labelConfidence: clamp01(conf), issues, toeDirection };
   }
 
   /**
@@ -494,6 +640,9 @@
         }
       }
       if (why.length) { d.reject = [...new Set(why)]; rejected.push(d); continue; }
+      const hs = innerHue(img, d.fit), refHue = (model && model.hue) || p.stickerHue;
+      d.hue = hs.hue; d.sat = hs.sat;
+      if (hs.n < 6 || hueDist(hs.hue, refHue) > p.hueTol || hs.sat < 0.45) { d.reject = ['스티커 색이 아님']; rejected.push(d); continue; }
       const f = d.fit;
       d.cx = f.cx; d.cy = f.cy; d.major = 2 * f.a; d.minor = 2 * f.b; d.axisRatio = f.b / f.a; d.diameterPx = 2 * f.a;
       d.score = round(clamp01((d.axisRatio - 0.6) / 0.3) * 0.35 + clamp01(1 - f.rms / Math.max(0.6, 0.08 * f.a)) * 0.35 + clamp01(f.coverage / 0.95) * 0.15 + clamp01(f.contrast / 0.6) * 0.15, 3);
@@ -520,13 +669,13 @@
     const dias = set.map(c => c.diameterPx), med = median(dias);
     if (dias.some(dd => Math.abs(dd - med) / med > p.sizeTolerance)) { result.reasons.push({ code: 'SIZE_MISMATCH', msg: '세 스티커의 크기가 서로 크게 다릅니다. 같은 스티커를 사용했는지, 카메라 각도가 바른지 확인해 주세요.' }); return result; }
     const pts = set.map(c => ({ x: c.cx, y: c.cy, ref: c }));
-    const lm = labelLandmarks(pts, toeDirection, med, { maxNavicularT: p.maxNavicularT });
+    const lm = labelLandmarks(pts, toeDirection, med, { maxNavicularT: p.maxNavicularT, autoToe: !(opts && opts.strictToe) });
     const ews = set.map(c => c.fit.edgeWidth).filter(v => v != null);
     const edgePx = ews.length ? median(ews) : null;
     const sharpLimit = Math.max(p.blurMinPx, p.blurRelR * med / 2);
     const sharp = edgePx != null && edgePx <= sharpLimit;
     result.quality = { edgeWidthPx: edgePx, edgeLimitPx: sharpLimit, sharp, diameterPx: med, sizeCv: cv(dias), minAxisRatio: Math.min(...set.map(c => c.axisRatio)), fitRmsPx: Math.max(...set.map(c => c.fit.rms)), minCoverage: Math.min(...set.map(c => c.fit.coverage)) };
-    result.colorModel = { inner: median(set.map(c => c.fit.contrast + st.med)) };
+    result.colorModel = { inner: median(set.map(c => c.fit.contrast + st.med)), hue: circMeanHue(set.map(c => c.hue)) };
     if (!sharp) result.reasons.push({ code: 'BLUR', msg: '이미지가 흐립니다. 카메라를 고정하고 초점을 맞춘 뒤 다시 촬영해 주세요.' });
     const detConf = Math.min(...set.map(c => c.score)) * clamp01(1 - cv(dias) / 0.5);
     const sharpConf = edgePx == null ? 0 : clamp01(1.5 - edgePx / sharpLimit);
@@ -915,20 +1064,19 @@
     return d / (a.quality.diameterPx || 1); // 스티커 지름 대비 이동량
   }
   // 화면 가이드 영역(이미지 비율). 화면에 그리는 점선 가이드와 같은 값을 쓴다.
-  const GUIDE = { x0: 0.04, y0: 0.12, x1: 0.96, y1: 0.92 };
+  const GUIDE = { x0: 0, y0: 0, x1: 1, y1: 1 };
   function framingCheck(det, guide) {
     if (!det.landmarks) return { ok: false, msg: '스티커를 찾는 중', code: 'NONE' };
     const g = guide || GUIDE;
     const [W, H] = det.imageSize; const { P1, P3 } = det.landmarks;
     const span = Math.abs(P1.x - P3.x) / W;
     const all = ['P1', 'P2', 'P3'].map(k => det.landmarks[k]);
-    const m = det.quality.diameterPx * 1.5;
+    const m = det.quality.diameterPx * 0.7; // 스티커가 화면 안에 온전히 보이면 된다(거리 제한 없음)
     const gx0 = Math.max(m, g.x0 * W), gy0 = Math.max(m, g.y0 * H), gx1 = Math.min(W - m, g.x1 * W), gy1 = Math.min(H - m, g.y1 * H);
     if (all.some(p => p.x < gx0)) return { ok: false, msg: '발을 화면 오른쪽으로 조금 옮겨 주세요', code: 'LEFT_OUT' };
     if (all.some(p => p.x > gx1)) return { ok: false, msg: '발을 화면 왼쪽으로 조금 옮겨 주세요', code: 'RIGHT_OUT' };
     if (all.some(p => p.y < gy0 || p.y > gy1)) return { ok: false, msg: '발이 가이드 위아래 밖에 있습니다. 휴대폰 각도를 맞춰 주세요', code: 'VERT_OUT' };
-    if (span < 0.35) return { ok: false, msg: '휴대폰을 발에 조금 더 가까이 두세요', code: 'FAR' };
-    if (span > 0.92) return { ok: false, msg: '휴대폰을 발에서 조금 더 멀리 두세요', code: 'NEAR' };
+    if (span < 0.12) return { ok: false, msg: '발이 너무 작게 보입니다. 휴대폰을 발에 더 가까이 두세요', code: 'FAR' };
     return { ok: true, msg: '촬영 범위 적절', code: 'OK' };
   }
 
@@ -1017,23 +1165,18 @@
     const [W, H] = det.imageSize, L = det.landmarks, F = fitFootModel(L, toe), M = FOOT_MODEL;
     const span = dist(L.P1, L.P3);
     const t = projectionT(L.P2, L.P3, L.P1), hl = signedDistanceToLine(L.P2, L.P1, L.P3) / F.scale + M.P3.y;
-    const Z = M.P2zone, inP2 = t >= Z.t[0] && t <= Z.t[1] && hl >= Z.hCm[0] && hl <= Z.hCm[1];
+    const Z = M.P2zone, inP2 = t >= Z.t[0] - 0.08 && t <= Z.t[1] + 0.08 && hl >= Z.hCm[0] - 0.6 && hl <= Z.hCm[1] + 0.8;
     const out = { inP3: true, inP1: true, inP2, t, p2HeightCm: hl, fit: F, adaptive: true, spanFrac: span / W };
     const fail = (code, msg) => Object.assign(out, { ok: false, code, msg });
-    const mx = 0.01 * W, frac = span / W;
-    if (frac < 0.30) return fail('FAR', '휴대폰을 발에 조금 더 가까이 두십시오');
-    if (frac > 0.80) return fail('NEAR', '휴대폰을 발에서 조금 더 멀리 두십시오');
-    if (Math.abs(F.angleDeg) > 10) return fail('TILT', '휴대폰이 기울어져 있습니다. 바닥과 수평이 되게 세워 주십시오');
-    const xs = [F.heel.x, F.toeTip.x], lo = Math.min(...xs), hi = Math.max(...xs);
-    const heelOutLeft = F.heel.x < mx, heelOutRight = F.heel.x > W - mx, toeOutLeft = F.toeTip.x < mx, toeOutRight = F.toeTip.x > W - mx;
-    if ((heelOutLeft || heelOutRight) && (toeOutLeft || toeOutRight)) return fail('NEAR', '발 전체가 보이지 않습니다. 휴대폰을 발에서 조금 더 멀리 두십시오');
-    if (heelOutLeft || heelOutRight) return fail('HEEL_CUT', '뒤꿈치가 화면 밖에 있습니다. 발을 조금 앞으로 옮겨 주십시오');
-    if (toeOutLeft || toeOutRight) return fail('TOE_CUT', '발끝이 화면 밖에 있습니다. 발을 조금 뒤로 옮겨 주십시오');
-    const floorY = Math.max(F.heelFloor.y, F.toeFloor.y);
-    if (floorY > H - 0.01 * H) return fail('TOO_LOW', '발바닥이 화면 아래로 잘립니다. 휴대폰 렌즈를 조금 아래로 향하게 해 주십시오');
-    if (Math.min(L.P2.y, L.P1.y, L.P3.y) < 0.06 * H) return fail('TOO_HIGH', '발이 화면 위쪽에 있습니다. 휴대폰 렌즈를 조금 위로 향하게 해 주십시오');
+    const frac = span / W;
+    if (Math.abs(F.angleDeg) > 22) return fail('TILT', '휴대폰이 많이 기울어져 있습니다. 바닥과 수평이 되게 세워 주십시오');
+    // 거리(크기)·발끝/뒤꿈치 잘림·바닥 잘림은 측정(세 스티커 기준선)에 필요 없으므로 촬영을 막지 않는다 → 참고 안내만
+    const notes = [];
+    if (frac < 0.18) notes.push('FAR');
+    const floorY = Math.max(F.heelFloor.y, F.toeFloor.y); if (floorY > H) notes.push('FLOOR_CUT');
+    out.notes = notes;
     if (!inP2) return fail('P2_ZONE', hl < Z.hCm[0] ? '가운데 스티커가 너무 낮습니다. 발배뼈 결절에 붙였는지 확인해 주십시오' : '가운데 스티커 위치를 확인해 주십시오. 발배뼈 결절에 붙여야 합니다');
-    void lo; void hi;
+
     return Object.assign(out, { ok: true, code: 'OK', msg: '발이 가이드에 정확히 들어왔습니다' });
   }
   function guideCheckFixed(det, toe, layout) {
@@ -1301,6 +1444,6 @@
     rgbToHsv, detectStickers, labelLandmarks, signedDistanceToLine, distanceToLine, projectionT,
     measureImage, comparePrePost, classify, roundMm, errorMetrics,
     splitByParticipant, trainCalibration, applyCalibration, fitMethod, validateConversion,
-    motionBetween, framingCheck, laplacianVariance, archAngle, cropImage, detectInRoi, labelsConsistent, combineDetections, shapeDelta, AI_FEATURES, errorFeatures, trainErrorModel, applyErrorModel, fitRidge, createLandmarkKalman, chromaMap, ALIGN, alignmentCheck, LOAD, loadEvidence, shapeOf, FOOT_MODEL, GUIDE_LAYOUT, guideGeometry, guideCheck, fitFootModel, detectSoleLine, heightAboveSole
+    motionBetween, framingCheck, laplacianVariance, archAngle, cropImage, detectInRoi, labelsConsistent, combineDetections, shapeDelta, AI_FEATURES, errorFeatures, trainErrorModel, applyErrorModel, fitRidge, createLandmarkKalman, chromaMap, ALIGN, alignmentCheck, LOAD, loadEvidence, shapeOf, FOOT_MODEL, GUIDE_LAYOUT, guideGeometry, guideCheck, fitFootModel, snapOutline, densify, segmentFoot, resampleClosed, detectSoleLine, heightAboveSole
   };
 });
