@@ -1,7 +1,7 @@
 {
-  "name": "AI Footarch — 발 아치 분석",
+  "name": "AI Footarch — 발활 분석",
   "short_name": "AI Footarch",
-  "description": "파란 스티커 3개 촬영으로 체중부하 전·후 발 아치 높이 변화를 측정하고 운동 중재를 기록합니다.",
+  "description": "파란 스티커 3개 촬영으로 체중부하 전·후 발활 높이 변화를 측정하고 운동 중재를 기록합니다.",
   "lang": "ko",
   "start_url": "./#/home",
   "scope": "./",

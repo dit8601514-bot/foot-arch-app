@@ -1,5 +1,5 @@
 /*
- * FootCore — 발 아치 측정 핵심 로직 (UI·저장소와 분리된 순수 함수)
+ * FootCore — 발활 측정 핵심 로직 (UI·저장소와 분리된 순수 함수)
  * 브라우저(window.FootCore)와 Node(module.exports) 양쪽에서 동작한다.
  * 측정 알고리즘 버전은 ALGORITHM_VERSION 으로 관리한다.
  */
@@ -376,7 +376,7 @@
    * 해부학적 기준점 라벨링.
    * toeDirection: 'right' | 'left' — 촬영 안내에 따라 발가락이 향하는 화면 방향.
    * 화면 좌우 순서만이 아니라 (1) 세 점의 배치(가장 먼 두 점=기준선 양끝, 사이 점=P2),
-   * (2) P2가 기준선 위(발등 쪽)에 있는지, (3) 발배뼈가 제1중족골두보다 발꿈치에 가까운지
+   * (2) P2가 기준선 위(발등 쪽)에 있는지, (3) 발배뼈가 첫째발허리뼈머리보다 발꿈치에 가까운지
    * (해부학적 배치 휴리스틱), (4) 발 축 기울기를 함께 확인한다.
    */
   function labelLandmarks(pts, toeDirection, diaPx, opts) {
@@ -401,7 +401,7 @@
     }
     const toeVec = toeDirection === 'left' ? { x: -1, y: 0 } : { x: 1, y: 0 };
     const dot = axis.x * toeVec.x + axis.y * toeVec.y;
-    const P1 = dot >= 0 ? e2 : e1;   // 발가락 쪽 끝 = 제1중족골두
+    const P1 = dot >= 0 ? e2 : e1;   // 발가락 쪽 끝 = 첫째발허리뼈머리
     const P3 = dot >= 0 ? e1 : e2;   // 발꿈치 쪽 끝 = 발꿈치뼈
     const P2 = mid;
 
@@ -416,7 +416,7 @@
     if (tFromHeel < 0.12 || tFromHeel > 0.88) issues.push({ code: 'P2_OUTSIDE', msg: '가운데 스티커(P2)가 두 스티커 사이에 있지 않습니다. 부착 위치를 확인해 주세요.' });
     else if (tFromHeel > (opts && opts.maxNavicularT || 0.55)) issues.push({ code: 'P2_NEAR_TOE', msg: 'P2가 발꿈치보다 발가락 쪽에 치우쳐 있어 발 방향 또는 부착 위치가 불확실합니다.' });
     if (signed < -0.5 * diaPx) issues.push({ code: 'P2_BELOW', msg: 'P2가 기준선 아래에 있습니다. 카메라가 거꾸로 되었거나 부착 위치가 잘못되었을 수 있습니다.' });
-    if (span < 5 * diaPx) issues.push({ code: 'SPAN_SHORT', msg: '스티커 간 거리가 너무 짧습니다. 부착 위치(제1중족골두–발꿈치)를 확인해 주세요.' });
+    if (span < 5 * diaPx) issues.push({ code: 'SPAN_SHORT', msg: '스티커 간 거리가 너무 짧습니다. 부착 위치(첫째발허리뼈머리–발꿈치)를 확인해 주세요.' });
 
     // 라벨 신뢰도: 경계로부터의 여유
     conf *= clamp01((Math.min(tFromHeel, 0.88 - tFromHeel) ) / 0.2 + 0.2);
@@ -717,7 +717,7 @@
     const { P1, P2, P3 } = det.landmarks;
     if (dist(P1, P3) < 1) { out.notes.push('P1과 P3 위치가 부적절합니다.'); return out; }
     out.heightPx = distanceToLine(P2, P1, P3);
-    // 스티커 아치 각도: P2(발배뼈)에서 P3(발꿈치)·P1(제1중족골두)로 향하는 두 선이 이루는 각. 아치가 낮아질수록 180°에 가까워진다.
+    // 스티커 발활 각도: P2(발배뼈)에서 P3(발꿈치)·P1(첫째발허리뼈머리)로 향하는 두 선이 이루는 각. 발활이 낮아질수록 180°에 가까워진다.
     out.archAngleDeg = archAngle(P1, P2, P3);
     out.signedHeightPx = det.landmarks.signedDistancePx;
     out.spanPx = det.landmarks.spanPx;
@@ -747,7 +747,7 @@
       for (const k of ['P1', 'P2', 'P3']) f[k + 'Mm'] = f[k + 'Px'] * out.mmPerPx;
       const std = c.standardStickerHeightMm || 20, tol = c.stickerHeightTolMm || 6;
       f.placement = ['P1', 'P3'].map(k => ({ key: k, mm: f[k + 'Mm'], ok: Math.abs(f[k + 'Mm'] - std) <= tol }));
-      f.placementNotes = f.placement.filter(x => !x.ok).map(x => `${x.key === 'P1' ? 'P1(제1중족골두)' : 'P3(발꿈치뼈)'} 스티커 높이 ${x.mm.toFixed(0)} mm — 표준 ${std} mm(바닥에서 2 cm)와 차이가 큽니다.`);
+      f.placementNotes = f.placement.filter(x => !x.ok).map(x => `${x.key === 'P1' ? 'P1(첫째발허리뼈머리)' : 'P3(발꿈치뼈)'} 스티커 높이 ${x.mm.toFixed(0)} mm — 표준 ${std} mm(바닥에서 2 cm)와 차이가 큽니다.`);
     }
     out.floor = f;
   }
@@ -781,7 +781,7 @@
       r.status = '재촬영 필요'; r.notes.push(`전·후 촬영 거리가 달라 축척 차이(${(sd * 100).toFixed(1)}%)가 허용치(${c.maxScaleDiffPrePost * 100}%)를 넘었습니다.`); return r;
     }
     // 카메라가 고정되었음이 축척 비교로 확인되면 두 사진의 평균 축척을 공통으로 사용한다
-    // (사진별 지름 추정 잡음이 아치 높이 전체에 곱해져 변화량을 왜곡하는 것을 줄임)
+    // (사진별 지름 추정 잡음이 발활 높이 전체에 곱해져 변화량을 왜곡하는 것을 줄임)
     const common = (pre.mmPerPx + post.mmPerPx) / 2;
     r.mmPerPx = common;
     let preMm = pre.heightPx * common, postMm = post.heightPx * common;
@@ -802,7 +802,7 @@
     } else if (c.primaryMeasure === 'floor') r.notes.push('바닥선이 확인되지 않아 P1–P3 기준선 방식으로 분류했습니다.');
     r.scaleDiff = sd;
     if (r.changeMm >= c.maxPlausibleChangeMm) { r.status = '측정 불가'; r.notes.push(`변화량(${r.changeMm.toFixed(1)}mm)이 비정상적으로 큽니다. 스티커 위치·자세를 확인하고 다시 검사해 주세요.`); r.changeMm = null; return r; }
-    if (postMm - preMm > c.riseReviewMm) r.flags.push('체중부하 후 아치 높이가 오히려 높게 측정되었습니다. 자세·스티커 위치 검토가 필요합니다.');
+    if (postMm - preMm > c.riseReviewMm) r.flags.push('체중부하 후 발활 높이가 오히려 높게 측정되었습니다. 자세·스티커 위치 검토가 필요합니다.');
     r.status = '측정 가능';
     return r;
   }
@@ -924,7 +924,7 @@
   // ═══════════════ 운동(중재) 콘텐츠 ═══════════════
   // 기본 운동 초안(이름·일반 설명) — 사용자 앱 첫 실행과 관리자 앱 '기본 운동 불러오기'에서 같이 쓴다
   const EXERCISE_DRAFTS = [
-    { name: '짧은 발 운동(Short Foot Exercise)', purpose: '발바닥 내재근을 활성화하여 내측 종아치 지지를 돕는 운동', posture: '의자에 앉아 발바닥 전체를 바닥에 붙이고 발가락은 편안하게 둔다.', steps: ['발가락을 구부리지 않은 채 엄지발가락 뿌리(제1중족골두)를 발꿈치 쪽으로 끌어당기듯 힘을 준다.', '아치가 살짝 높아지는 것을 확인하고 그 상태를 유지한다.', '천천히 힘을 풀고 처음 자세로 돌아온다.'], cautions: ['발가락을 말아 쥐지 않는다.', '통증이 생기면 즉시 중단한다.'] },
+    { name: '짧은 발 운동(Short Foot Exercise)', purpose: '발바닥 내재근을 활성화하여 안쪽세로발활 지지를 돕는 운동', posture: '의자에 앉아 발바닥 전체를 바닥에 붙이고 발가락은 편안하게 둔다.', steps: ['발가락을 구부리지 않은 채 엄지발가락 뿌리(첫째발허리뼈머리)를 발꿈치 쪽으로 끌어당기듯 힘을 준다.', '발활이 살짝 높아지는 것을 확인하고 그 상태를 유지한다.', '천천히 힘을 풀고 처음 자세로 돌아온다.'], cautions: ['발가락을 말아 쥐지 않는다.', '통증이 생기면 즉시 중단한다.'] },
     { name: '수건 당기기(Towel Curl)', purpose: '발가락 굽힘근 사용을 연습하는 운동', posture: '의자에 앉아 발 아래 수건을 펼쳐 둔다.', steps: ['발꿈치를 바닥에 고정한다.', '발가락으로 수건을 움켜쥐어 몸쪽으로 끌어당긴다.', '수건을 다시 펴고 반복한다.'], cautions: ['미끄러운 바닥에서는 시행하지 않는다.', '발가락 경련이 생기면 쉬었다가 진행한다.'] },
     { name: '발꿈치 들기(Heel Raise)', purpose: '종아리 근육과 발목 주변 근육을 강화하는 운동', posture: '벽이나 의자를 잡고 양발을 골반 너비로 벌려 선다.', steps: ['체중을 엄지발가락 쪽에 고르게 싣고 발꿈치를 천천히 들어 올린다.', '꼭대기에서 잠시 멈춘다.', '천천히 발꿈치를 내린다.'], cautions: ['균형이 불안하면 반드시 지지물을 잡는다.', '발목이 바깥으로 꺾이지 않게 한다.'] }
   ];
@@ -944,7 +944,7 @@
     { key: 'ai', label: '앱 NDT(기준선 하강, mm)' },
     { key: 'floorDrop', label: '바닥 기준 하강(mm)' },
     { key: 'preFloor', label: '앉은 자세 발배뼈 높이(mm)' },
-    { key: 'angleChange', label: '스티커 아치 각도 변화(°)' },
+    { key: 'angleChange', label: '스티커 발활 각도 변화(°)' },
     { key: 'spanGain', label: '체중부하 시 발 길이 변화(%)' },
     { key: 'diaPx', label: '스티커 크기(px · 촬영 거리)' },
     { key: 'tilt', label: '발 축 기울기(°)' },
@@ -1092,7 +1092,7 @@
     const sr = o.selfReport || {}, actions = []; let level, headline, nextTestDays;
     const worsening = W.slopePer30 != null && W.slopePer30 > 0.5 * o.mdc, improving = W.slopePer30 != null && W.slopePer30 < -0.5 * o.mdc;
     if (sr.pain) { level = 'consult'; headline = '통증·붓기가 있어 전문가 상담을 먼저 권합니다'; nextTestDays = 14; actions.push({ kind: 'consult', text: '정형외과·재활의학과 등 전문가에게 발 상태를 확인받으세요. 통증이 있을 때는 운동 강도를 낮춥니다.' }); }
-    else if (cat === 'normal') { level = 'keep'; headline = improving ? '좋아지고 있어요 · 지금 관리를 유지하세요' : '정상 범위 · 아치를 지키는 가벼운 관리'; nextTestDays = 28; }
+    else if (cat === 'normal') { level = 'keep'; headline = improving ? '좋아지고 있어요 · 지금 관리를 유지하세요' : '정상 범위 · 발활을 지키는 가벼운 관리'; nextTestDays = 28; }
     else if (cat === 'mild') { level = 'care'; headline = worsening ? '경증 · 최근 하강이 늘고 있어 관리를 강화합니다' : '경증 · 발바닥 근육을 깨우는 운동을 시작하세요'; nextTestDays = worsening ? 7 : 14; }
     else { level = 'intense'; headline = `${cat === 'severe' ? '중증' : '중등도'} 범위 · 꾸준한 운동과 전문가 확인을 권합니다`; nextTestDays = 7; actions.push({ kind: 'consult', text: '하강량이 큰 편입니다. 이 앱의 결과는 진단이 아니므로 전문가 확인을 함께 받으세요.' }); }
     const dose = { keep: '주 3회 · 1세트', care: '주 5회 · 2세트', intense: '매일 · 3세트', consult: '통증 없는 범위에서 주 3회' }[level];
@@ -1102,7 +1102,7 @@
     if (o.asym != null && o.asym >= o.mdc) actions.push({ kind: 'asym', text: `좌우 차이 ${(o.asym / 10).toFixed(2)} cm — ${feet.left.estimateMm > feet.right.estimateMm ? '왼발' : '오른발'}에 운동을 한 세트 더 하세요.` });
     if (W.lastOutlier) actions.push({ kind: 'retake', text: `이번 측정은 평소 상태와 많이 달라 다시 찍기를 권합니다${W.lastIssues.length ? ' (' + W.lastIssues.join(', ') + ')' : ''}.` });
     if (!o.refs) actions.push({ kind: 'reference', text: '병원·전문가가 잰 발배뼈 하강 값이 있으면 입력해 주세요. AI가 내 측정 습관에 맞춰 오차를 보정합니다.' });
-    if (sr.restFlat) actions.push({ kind: 'consult', text: '앉아서도 아치가 거의 보이지 않으면 경직성 평발일 수 있어 전문가 확인이 필요합니다.' });
+    if (sr.restFlat) actions.push({ kind: 'consult', text: '앉아서도 발활이 거의 보이지 않으면 경직성 평발일 수 있어 전문가 확인이 필요합니다.' });
     return { level, headline, actions, nextTestDays, nextTestAt: o.now + nextTestDays * DAY, focusFoot: worst, estimateMm: est };
   }
 
@@ -1267,14 +1267,14 @@
   /**
    * 스티커 부착 표준: Nielsen 등(2009, J Foot Ankle Res 2:12)의 3마커 방법
    *  - P3 발꿈치뼈 안쪽: 바닥에서 2 cm 위, 발꿈치 뒤끝에서 4 cm 앞
-   *  - P1 제1중족골두 안쪽: 바닥에서 2 cm 위
-   *  - P2 발배뼈 결절(가장 튀어나온 곳)
+   *  - P1 첫째발허리뼈머리 안쪽: 바닥에서 2 cm 위
+   *  - P2 발배뼈거친면(가장 튀어나온 곳)
    * 윤곽선 좌표는 화면 안내용 일반화 형상(성인 발 길이 약 25 cm 가정)이며 측정에는 쓰지 않는다.
    */
   const FOOT_MODEL = {
-    lengthCm: 25.3, truncatedCm: 18.5,         // 발 길이, 발꿈치~제1중족지관절(대표값: 성인 평균 발 길이 25.3 cm 연구 참고)
+    lengthCm: 25.3, truncatedCm: 18.5,         // 발 길이, 발꿈치~첫째발허리발가락관절(대표값: 성인 평균 발 길이 25.3 cm 연구 참고)
     P3: { x: 4, y: 2 }, P1: { x: 18.5, y: 2 }, // 표준 부착 위치
-    P2zone: { t: [0.18, 0.62], hCm: [1.8, 6.5] }, // 발배뼈 결절 탐색 범위: P3→P1 진행 비율 t, 바닥 위 높이(cm)
+    P2zone: { t: [0.18, 0.62], hCm: [1.8, 6.5] }, // 발배뼈거친면 탐색 범위: P3→P1 진행 비율 t, 바닥 위 높이(cm)
     malleolus: { x: 6.2, y: 7.2 },
     outline: [[0, 1.4], [0.25, 3.6], [1.0, 6.6], [2.2, 9.6], [2.8, 12.5], [8.6, 12.5], [9.6, 9.4], [12.5, 7.0], [16.0, 5.0], [19.5, 3.7], [22.5, 2.8], [24.6, 2.0], [25.3, 1.1], [25.0, 0.25], [22.5, 0], [18.0, 0], [15.6, 0.45], [12.5, 1.15], [9.5, 1.1], [7.2, 0.4], [5.8, 0], [2.0, 0], [0.5, 0.35]]
   };
@@ -1331,7 +1331,7 @@
     if (frac < 0.18) notes.push('FAR');
     const floorY = Math.max(F.heelFloor.y, F.toeFloor.y); if (floorY > H) notes.push('FLOOR_CUT');
     out.notes = notes;
-    if (!inP2) return fail('P2_ZONE', hl < Z.hCm[0] ? '가운데 스티커가 너무 낮습니다. 발배뼈 결절에 붙였는지 확인해 주십시오' : '가운데 스티커 위치를 확인해 주십시오. 발배뼈 결절에 붙여야 합니다');
+    if (!inP2) return fail('P2_ZONE', hl < Z.hCm[0] ? '가운데 스티커가 너무 낮습니다. 발배뼈거친면에 붙였는지 확인해 주십시오' : '가운데 스티커 위치를 확인해 주십시오. 발배뼈거친면에 붙여야 합니다');
 
     return Object.assign(out, { ok: true, code: 'OK', msg: '발이 가이드에 정확히 들어왔습니다' });
   }
@@ -1345,7 +1345,7 @@
     const Z = FOOT_MODEL.P2zone, inP2 = t >= Z.t[0] && t <= Z.t[1] && hl >= Z.hCm[0] && hl <= Z.hCm[1];
     const out = { inP3, inP1, inP2, d3: d3 / g.P3.r, d1: d1 / g.P1.r, t, p2HeightCm: hl, geom: g };
     if (inP3 && inP1) {
-      if (!inP2) return Object.assign(out, { ok: false, code: 'P2_ZONE', msg: hl < Z.hCm[0] ? '가운데 스티커가 너무 낮습니다. 발배뼈 결절에 붙였는지 확인해 주십시오' : '가운데 스티커 위치를 확인해 주십시오. 발배뼈 결절에 붙여야 합니다' });
+      if (!inP2) return Object.assign(out, { ok: false, code: 'P2_ZONE', msg: hl < Z.hCm[0] ? '가운데 스티커가 너무 낮습니다. 발배뼈거친면에 붙였는지 확인해 주십시오' : '가운데 스티커 위치를 확인해 주십시오. 발배뼈거친면에 붙여야 합니다' });
       return Object.assign(out, { ok: true, code: 'OK', msg: '발이 가이드에 정확히 들어왔습니다' });
     }
     // 코칭: 크기(거리) → 앞뒤 → 높이 순서로 가장 큰 어긋남부터
@@ -1364,7 +1364,7 @@
   // ═══════════════ 바닥선(발바닥–바닥 경계) 검출 ═══════════════
   /**
    * 발꿈치(P3)와 앞발(P1) 아래의 세로줄들을 아래로 훑어 피부가 끝나는 경계를 찾고, 두 구간의 경계점에 직선을 맞춘다.
-   * 안쪽 면에서 발바닥이 바닥에 닿는 곳은 발꿈치와 앞발이므로 이 직선이 바닥선이다(아치 부분은 들려 있어 쓰지 않음).
+   * 안쪽 면에서 발바닥이 바닥에 닿는 곳은 발꿈치와 앞발이므로 이 직선이 바닥선이다(발활 부분은 들려 있어 쓰지 않음).
    * 피부 기준색: 각 스티커 바로 아래(스티커 가장자리와 바닥 사이)에서 표본을 취한다.
    * 반환: { ok, a, b(직선 위 두 점), angleDeg, rms, n, reason } — 신뢰할 수 없으면 ok=false와 이유.
    */
@@ -1518,7 +1518,7 @@
   // ───────────────────────── 체중부하 인지(형태 근거) ─────────────────────────
   /**
    * 비체중부하 기록(ref)과 현재 검출(cur)을 스티커 지름 단위로 비교해 체중이 실렸다는 형태 근거를 계산한다.
-   * - drop: P2 높이 감소(지름 배수) — 아치 하강
+   * - drop: P2 높이 감소(지름 배수) — 발활 하강
    * - spanGain: P1–P3 거리 증가율 — 체중으로 발이 길어짐
    * 거리·해상도와 무관하도록 모두 스티커 지름으로 정규화한다. 기준값은 초기 휴리스틱이며 실제 자료로 조정해야 한다.
    */
@@ -1575,7 +1575,7 @@
    */
   /**
    * 형태 변화량(스티커 지름 단위): 세 점의 '서로에 대한' 배치만 비교한다.
-   * 휴대폰이 흔들려 세 점이 함께 이동·회전하면 0에 가깝고, 발 자세가 바뀌면(아치 하강, 발 길이 변화) 커진다.
+   * 휴대폰이 흔들려 세 점이 함께 이동·회전하면 0에 가깝고, 발 자세가 바뀌면(발활 하강, 발 길이 변화) 커진다.
    */
   function shapeDelta(a, b) {
     if (!a || !b || !a.landmarks || !b.landmarks) return Infinity;

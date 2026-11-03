@@ -28,7 +28,7 @@ async function signup(pg, { name, phone, un, pw, research }) {
   const A = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 }); const pa = await A.newPage();
   pa.on('pageerror', e => errors.push(e.message));
   await pa.goto(U + '#/home'); await pa.waitForTimeout(800);
-  log('서버 설정 시 로그인 전에는 로그인/회원가입 화면으로', (await pa.evaluate(() => location.hash)) === '#/auth' && await pa.isVisible('text=AI 발 아치 분석 서비스'));
+  log('서버 설정 시 로그인 전에는 로그인/회원가입 화면으로', (await pa.evaluate(() => location.hash)) === '#/auth' && await pa.isVisible('text=AI 발활 분석 서비스'));
   await shot(pa, 'a01-auth');
   await pa.click('text=회원가입'); await pa.waitForSelector('#nm'); await shot(pa, 'a02-signup');
   // 입력값 검증

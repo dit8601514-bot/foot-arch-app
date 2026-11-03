@@ -26,7 +26,7 @@ route('/home', 'AI Footarch', async (v) => {
     <nav class="menu-pills" aria-label="주요 메뉴">
       <a class="menu-pill" href="#/self"><span class="mi">${ICON.scan}</span>측정하기<span class="chev">${ICON.chev}</span></a>
       <a class="menu-pill" href="#/records"><span class="mi">${ICON.calendar}</span>기록보기<span class="chev">${ICON.chev}</span></a>
-      <a class="menu-pill" href="#/exercises"><span class="mi">${ICON.playBox}</span>족궁재활영상<span class="chev">${ICON.chev}</span></a>
+      <a class="menu-pill" href="#/exercises"><span class="mi">${ICON.playBox}</span>발활 재활영상<span class="chev">${ICON.chev}</span></a>
     </nav>
     <div class="sec-title">최근 결과</div>
     <div class="grid2">${['left', 'right'].map(f => { const e = latest(f); return `<a class="mini" href="${e ? '#/result/' + e.id : '#/self?feet=' + f}">
@@ -123,10 +123,10 @@ ${ticks.join('')}
 <line x1="48" y1="10" x2="48" y2="70" stroke="#00f" stroke-width="0.5" stroke-dasharray="2 1"/>
 <text x="50" y="16" font-size="3.4" font-family="sans-serif" fill="#00f">발꿈치 뒤끝에서 4 cm: P3 중심</text>
 <circle cx="48" cy="50" r="2" fill="none" stroke="#d00" stroke-width="0.5"/>
-<text x="8" y="6" font-size="3.6" font-family="sans-serif">발 아치 앱 스티커 부착 자 — "실제 크기(100%)"로 인쇄 후 아래 100 mm 눈금을 자로 확인하세요</text>
+<text x="8" y="6" font-size="3.6" font-family="sans-serif">발활 앱 스티커 부착 자 — "실제 크기(100%)"로 인쇄 후 아래 100 mm 눈금을 자로 확인하세요</text>
 <text x="8" y="77" font-size="3.1" font-family="sans-serif">사용법: ① 아래 선(0)을 바닥에 대고 카드를 발 안쪽에 세웁니다. ② 왼쪽 끝을 발꿈치 뒤끝에 맞춥니다.</text>
-<text x="8" y="82" font-size="3.1" font-family="sans-serif">③ 파란 점선과 빨간 선이 만나는 ○ 위치에 P3 스티커 중심을 붙입니다. ④ 제1중족골두 안쪽에도 빨간 선 높이(2 cm)로 P1을 붙입니다.</text>
-<text x="8" y="87" font-size="3.1" font-family="sans-serif">⑤ P2는 발배뼈 결절(안쪽 복사뼈 아래 앞쪽의 가장 튀어나온 뼈)에 붙입니다. 기준: Nielsen 등(2009) 3마커 방법.</text>
+<text x="8" y="82" font-size="3.1" font-family="sans-serif">③ 파란 점선과 빨간 선이 만나는 ○ 위치에 P3 스티커 중심을 붙입니다. ④ 첫째발허리뼈머리 안쪽에도 빨간 선 높이(2 cm)로 P1을 붙입니다.</text>
+<text x="8" y="87" font-size="3.1" font-family="sans-serif">⑤ P2는 발배뼈거친면(안쪽 복사뼈 아래 앞쪽의 가장 튀어나온 뼈)에 붙입니다. 기준: Nielsen 등(2009) 3마커 방법.</text>
 <line x1="8" y1="91" x2="108" y2="91" stroke="#000" stroke-width="0.3"/><text x="110" y="92" font-size="3" font-family="sans-serif">100 mm</text>
 </svg>`;
 }
@@ -135,8 +135,8 @@ const STICKER_STANDARD_HTML = `
     <div class="card">
       <b>표준 부착 위치</b> <span class="tiny">(Nielsen 등, 2009 · J Foot Ankle Res 2:12의 3마커 방법)</span>
       <dl class="kv" style="grid-template-columns:auto 1fr;margin-top:6px">
-        <dt>P1</dt><dd style="text-align:left">제1중족골두(엄지발가락 뿌리 안쪽 뼈) 안쪽 면, <b>바닥에서 2 cm 위</b></dd>
-        <dt>P2</dt><dd style="text-align:left">발배뼈 결절 — 안쪽 복사뼈 <b>아래 앞쪽</b>에서 가장 튀어나온 뼈. 안쪽 복사뼈 자체가 아닙니다.</dd>
+        <dt>P1</dt><dd style="text-align:left">첫째발허리뼈머리(엄지발가락 뿌리 안쪽 뼈) 안쪽 면, <b>바닥에서 2 cm 위</b></dd>
+        <dt>P2</dt><dd style="text-align:left">발배뼈거친면 — 안쪽 복사뼈 <b>아래 앞쪽</b>에서 가장 튀어나온 뼈. 안쪽 복사뼈 자체가 아닙니다.</dd>
         <dt>P3</dt><dd style="text-align:left">발꿈치뼈 안쪽 면, <b>바닥에서 2 cm 위</b>, <b>발꿈치 뒤끝에서 4 cm 앞</b></dd>
       </dl>
       <p class="tiny">앱은 P2에서 P1–P3 기준선까지의 수직거리 변화를 잽니다(위 논문과 같은 정의). 바닥선이 보이면 바닥 기준 발배뼈 높이(표준 NDT 방식)도 함께 계산하고, P1·P3가 2 cm 높이에 붙었는지 점검합니다.</p>
@@ -146,9 +146,9 @@ const STICKER_STANDARD_HTML = `
     <ol class="steps">
       <li>피부의 땀·로션을 닦고 말립니다.</li>
       <li>의자에 앉아 발을 바닥에 편하게 둡니다(체중을 싣지 않음).</li>
-      <li><b>발배뼈 결절 찾기:</b> 안쪽 복사뼈에서 엄지발가락 쪽 아래로 손가락을 미끄러뜨리면 처음 만져지는 단단한 돌출부입니다. 발을 안쪽으로 살짝 돌리면 더 잘 튀어나옵니다.</li>
-      <li>부착 자를 발 안쪽에 세워 <b>P3</b>(발꿈치 뒤끝에서 4 cm, 높이 2 cm)와 <b>P1</b>(제1중족골두, 높이 2 cm)을 붙입니다.</li>
-      <li><b>P2</b>는 스티커 중심이 발배뼈 결절의 가장 튀어나온 곳에 오도록 붙입니다.</li>
+      <li><b>발배뼈거친면 찾기:</b> 안쪽 복사뼈에서 엄지발가락 쪽 아래로 손가락을 미끄러뜨리면 처음 만져지는 단단한 돌출부입니다. 발을 안쪽으로 살짝 돌리면 더 잘 튀어나옵니다.</li>
+      <li>부착 자를 발 안쪽에 세워 <b>P3</b>(발꿈치 뒤끝에서 4 cm, 높이 2 cm)와 <b>P1</b>(첫째발허리뼈머리, 높이 2 cm)을 붙입니다.</li>
+      <li><b>P2</b>는 스티커 중심이 발배뼈거친면의 가장 튀어나온 곳에 오도록 붙입니다.</li>
       <li>세 스티커는 같은 크기의 파란색 원형 스티커를 씁니다(지름은 연구자 설정과 같아야 합니다).</li>
     </ol>`;
 function bindRuler(root) { const b = $('#rulerBtn', root); if (b) b.onclick = () => download('foot-arch-placement-ruler.svg', placementRulerSvg(), 'image/svg+xml'); }
@@ -423,7 +423,7 @@ route('/result/:id', '측정 결과', async (v, p) => {
       ${metric(ICON.drop, 'P1–P3 기준선 하강', '연구 정의 · Nielsen 등 2009', c.lineChangeMm != null ? mm(c.lineChangeMm) : c.changePx != null ? px(c.changePx) : '—')}
       ${metric(ICON.height, '발배뼈 높이(바닥 기준)', '앉음 → 섬 · 표준 NDT 방식', fl ? `${mm(fl.preMm)} → ${mm(fl.postMm)}` : '<span class="tiny">바닥선 미확인</span>')}
       ${fl ? metric(ICON.drop, '바닥 기준 하강', '', mm(fl.dropMm)) : ''}
-      ${metric(ICON.angle, '스티커 아치 각도', 'P3–P2–P1 · 앉음 → 섬', ang ? `${deg(ang.pre)} → ${deg(ang.post)}` : '—')}
+      ${metric(ICON.angle, '스티커 발활 각도', 'P3–P2–P1 · 앉음 → 섬', ang ? `${deg(ang.pre)} → ${deg(ang.post)}` : '—')}
       ${e.aiCorrection ? metric(ICON.chart, 'AI 보정 (임상 NDT 추정)', `모델 v${e.aiCorrection.version} · 예상 오차 ±${cmTxt(e.aiCorrection.piMm || 0)}${e.aiCorrection.category ? ' · ' + e.aiCorrection.category.label : ''}`, mm(e.aiCorrection.mm)) : ''}
       ${metric(ICON.check, '측정 신뢰도', '검출·선명도 기반 휴리스틱', pct(e.measurementConfidence))}
     </div>
@@ -477,8 +477,8 @@ route('/result/:id', '측정 결과', async (v, p) => {
 });
 function loadRecText(r) {
   const f = r.final || {}, pc = x => (x * 100).toFixed(1) + '%';
-  const shape = r.confirmed ? (f.by === 'drop' || (r.live && r.live.by === 'drop') ? '아치 하강 확인' : '발 길이 변화 확인') : '형태 변화 작음';
-  return `${r.transitionSeen ? '일어섬 확인' : '동작 미확인'} · ${shape}<div class="tiny">아치 하강 ${(f.drop || 0).toFixed(2)}×스티커 지름 · 발 길이 ${f.spanGain >= 0 ? '+' : ''}${pc(f.spanGain || 0)}</div>`;
+  const shape = r.confirmed ? (f.by === 'drop' || (r.live && r.live.by === 'drop') ? '발활 하강 확인' : '발 길이 변화 확인') : '형태 변화 작음';
+  return `${r.transitionSeen ? '일어섬 확인' : '동작 미확인'} · ${shape}<div class="tiny">발활 하강 ${(f.drop || 0).toFixed(2)}×스티커 지름 · 발 길이 ${f.spanGain >= 0 ? '+' : ''}${pc(f.spanGain || 0)}</div>`;
 }
 function modeLabel(m) { return { auto: '자동', manual: '수동', upload: '파일', voice: '음성 자동' }[m] || m; }
 async function deleteExam(e, localOnly) {
@@ -550,7 +550,7 @@ route('/history', '검사 이력', async (v, p) => {
   const L = latest('left'), R = latest('right');
   v.innerHTML = `<h2>검사 이력</h2>
     <div class="seg" id="fseg">${[['all', '전체'], ['left', '왼발'], ['right', '오른발']].map(([k, l]) => `<button data-v="${k}" class="${f === k ? 'on' : ''}">${l}</button>`).join('')}</div>
-    <div class="card"><b>발 아치 높이 변화량 추이 (cm)</b>
+    <div class="card"><b>발활 높이 변화량 추이 (cm)</b>
       ${valid.length ? `<div class="legend"><span><i style="background:var(--series-1)"></i>왼발</span><span><i style="background:var(--series-2)"></i>오른발</span></div><canvas class="chart" id="ch" aria-label="변화량 그래프"></canvas><p class="tiny">길이 환산이 유효한 검사만 표시합니다. 점선은 연구 분류 경계(0.2·0.4·0.6 cm)입니다.</p>`
       : '<p class="muted small">mm 값이 확보된 검사가 아직 없어 그래프를 그릴 수 없습니다.</p>'}</div>
     <div class="card"><b>좌우 발 비교(가장 최근 유효 결과)</b>
@@ -693,7 +693,7 @@ function refModal(cur) {
     const bg = document.createElement('div'); bg.className = 'modal-bg';
     const close = () => bg.parentNode && bg.parentNode.removeChild(bg);
     bg.innerHTML = `<div class="modal" role="dialog" aria-modal="true"><b>실제로 잰 값 입력</b>
-      <p class="small">자로 잰 <b>발배뼈 높이</b>(바닥 → 발배뼈 결절)를 넣어 주세요. AI가 앱 값과의 차이를 <b>앉은 자세·선 자세 따로</b> 배워, 다음 측정부터 나에게 맞춰 보정합니다.</p>
+      <p class="small">자로 잰 <b>발배뼈 높이</b>(바닥 → 발배뼈거친면)를 넣어 주세요. AI가 앱 값과의 차이를 <b>앉은 자세·선 자세 따로</b> 배워, 다음 측정부터 나에게 맞춰 보정합니다.</p>
       <div class="seg" id="ru"><button data-u="cm" class="${unit0 === 'cm' ? 'on' : ''}">cm</button><button data-u="mm" class="${unit0 === 'mm' ? 'on' : ''}">mm</button></div>
       <div class="grid2" style="margin-top:10px"><div><label class="f" for="rPre">앉은 자세(체중부하 전)</label><input id="rPre" type="number" inputmode="decimal" step="0.01" value="${show(c.preMm)}" placeholder="예: 3.4"></div>
         <div><label class="f" for="rPost">선 자세(체중부하 후)</label><input id="rPost" type="number" inputmode="decimal" step="0.01" value="${show(c.postMm)}" placeholder="예: 2.4"></div></div>

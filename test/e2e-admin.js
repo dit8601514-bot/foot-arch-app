@@ -137,7 +137,7 @@ function synthExam(id, foot) {
   await pu.goto(U + '#/exercises'); await pu.waitForSelector('.vcard'); await pu.waitForTimeout(800);
   const ex = await pu.evaluate(async () => (await DB.all('exercises')).filter(x => x.server).map(x => ({ id: x.id, name: x.name, url: x.videoUrl, cats: x.categories })));
   const exTxt = await pu.textContent('main'); await shot(pu, 'm10-user-exercises');
-  log('[사용자 앱] 관리자가 올린 운동 4개가 족궁재활영상에 표시', ex.length === 4 && exTxt.includes('발가락 벌리기'), ex.map(x => x.name).join(', '));
+  log('[사용자 앱] 관리자가 올린 운동 4개가 발활 재활영상에 표시', ex.length === 4 && exTxt.includes('발가락 벌리기'), ex.map(x => x.name).join(', '));
   const vx = ex.find(x => x.id === 'srv-' + first.id);
   await pu.goto(U + '#/exercise/' + vx.id); await pu.waitForSelector('#vid');
   const vok = await pu.evaluate(() => new Promise(r => { const v = document.querySelector('#vid'); if (v.readyState >= 1) return r(true); v.addEventListener('loadedmetadata', () => r(true)); v.addEventListener('error', () => r(false)); setTimeout(() => r(v.readyState >= 1), 5000); }));

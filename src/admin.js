@@ -151,7 +151,7 @@ function userDetail(v, id) {
   const p = userOf(id); if (!p) { v.innerHTML = '<div class="note bad">사용자를 찾을 수 없거나 열람 권한이 없습니다.</div>'; return; }
   const ex = D.exams.filter(e => e.user_id === id);
   v.innerHTML = `<p><a href="#/users">← 사용자 목록</a></p><h1>${esc(p.name)} <span class="muted small">@${esc(p.username)} · ${pcode(p.id)}</span></h1>
-    <div class="note small">임상 NDT: 같은 날 전문가가 표준 방법(앉은 자세와 선 자세에서 발배뼈 결절 높이를 자로 측정한 차이)으로 잰 값을 mm로 입력하세요. AI 오차 보정 학습의 정답으로 쓰입니다.</div>
+    <div class="note small">임상 NDT: 같은 날 전문가가 표준 방법(앉은 자세와 선 자세에서 발배뼈거친면 높이를 자로 측정한 차이)으로 잰 값을 mm로 입력하세요. AI 오차 보정 학습의 정답으로 쓰입니다.</div>
     <div class="card scroll"><table><thead><tr><th>측정 시각</th><th>발</th><th>앱 NDT</th><th>바닥 기준 하강</th><th>분류</th><th>AI 보정</th><th>임상 NDT (mm)</th><th>측정자</th><th></th></tr></thead><tbody>
     ${ex.map(e => { const d = e.data || {}, c = d.comparison || {}, r = refOf(e.id); return `<tr data-id="${esc(e.id)}"><td>${fmtDate(e.created_at)}</td><td>${FOOT[e.foot] || '—'}</td><td>${f1(c.changeMm)} mm</td><td>${f1(c.floor && c.floor.dropMm)}</td><td>${d.category ? esc(d.category.label) : '—'}</td><td>${d.aiCorrection ? f1(d.aiCorrection.mm) + ' (v' + d.aiCorrection.version + ')' : '—'}</td>
       <td><input class="num" type="number" step="0.1" min="-5" max="40" value="${r ? esc(r.clinical_mm) : ''}" aria-label="임상 NDT mm"></td><td><input class="who" value="${r ? esc(r.measured_by || '') : ''}" aria-label="측정자" placeholder="이니셜"></td><td><button class="btn sm save">${r ? '수정' : '저장'}</button></td></tr>`; }).join('') || '<tr><td colspan="9" class="muted">측정 기록이 없습니다.</td></tr>'}
@@ -201,7 +201,7 @@ route('ai', 'AI 보정 모델', async (v) => {
   const rows = trainingRows(), nP = new Set(rows.map(r => r.participantId)).size;
   v.innerHTML = `<h1>AI 오차 보정 모델</h1>
     <div class="card small"><b>어떻게 동작하나요?</b>
-      <p>앱이 재는 값 9가지(앱 NDT, 바닥 기준 하강, 앉은 자세 높이, 아치 각도 변화, 발 길이 변화, 촬영 거리, 발 기울기, 원근 왜곡, 스티커 부착 높이 오차)로 <b>임상 NDT를 예측</b>하는 모델을 학습합니다. 후보: 보정 없음 · 평균 차이 보정 · 선형 보정 · 다변량 릿지 회귀.</p>
+      <p>앱이 재는 값 9가지(앱 NDT, 바닥 기준 하강, 앉은 자세 높이, 발활 각도 변화, 발 길이 변화, 촬영 거리, 발 기울기, 원근 왜곡, 스티커 부착 높이 오차)로 <b>임상 NDT를 예측</b>하는 모델을 학습합니다. 후보: 보정 없음 · 평균 차이 보정 · 선형 보정 · 다변량 릿지 회귀.</p>
       <p>성능은 <b>참여자 한 명씩 빼고 학습해 그 사람을 예측</b>하는 교차검증(LOPO)으로만 판단합니다. 보정 없음보다 평균 오차가 10% 이상 줄고, 참여자 재표집(2,000회) 95% 기준으로도 개선이 유지될 때만 배포를 권합니다.</p></div>
     <div class="card"><div class="row"><span class="grow">학습 자료: 짝 <b>${rows.length}건</b> · 참여자 <b>${nP}명</b> (최소 16건 · 8명)</span><button class="btn primary" id="train" ${rows.length ? '' : 'disabled'}>학습하기</button></div><div id="res"></div></div>
     <h2>모델 버전</h2>
@@ -243,7 +243,7 @@ route('content', '운동 영상', async (v, arg) => {
   if (arg) return contentEdit(v, arg === 'new' ? null : rows.find(r => r.id === arg), rows);
   const catLabel = k => (CATS.find(c => c[0] === k) || [k, k])[1];
   v.innerHTML = `<div class="row"><h1 class="grow">운동 영상 <span class="muted small">(중재 콘텐츠)</span></h1><a class="btn primary" href="#/content/new">+ 운동 추가</a></div>
-    <p class="small muted">여기서 올린 운동과 영상은 <b>모든 사용자 앱</b>의 ‘족궁재활영상’과, 연결한 분류의 <b>측정 결과 화면</b>에 바로 나타납니다.</p>
+    <p class="small muted">여기서 올린 운동과 영상은 <b>모든 사용자 앱</b>의 ‘발활 재활영상’과, 연결한 분류의 <b>측정 결과 화면</b>에 바로 나타납니다.</p>
     ${rows.length ? '' : `<div class="card"><b>아직 등록된 운동이 없습니다.</b><p class="small">기본 운동(짧은 발 운동·수건 당기기·발꿈치 들기)을 불러온 뒤 영상만 올려도 됩니다.</p><button class="btn" id="seed">기본 운동 3개 불러오기</button></div>`}
     <div class="card scroll"><table><tr><th>순서</th><th>운동</th><th>연결 분류</th><th>영상</th><th>공개</th><th></th></tr>
     ${rows.map(r => `<tr><td>${r.sort}</td><td><b>${esc(r.name)}</b><div class="small muted">${esc(r.purpose || '')}</div></td>
@@ -274,7 +274,7 @@ function contentEdit(v, x0, rows) {
     </div>
     <div class="card"><h2 style="margin-top:0">2. 운동 정보</h2>
       ${inp('nm', '운동 이름 *', x.name, '예: 짧은 발 운동(Short Foot Exercise)')}
-      <div style="margin-top:10px">${inp('pu', '운동 목적', x.purpose, '예: 발바닥 내재근을 활성화하여 아치를 지지')}</div>
+      <div style="margin-top:10px">${inp('pu', '운동 목적', x.purpose, '예: 발바닥 내재근을 활성화하여 발활을 지지')}</div>
       <div style="margin-top:10px">${inp('po', '올바른 자세', x.posture, '예: 의자에 앉아 발바닥 전체를 바닥에 붙인다')}</div>
       <div style="margin-top:10px">${ta('st', '수행 방법(한 줄에 하나씩)', x.steps, '1단계\n2단계')}</div>
       <div style="margin-top:10px">${ta('ca', '주의사항(한 줄에 하나씩)', x.cautions, '통증이 있으면 중단한다')}</div>

@@ -98,7 +98,7 @@ route('/self/run', '측정하기', async (v) => {
     <div style="text-align:center"><button class="shutter hide" id="postNow" aria-label="지금 선 자세 촬영">${ICON.camera}</button><div class="tiny hide" id="postNowHint">지금 선 자세 촬영(타이머 후)</div></div>
     <div class="iconbar"><button id="mute">${Voice.enabled ? ICON.vol : ICON.volOff}<span>${Voice.enabled ? '음성 켬' : '음성 끔'}</span></button><button id="cam">${ICON.camera}<span>카메라</span></button><button id="rot">${ICON.rotate}<span>방향 자동</span></button><button id="stop">${ICON.stop}<span>중지</span></button></div>
     </div></div>
-    <div class="card small" id="loadCard" style="display:none"><b>체중부하 인지</b><dl class="kv" style="margin-top:6px"><dt>일어서는 동작</dt><dd id="lcMove">대기</dd><dt>선 자세 안정</dt><dd id="lcStable">대기</dd><dt>아치 하강</dt><dd id="lcDrop">—</dd><dt>발 길이 변화</dt><dd id="lcSpan">—</dd></dl></div>
+    <div class="card small" id="loadCard" style="display:none"><b>체중부하 인지</b><dl class="kv" style="margin-top:6px"><dt>일어서는 동작</dt><dd id="lcMove">대기</dd><dt>선 자세 안정</dt><dd id="lcStable">대기</dd><dt>발활 하강</dt><dd id="lcDrop">—</dd><dt>발 길이 변화</dt><dd id="lcSpan">—</dd></dl></div>
     <div id="camErr"></div>`;
   const vid = $('#vid', v), cd = $('#cd', v);
   // 상태: align(앉은 자세 정렬) → stand(체중부하 요청, 일어서는 동작 감지) → settle(선 자세 안정·형태 근거 확인) → 촬영
@@ -251,7 +251,7 @@ route('/self/run', '측정하기', async (v) => {
     }
     if (phase === 'stand') {
       // 일어서는 동작 인지: ① 장면 전체 움직임이 커지거나 ② 스티커 추적이 끊기거나 ③ 스티커가 크게 움직이거나
-      // ④ 움직임이 작아도 발 모양이 체중부하 형태로 바뀜(아치 하강·발 길이 증가가 연속 4프레임)
+      // ④ 움직임이 작아도 발 모양이 체중부하 형태로 바뀜(발활 하강·발 길이 증가가 연속 4프레임)
       if (f.sceneMotion > T.sceneMove || f.motion > 1.0 || f.shapeMotion > 0.4) moveFrames++; else moveFrames = Math.max(0, moveFrames - 1);
       if (!f.det.ok) lostFrames++; else lostFrames = 0;
       const evNow = f.det.ok && liveRef ? C.loadEvidence(liveRef, C.shapeOf(f.det)) : null;
@@ -293,7 +293,7 @@ route('/self/run', '측정하기', async (v) => {
         say('발 모양 변화가 아직 작습니다. 양발에 체중을 똑같이 실어 주십시오.');
         return;
       }
-      busy = true; guarded(() => shootPost(false, ev), '선 자세 촬영'); // 정상 아치처럼 변화가 작은 발 — 촬영하되 "형태 근거 미확인"으로 기록
+      busy = true; guarded(() => shootPost(false, ev), '선 자세 촬영'); // 정상 발활처럼 변화가 작은 발 — 촬영하되 "형태 근거 미확인"으로 기록
     }
   }
   $('#mute', v).onclick = () => { Voice.enabled = !Voice.enabled; $('#mute', v).innerHTML = `${Voice.enabled ? ICON.vol : ICON.volOff}<span>${Voice.enabled ? '음성 켬' : '음성 끔'}</span>`; };
@@ -328,15 +328,15 @@ route('/self/run', '측정하기', async (v) => {
 
 // ───── 유연성 평발 자가 확인 (결과 화면에 삽입) ─────
 const SELF_QUESTIONS = [
-  ['restFlat', '앉아서 체중을 빼도 발 안쪽 아치가 거의 보이지 않는다'],
+  ['restFlat', '앉아서 체중을 빼도 발 안쪽 발활이 거의 보이지 않는다'],
   ['pain', '발이나 발목에 통증·붓기가 있거나, 걷기 불편하다']
 ];
 function flexSectionHtml(e) {
   const cat = e.category, c = e.comparison, sr = e.selfReport || {};
   let body;
   if (!cat) body = '<p class="small muted">길이 값과 분류가 있어야 유연성 평발 양상을 확인할 수 있습니다.</p>';
-  else if (cat.key === 'normal') body = `<p class="small">체중을 실었을 때 아치 하강이 <b>${mm(c.changeMm)}</b>로, 본 연구 기준 <b>정상 범위(${cmTxt(C.CLASS_MM.normal)} 이하)</b>입니다. 체중에 따라 아치가 크게 무너지는 유연성 평발 양상은 보이지 않습니다.</p>`;
-  else body = `<p class="small">앉았을 때(체중 없음) 아치 높이 <b>${mm(c.preMm)}</b> → 섰을 때 <b>${mm(c.postMm)}</b>로 <b>${mm(c.changeMm)}</b> 내려갔습니다. 체중을 빼면 아치가 다시 올라오는 <b>유연성 평발 양상</b>에 해당합니다(본 연구 기준: ${esc(cat.label)}).</p>
+  else if (cat.key === 'normal') body = `<p class="small">체중을 실었을 때 발활 하강이 <b>${mm(c.changeMm)}</b>로, 본 연구 기준 <b>정상 범위(${cmTxt(C.CLASS_MM.normal)} 이하)</b>입니다. 체중에 따라 발활이 크게 무너지는 유연성 평발 양상은 보이지 않습니다.</p>`;
+  else body = `<p class="small">앉았을 때(체중 없음) 발활 높이 <b>${mm(c.preMm)}</b> → 섰을 때 <b>${mm(c.postMm)}</b>로 <b>${mm(c.changeMm)}</b> 내려갔습니다. 체중을 빼면 발활이 다시 올라오는 <b>유연성 평발 양상</b>에 해당합니다(본 연구 기준: ${esc(cat.label)}).</p>
       <div class="grid2"><a class="btn primary" href="#/exercises">관리 운동 보기</a><a class="btn" href="#/manage">관리 현황</a></div>`;
   const warn = SELF_QUESTIONS.some(([k]) => sr[k]);
   return `<div class="card" id="flex"><b>유연성 평발 자가 확인</b>${body}
@@ -365,7 +365,7 @@ route('/pair/:a/:b', '양발 검사 결과', async (v, p) => {
   const both = A.category && B.category;
   v.innerHTML = `<h2>양발 검사 결과</h2><p class="tiny">${fmtDate(A.createdAt)} · 음성 안내 자가 검사</p>
     <div class="grid2">${card(A)}${card(B)}</div>
-    <div class="card"><b>요약</b><p class="small">${!both ? '길이 환산 조건이 충족되지 않아 분류할 수 없습니다.' : flexFeet.length ? `<b>${flexFeet.join('·')}</b>에서 체중을 실을 때 아치가 연구 기준 이상으로 내려가는 유연성 평발 양상이 보입니다.` : '양발 모두 연구 기준 정상 범위입니다.'}
+    <div class="card"><b>요약</b><p class="small">${!both ? '길이 환산 조건이 충족되지 않아 분류할 수 없습니다.' : flexFeet.length ? `<b>${flexFeet.join('·')}</b>에서 체중을 실을 때 발활이 연구 기준 이상으로 내려가는 유연성 평발 양상이 보입니다.` : '양발 모두 연구 기준 정상 범위입니다.'}
       ${both ? ` 좌우 차이 ${mm(Math.abs(A.comparison.changeMm - B.comparison.changeMm))}.` : ''}</p>
       ${flexFeet.length ? '<div class="grid2"><a class="btn primary" href="#/exercises">관리 운동 보기</a><a class="btn" href="#/manage">관리 현황</a></div>' : ''}
       <p class="tiny">각 발의 “자세히 보기”에서 자가 확인 질문에 답할 수 있습니다.</p></div>
@@ -391,13 +391,13 @@ route('/manage', '유연성 평발 관리', async (v) => {
       <p class="small">${esc(interp)}</p></div>`;
   };
   v.innerHTML = `<h2>유연성 평발 관리</h2>
-    <p class="small muted">운동을 하면서 같은 방법(음성 자가 검사)으로 다시 측정해 아치 하강의 변화를 확인합니다.</p>
+    <p class="small muted">운동을 하면서 같은 방법(음성 자가 검사)으로 다시 측정해 발활 하강의 변화를 확인합니다.</p>
     ${footCard('left')}${footCard('right')}
     ${exams.length ? `<div class="card"><b>하강량 추이 (cm)</b><div class="legend"><span><i style="background:var(--series-1)"></i>왼발</span><span><i style="background:var(--series-2)"></i>오른발</span></div><canvas class="chart" id="ch"></canvas><p class="tiny">점선: 연구 분류 경계 0.2·0.4·0.6 cm</p></div>` : ''}
     <div class="card"><dl class="kv"><dt>최근 7일 운동</dt><dd>${week}회</dd><dt>누적 운동</dt><dd>${logs.length}회</dd></dl><a class="btn block" href="#/exercises">오늘의 운동</a></div>
     <a class="btn primary block big" href="#/self">다시 측정하기</a>
     <a class="btn block" href="#/history">검사 이력 전체 보기</a>
-    <p class="tiny">측정값의 변화가 곧 아치 구조의 개선을 뜻하지는 않습니다. 측정 오차와 촬영 조건을 함께 고려하세요.</p>`;
+    <p class="tiny">측정값의 변화가 곧 발활 구조의 개선을 뜻하지는 않습니다. 측정 오차와 촬영 조건을 함께 고려하세요.</p>`;
   if (exams.length) {
     const ser = ['left', 'right'].map(f => ({ name: FOOT[f], color: f === 'left' ? '#2a78d6' : '#eb6834', points: exams.filter(e => e.foot === f).map(e => ({ x: e.createdAt, y: C.roundMm(e.comparison.changeMm) / 10, label: `${fmtDate(e.createdAt)} ${mm(e.comparison.changeMm)}` })) })).filter(s => s.points.length);
     lineChart($('#ch', v), ser, { yMin: 0, bands: CLASS_BANDS() });

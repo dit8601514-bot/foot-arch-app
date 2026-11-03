@@ -1,5 +1,5 @@
 'use strict';
-/* ═════════════ 시안 기반 화면: 기록보기(달력) · 족궁재활영상 · 분석 중 ═════════════ */
+/* ═════════════ 시안 기반 화면: 기록보기(달력) · 발활 재활영상 · 분석 중 ═════════════ */
 const pad2 = n => String(n).padStart(2, '0');
 const ymd = ts => { const d = new Date(ts); return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`; };
 
@@ -21,7 +21,7 @@ route('/records', '기록보기', async (v, p) => {
   const dowTxt = ['일', '월', '화', '수', '목', '금', '토'];
   const line = e => { const d = new Date(e.createdAt); return `<a class="list-item" href="#/result/${e.id}"><span class="mi" style="color:var(--brand)">${ICON.calendar}</span>
     <span class="grow"><b>${d.getFullYear()}.${pad2(d.getMonth() + 1)}.${pad2(d.getDate())} (${dowTxt[d.getDay()]})</b> <span class="badge b-info">${FOOT[e.foot]}</span><br>
-    <span class="tiny">발배뼈 하강 ${e.comparison.changeMm != null ? mm(e.comparison.changeMm) : '—'}${e.comparison.archAngle ? ` · 아치 각도 ${e.comparison.archAngle.post.toFixed(0)}°` : ''}${e.comparison.floor ? ` · 바닥 높이 ${mm(e.comparison.floor.postMm)}` : ''}</span></span>${e.category ? catBadge(e.category) : statusBadge(e.comparison.status)}</a>`; };
+    <span class="tiny">발배뼈 하강 ${e.comparison.changeMm != null ? mm(e.comparison.changeMm) : '—'}${e.comparison.archAngle ? ` · 발활 각도 ${e.comparison.archAngle.post.toFixed(0)}°` : ''}${e.comparison.floor ? ` · 바닥 높이 ${mm(e.comparison.floor.postMm)}` : ''}</span></span>${e.category ? catBadge(e.category) : statusBadge(e.comparison.status)}</a>`; };
   v.innerHTML = `
     <div class="cal-head"><button id="prevM" aria-label="이전 달">‹</button><b>${Y}년 ${M + 1}월</b><button id="nextM" aria-label="다음 달">›</button></div>
     <div class="card"><div class="cal">${dowTxt.map(t => `<span class="dow">${t}</span>`).join('')}${cells.join('')}</div></div>
@@ -34,7 +34,7 @@ route('/records', '기록보기', async (v, p) => {
   $$('[data-day]', v).forEach(b => b.onclick = () => go(`#/records?m=${mkey(Y, M)}&d=${b.dataset.day}`));
 });
 
-// 족궁재활영상: 시안 ⑧의 카드 목록. 등록된 영상만 재생 가능, 미등록은 그대로 표시한다.
+// 발활 재활영상: 시안 ⑧의 카드 목록. 등록된 영상만 재생 가능, 미등록은 그대로 표시한다.
 async function videoInfo(x) {
   let src = null;
   if (x.videoBlobId) { const b = await DB.get('blobs', x.videoBlobId).catch(() => null); if (b) src = URL.createObjectURL(b.blob); }
@@ -42,7 +42,7 @@ async function videoInfo(x) {
   return src;
 }
 function fmtDur(sec) { if (!isFinite(sec) || sec <= 0) return ''; const m = Math.floor(sec / 60), s2 = Math.round(sec % 60); return `${m}:${pad2(s2)}`; }
-route('/exercises', '족궁재활영상', async (v) => {
+route('/exercises', '발활 재활영상', async (v) => {
   if (typeof Account !== 'undefined') await Promise.race([Account.syncContent(true), new Promise(r => setTimeout(r, 2500))]);
   const all = await DB.all('exercises'), hasSrv = all.some(x => x.server);
   // 관리자가 서버에 운동을 올렸으면 그것을 보여 준다(기기에만 있는 초안은 연구자가 영상을 넣은 것만 함께 표시)
@@ -55,7 +55,7 @@ route('/exercises', '족궁재활영상', async (v) => {
     <span class="vt"><b>${esc(x.name)}</b><span>${esc(x.purpose || '')}</span><br>${x.videoBlobId || x.videoUrl ? '' : '<span class="badge b-warn" style="margin-top:4px">영상 등록 필요</span>'}${hasPrescription(x) ? '' : ' <span class="badge">처방 미입력</span>'}</span><span style="color:var(--ink-3)">${ICON.chev}</span></a>`;
   v.innerHTML = `
     <h2>${rec.length ? '추천 운동 영상' : '운동 영상'}</h2>
-    <p class="muted small">${rec.length ? '최근 측정 결과에 연결된 운동입니다. 발 아치 강화에 도움이 되는 운동을 따라해 보세요.' : '발 아치 강화에 도움이 되는 운동을 따라해 보세요.'}</p>
+    <p class="muted small">${rec.length ? '최근 측정 결과에 연결된 운동입니다. 발활 강화에 도움이 되는 운동을 따라해 보세요.' : '발활 강화에 도움이 되는 운동을 따라해 보세요.'}</p>
     ${rec.map(card).join('')}
     ${rec.length && rest.length ? '<h3>전체 운동</h3>' : ''}${rest.map(card).join('')}
     ${!exs.length ? '<div class="placeholder">등록된 운동이 없습니다.</div>' : ''}

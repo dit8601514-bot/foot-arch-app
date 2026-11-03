@@ -1,5 +1,5 @@
 // E2E: 음성 안내 자가 검사 + 체중부하 인지
-//  시나리오 A(self.y4m): 앉음 0~14초 → 일어서는 중 14~16초(스티커 안 보임) → 선 자세 16초~(아치 하강) ⇒ "체중부하 확인했습니다. 촬영합니다."
+//  시나리오 A(self.y4m): 앉음 0~14초 → 일어서는 중 14~16초(스티커 안 보임) → 선 자세 16초~(발활 하강) ⇒ "체중부하 확인했습니다. 촬영합니다."
 //  시나리오 B(self_nochange.y4m): 같은 흐름이지만 선 자세에서 형태 변화 없음 ⇒ 재안내 후 "현재 자세로 체중부하 상태를 촬영합니다."
 // node test/e2e-self.js [A|B]   (영상 생성법은 README 참고)
 const { chromium } = require('playwright'); const http = require('http'); const fs = require('fs'); const path = require('path');
@@ -70,8 +70,8 @@ async function scenario(tag, video, expectConfirmed, expectMm, opt) {
         await pg.goBack(); await pg.goBack(); await pg.goBack(); await pg.waitForSelector('.result-big');
         log(`[${tag}] 결과 화면에 두 측정값(기준선·바닥) 표시`, main.includes('P1–P3 기준선 하강') && main.includes('바닥 기준 발배뼈 높이') && !main.includes('바닥선 미확인'));
       }
-      if (!timerMode) log(`[${tag}] 결과: 체중부하 인지 기록(일어섬·아치 하강)`, main.includes('일어섬 확인') && main.includes('아치 하강 확인'));
-      else log(`[${tag}] 결과: 아치 하강 확인 기록`, main.includes('아치 하강 확인'));
+      if (!timerMode) log(`[${tag}] 결과: 체중부하 인지 기록(일어섬·발활 하강)`, main.includes('일어섬 확인') && main.includes('발활 하강 확인'));
+      else log(`[${tag}] 결과: 발활 하강 확인 기록`, main.includes('발활 하강 확인'));
       log(`[${tag}] 유연성 평발 양상 안내`, main.includes('유연성 평발 양상'));
       { await pg.waitForSelector('.care-card', { timeout: 5000 }).catch(() => {}); const ct = await pg.textContent('#careBox').catch(() => '');
         log(`[${tag}] AI 1:1 맞춤 케어: 개인 추정·관리 계획·전문가 값 입력`, ct.includes('AI 1:1 맞춤 케어') && ct.includes('개인 맞춤 추정') && ct.includes('나만의 관리 계획') && ct.includes('자로 실제 잰 값'), ct.slice(0, 120));

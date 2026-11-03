@@ -68,7 +68,7 @@ const R = []; const log = (n, ok, d) => { R.push([n, ok ? 'PASS' : 'FAIL', d || 
   await pg.goto(U + '#/r/home'); await pg.click('#lock');
   // PWA: 매니페스트·서비스 워커·오프라인
   const man = await pg.evaluate(async () => { const r = await fetch('manifest.webmanifest'); return r.ok ? (await r.json()).name : null; });
-  log('PWA: 매니페스트 제공', man === 'AI Footarch — 발 아치 분석', man);
+  log('PWA: 매니페스트 제공', man === 'AI Footarch — 발활 분석', man);
   const swOk = await pg.evaluate(async () => { const r = await navigator.serviceWorker.ready; return !!r.active; });
   log('PWA: 서비스 워커 활성화', swOk);
   await pg.reload(); await pg.waitForTimeout(500); await ctx.setOffline(true);

@@ -163,7 +163,7 @@ const Account = (() => {
 // ───── 화면: 로그인/회원가입 선택(시안 ②), 로그인, 회원가입(시안 ③) ─────
 route('/auth', 'AI Footarch', async (v) => {
   v.innerHTML = `<div class="auth-hero">${logoHtml(true)}
-    <p>건강한 발을 위한<br>AI 발 아치 분석 서비스</p><div class="feet">${footprintsSvg('h')}</div></div>
+    <p>건강한 발을 위한<br>AI 발활 분석 서비스</p><div class="feet">${footprintsSvg('h')}</div></div>
     ${Account.configured() ? '' : '<div class="note warn small">서버가 아직 연결되지 않아 로그인·회원가입을 쓸 수 없습니다. 관리자가 Supabase 주소를 설정해야 합니다. 그동안은 로그인 없이 이 기기에서만 쓸 수 있습니다.</div>'}
     <a class="btn primary block big" href="#/auth/login" ${Account.configured() ? '' : 'style="pointer-events:none;opacity:.45"'}>${ICON.user} 로그인</a>
     <a class="btn block big" href="#/auth/signup" ${Account.configured() ? '' : 'style="pointer-events:none;opacity:.45"'}>${ICON.userPlus} 회원가입</a>

@@ -114,7 +114,7 @@ function templateSvg(D) {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="170mm" height="95mm" viewBox="0 0 170 95">
 <rect width="170" height="95" fill="#fff"/>
-<text x="4" y="6" font-size="3.2" font-family="sans-serif">발 아치 앱 mm 환산 검증 템플릿 — 반드시 "실제 크기(100%)"로 인쇄하고 아래 100mm 눈금을 자로 확인하세요. 원 지름 ${D}mm</text>
+<text x="4" y="6" font-size="3.2" font-family="sans-serif">발활 앱 mm 환산 검증 템플릿 — 반드시 "실제 크기(100%)"로 인쇄하고 아래 100mm 눈금을 자로 확인하세요. 원 지름 ${D}mm</text>
 <circle cx="${x3}" cy="${y0}" r="${D / 2}" fill="#1f5fd1"/><circle cx="${x1}" cy="${y0}" r="${D / 2}" fill="#1f5fd1"/><circle cx="${x2}" cy="${y2}" r="${D / 2}" fill="#1f5fd1"/>
 <text x="${x3 - 3}" y="${y0 + D / 2 + 5}" font-size="3.5" font-family="sans-serif">P3</text><text x="${x1 - 3}" y="${y0 + D / 2 + 5}" font-size="3.5" font-family="sans-serif">P1</text><text x="${x2 + D / 2 + 2}" y="${y2 + 1}" font-size="3.5" font-family="sans-serif">P2 (기준선에서 ${T.heightMm}mm)</text>
 <line x1="20" y1="88" x2="120" y2="88" stroke="#000" stroke-width="0.3"/>${Array.from({ length: 11 }, (_, i) => `<line x1="${20 + i * 10}" y1="85.5" x2="${20 + i * 10}" y2="88" stroke="#000" stroke-width="0.3"/>`).join('')}<text x="122" y="89" font-size="3" font-family="sans-serif">100 mm</text>
