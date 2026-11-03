@@ -222,7 +222,7 @@ route('/capture/:phase', '촬영', async (v, p) => {
       <div class="statusline" id="status" aria-live="polite">카메라 준비 중…</div><div class="tiny" id="hud" style="text-align:center"></div>
       <div class="checks" id="checks"></div>
       <div class="seg" id="autoSeg" style="margin:8px 0"><button data-v="1">3초 자동 촬영</button><button data-v="0">수동 촬영만</button></div>
-      <button class="btn primary block big" id="shot">수동 촬영</button>
+      <button class="btn primary block big" id="shot">수동 촬영 (타이머)</button>
       <div class="grid2"><button class="btn" id="flip">카메라 전환</button><label class="btn" for="file">사진 파일 불러오기</label></div>
       <input type="file" id="file" accept="image/*" capture="environment" class="hide">
       <div id="camErr"></div>
@@ -308,7 +308,18 @@ route('/capture/:phase', '촬영', async (v, p) => {
       go(phase === 'pre' ? '#/capture/post' : '#/analyze');
     };
   }
-  $('#shot', v).onclick = () => { if (!busy) capture('manual'); };
+  // 수동 촬영: 버튼을 누르면 타이머 후 촬영(다시 누르면 취소)
+  let shotRef = null;
+  $('#shot', v).onclick = async () => {
+    if (shotRef) { shotRef.cancel = true; shotRef = null; $('#shot', v).textContent = '수동 촬영 (타이머)'; busy = false; return; }
+    if (busy) return;
+    busy = true; cancelCountdown(); shotRef = { cancel: false }; const my = shotRef;
+    $('#shot', v).textContent = '타이머 취소';
+    const okGo = await shutterCountdown(cd, null, null, my);
+    if (shotRef === my) { shotRef = null; $('#shot', v).textContent = '수동 촬영 (타이머)'; }
+    if (!okGo) { busy = false; return; }
+    busy = false; capture('manual');
+  };
   $('#flip', v).onclick = () => { tracker.flip().catch(e => toast(cameraErrorHelp(e), true)); };
   $('#file', v).onchange = e => {
     const f = e.target.files[0]; if (!f) return; tracker.stop();

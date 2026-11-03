@@ -39,6 +39,9 @@ route('/self', '자가 검사 (음성 안내)', async (v, p) => {
       <li>검사 중에는 <b>휴대폰을 움직이지 마세요.</b> 움직이면 처음부터 다시 찍습니다.</li>
     </ol></div>
     <label class="chk"><input type="checkbox" id="voiceOn" ${Voice.enabled ? 'checked' : ''}><span class="small">음성 안내 켜기${Voice.supported ? '' : ' — 이 브라우저는 음성 출력을 지원하지 않아 화면 자막과 신호음으로 안내합니다'}</span></label>
+    <label class="small" style="display:flex;align-items:center;gap:8px;margin:6px 0">시작 타이머
+      <select id="delaySel">${[10, 5, 3, 0].map(n => `<option value="${n}" ${(S.settings.shutterDelay ?? 10) === n ? 'selected' : ''}>${n ? n + '초' : '끔'}</option>`).join('')}</select>
+      <span class="tiny">버튼을 누른 뒤 휴대폰을 놓고 앉을 시간</span></label>
     <button class="btn primary block big" id="go">시작</button>
     <a class="btn ghost block" href="#/guide">단계별 검사(직접 촬영)로 하기</a>
     <p class="tiny">${esc(DISCLAIMER)}</p>`;
@@ -46,7 +49,7 @@ route('/self', '자가 검사 (음성 안내)', async (v, p) => {
   const paint = () => { $$('#feetSeg button', v).forEach(b => b.classList.toggle('on', b.dataset.v === sel)); $('#svgBox', v).innerHTML = phoneSetupSvg(sel === 'right' ? 'right' : 'left'); };
   $$('#feetSeg button', v).forEach(b => b.onclick = () => { sel = b.dataset.v; paint(); }); paint();
   $('#go', v).onclick = () => {
-    if (!S.settings.privacyAck) { S.settings.privacyAck = true; saveSettings(); }
+    S.settings.shutterDelay = +$('#delaySel', v).value; S.settings.privacyAck = true; saveSettings();
     Voice.enabled = $('#voiceOn', v).checked; Voice.unlock(); Orient.request();
     S.selfRun = { feet: sel === 'both' ? ['left', 'right'] : [sel], results: [] };
     go('#/self/run');
@@ -238,12 +241,21 @@ route('/self/run', '자가 검사 진행', async (v) => {
   }
   $('#mute', v).onclick = () => { Voice.enabled = !Voice.enabled; $('#mute', v).textContent = Voice.enabled ? '음성 끄기' : '음성 켜기'; };
   // 자동 촬영이 오래 안 되면(선 자세) 직접 찍을 수 있게
-  $('#postNow', v).onclick = () => { if (busy || !cur || !cur.pre || cur.post) return; busy = true; guarded(() => shootPost(false, lastEv), '선 자세 촬영'); };
+  $('#postNow', v).onclick = () => { if (busy || !cur || !cur.pre || cur.post) return; busy = true; guarded(async () => { if (await shutterCountdown(cd, null, null, stopRef)) await shootPost(false, lastEv); else busy = false; }, '선 자세 촬영'); };
   $('#rot', v).onclick = () => { if (cur && cur.pre) return toast('촬영 중에는 방향을 바꿀 수 없습니다.', true); const r = tracker.rotate(); $('#rot', v).textContent = `가이드 방향 돌리기 (${r}°)`; };
-  $('#stop', v).onclick = () => { tracker.stop(); S.selfRun = null; go('#/self'); };
+  $('#stop', v).onclick = () => { stopRef.cancel = true; tracker.stop(); S.selfRun = null; go('#/self'); };
+  const stopRef = { cancel: false };
   beginFoot();
   try {
     await tracker.start();
+    // 시작 타이머: 휴대폰을 다리 사이에 놓고 앉을 시간(그동안 화면 가이드는 계속 보임)
+    const dly = shutterDelaySec();
+    if (dly > 0) {
+      busy = true; $('#status', v).textContent = `${dly}초 뒤에 시작합니다`;
+      const okGo = await shutterCountdown(cd, dly, `${dly}초 뒤에 시작합니다. 휴대폰을 다리 사이에 세워 두고, 의자에 앉아 주십시오.`, stopRef);
+      if (!okGo) return;
+      busy = false;
+    }
     say(`${FOOT[foot()]} 검사를 시작합니다. 의자에 앉아 주십시오. 발에 힘을 빼고, ${FOOT[foot()]} 안쪽을 가이드에 맞춰 주십시오.`);
     phaseStart = performance.now() + 2500;
   } catch (e) {

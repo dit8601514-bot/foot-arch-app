@@ -1,7 +1,7 @@
 'use strict';
 /* ═════════════ 기본: 저장소 · 상태 · 유틸 · 라우터 ═════════════ */
 const C = window.FootCore;
-const APP_VERSION = '2.1.1';
+const APP_VERSION = '2.2.0';
 const STORES = ['settings', 'exams', 'exercises', 'logs', 'errors', 'models', 'blobs', 'validations'];
 
 const DB = (() => {
@@ -49,7 +49,7 @@ async function save(store, obj) {
 }
 
 const DEFAULT_SETTINGS = {
-  id: 'app', participantId: '', savePhotos: false, privacyAck: false,
+  id: 'app', participantId: '', savePhotos: false, privacyAck: false, shutterDelay: 10,
   stickerDiameterMm: null, validation: null, researcherPinHash: null,
   activeModelId: null, mapping: { normal: [], mild: [], moderate: [], severe: [] }, seeded: false
 };

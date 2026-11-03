@@ -14,7 +14,7 @@ async function scenario(tag, video, expectConfirmed, expectMm, opt) {
   expectMm = expectMm == null ? 7.14 : expectMm;
   const b = await chromium.launch({ args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--use-file-for-fake-video-capture=' + path.join(__dirname, 'img', video)] });
   const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, permissions: ['camera'] });
-  await ctx.addInitScript(() => { window.__workers = []; const OW = window.Worker; window.Worker = function (u, o) { const w = new OW(u, o); window.__workers.push(w); return w; }; window.__spoken = []; const sy = window.speechSynthesis; if (sy) { const orig = sy.speak.bind(sy); sy.speak = u => { if (u.text.trim()) window.__spoken.push(u.text); try { orig(u); } catch (e) {} }; } });
+  await ctx.addInitScript(d => { window.FOOTARCH_SHUTTER_DELAY = d; window.__workers = []; const OW = window.Worker; window.Worker = function (u, o) { const w = new OW(u, o); window.__workers.push(w); return w; }; window.__spoken = []; const sy = window.speechSynthesis; if (sy) { const orig = sy.speak.bind(sy); sy.speak = u => { if (u.text.trim()) window.__spoken.push(u.text); try { orig(u); } catch (e) {} }; } }, opt.delay == null ? 0 : opt.delay);
   const pg = await ctx.newPage(); const errors = [];
   pg.on('pageerror', e => errors.push(e.message)); pg.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
   const shot = n => pg.screenshot({ path: path.join(__dirname, 'shots', n + '.png'), fullPage: true });
@@ -37,6 +37,7 @@ async function scenario(tag, video, expectConfirmed, expectMm, opt) {
   const secs = ((Date.now() - t0) / 1000).toFixed(1);
   const spoken = await pg.evaluate(() => window.__spoken), J = spoken.join(' ');
   log(`[${tag}] 손대지 않고 비체중부하·체중부하 자동 촬영 → 결과`, ok, secs + '초');
+  if (opt.delay) log(`[${tag}] 시작 타이머 안내(${opt.delay}초)`, J.includes(`${opt.delay}초 뒤에 시작합니다`));
   log(`[${tag}] 음성: 정확한 정렬 안내`, spoken.some(s => s.includes('정확히 들어왔습니다')));
   log(`[${tag}] 음성: "앉은 자세를 촬영합니다"`, spoken.includes('앉은 자세를 촬영합니다.'));
   log(`[${tag}] 음성: "체중부하 해주십시오"`, spoken.some(s => s.includes('체중부하 해주십시오')));
@@ -83,6 +84,8 @@ async function scenario(tag, video, expectConfirmed, expectMm, opt) {
   // 휴대폰을 가로로 눕혔는데 화면은 세로로 고정된 경우(영상이 세로로 들어옴) — 양쪽 방향 모두
   // 일어선 뒤 발이 목표 원에서 조금 벗어난 경우(실사용) — 그래도 선 자세가 찍혀야 한다
   if (!which || which === 'S') await scenario('S', 'self_std_shift.y4m', true, 8.0);
+  // 시작 타이머 10초(실사용 기본값): 카운트다운 안내 후 정상 진행
+  if (!which || which === 'T') await scenario('T', 'self_std_long.y4m', true, 8.0, { delay: 10 });
   if (!which || which === 'K') await scenario('K', 'self_std.y4m', true, 8.0, { killAfterPre: true });
   if (!which || which === 'R1') await scenario('R1', 'self_std_rot90.y4m', true, 8.0);
   if (!which || which === 'R2') await scenario('R2', 'self_std_rot270.y4m', true, 8.0);
