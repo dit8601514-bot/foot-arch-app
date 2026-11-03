@@ -16,7 +16,7 @@ const U = 'http://localhost:8792/';
 const R = []; const log = (n, ok, d) => { R.push([n, ok ? 'PASS' : 'FAIL', d || '']); console.log(ok ? 'PASS' : 'FAIL', n, d || ''); };
 fs.mkdirSync(path.join(__dirname, 'shots'), { recursive: true });
 const shot = (pg, n) => pg.screenshot({ path: path.join(__dirname, 'shots', n + '.png'), fullPage: true });
-const api = async (p, { method = 'GET', body, token } = {}) => { const r = await fetch(API + p, { method, headers: { apikey: ANON, 'Content-Type': 'application/json', Authorization: 'Bearer ' + (token || ANON) }, body: body == null ? undefined : JSON.stringify(body) }); const t = await r.text(); return { status: r.status, json: t ? JSON.parse(t) : null }; };
+const api = async (p, { method = 'GET', body, token } = {}) => { const r = await fetch(API + p, { method, headers: Object.assign({ apikey: ANON, 'Content-Type': 'application/json' }, token ? { Authorization: 'Bearer ' + token } : {}), body: body == null ? undefined : JSON.stringify(body) }); const t = await r.text(); return { status: r.status, json: t ? JSON.parse(t) : null }; };
 async function signup(un, research) {
   const now = new Date().toISOString();
   const r = await api('/auth/v1/signup', { method: 'POST', body: { email: un + '@users.footarch.app', password: 'footarch2026', data: { username: un, name: '참여자' + un.slice(-2), phone: '010-1111-' + String(1000 + un.length).slice(-4), consent_privacy_at: now, consent_sensitive_at: now, consent_research: research } } });

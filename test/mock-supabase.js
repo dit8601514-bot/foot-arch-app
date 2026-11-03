@@ -30,6 +30,7 @@ function createMock(anonKey) {
       log.push(req.method + ' ' + url.pathname + url.search);
       if (req.headers.apikey !== anonKey) return send(401, { message: 'Invalid API key' });
       const bearer = (req.headers.authorization || '').replace(/^Bearer /, ''), uid = tokens.get(bearer) || null;
+      if (req.headers.authorization && !uid && !url.pathname.startsWith('/auth/v1/token') && url.pathname !== '/auth/v1/logout') return send(401, { message: 'Invalid JWT' }); // 새 공개 키(sb_publishable_)는 JWT가 아님
       if (url.pathname === '/auth/v1/signup') {
         if ([...users.values()].some(u => u.email === j.email)) return send(422, { msg: 'User already registered' });
         if (!j.password || j.password.length < 6) return send(422, { msg: 'Password should be at least 6 characters' });

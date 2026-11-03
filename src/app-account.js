@@ -32,7 +32,9 @@ const Account = (() => {
     if (auth && session && session.expires_at && Date.now() / 1000 > session.expires_at - 60) await refresh();
     let res;
     try {
-      res = await fetch(c.supabaseUrl + path, { method, headers: Object.assign({ apikey: c.supabaseAnonKey, 'Content-Type': 'application/json', Authorization: 'Bearer ' + (auth && session ? session.access_token : c.supabaseAnonKey) }, headers), body: body == null ? undefined : JSON.stringify(body) });
+      // 새 Supabase 공개 키(sb_publishable_…)는 JWT가 아니므로 Authorization에 넣으면 거부된다 → 로그인 토큰이 있을 때만 보낸다
+      const hd = Object.assign({ apikey: c.supabaseAnonKey, 'Content-Type': 'application/json' }, auth && session ? { Authorization: 'Bearer ' + session.access_token } : {}, headers);
+      res = await fetch(c.supabaseUrl + path, { method, headers: hd, body: body == null ? undefined : JSON.stringify(body) });
     } catch (e) { const er = new Error('서버에 연결할 수 없습니다. 인터넷 연결을 확인해 주세요.'); er.offline = true; throw er; }
     const txt = await res.text(); let j = null; try { j = txt ? JSON.parse(txt) : null; } catch (e) { j = { message: txt }; }
     if (!res.ok) { const er = new Error(errMsg(j, res.status)); er.status = res.status; throw er; }

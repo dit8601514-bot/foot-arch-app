@@ -21,21 +21,22 @@ AI Footarch는 Supabase(로그인 + PostgreSQL 데이터베이스)를 서버로 
 3. (선택) 비밀번호 최소 길이를 8자로 맞춥니다. 앱도 8자 이상을 요구합니다.
 
 ## 4. 앱에 연결
-1. **Project Settings → API**에서 다음 두 값을 복사합니다:
-   - **Project URL** (예: `https://abcd1234.supabase.co`)
-   - **anon public** 키
-2. 저장소의 `public/config.js`에 넣고 커밋하면 GitHub Pages에 자동 배포됩니다.
+1. 대시보드 왼쪽 아래 **Project Settings(톱니바퀴)**를 엽니다.
+2. **API Keys**에서 **Publishable key**(`sb_publishable_`로 시작)를 복사합니다. 예전 프로젝트라면 Legacy API keys의 `anon public` 키(`eyJ`로 시작)를 써도 됩니다.
+3. **Project URL**(`https://xxxx.supabase.co`)을 복사합니다. 대시보드 위쪽 **Connect** 버튼이나 Project Settings → Data API에 있습니다.
+4. 저장소의 `public/config.js`에 넣고 커밋하면 GitHub Pages에 자동 배포됩니다.
 
 ```js
 window.FOOTARCH_CONFIG = Object.assign({
   supabaseUrl: 'https://abcd1234.supabase.co',
-  supabaseAnonKey: 'eyJhbGciOi...',
+  supabaseAnonKey: 'sb_publishable_xxxxxxxx',
   emailDomain: 'users.footarch.app'
 }, window.FOOTARCH_CONFIG || {});
 ```
 
-> anon public 키는 앱에 공개되도록 만들어진 키입니다. 데이터 보호는 RLS가 담당합니다.
-> **service_role 키는 절대 앱이나 저장소에 넣지 마세요.**
+> 공개 키는 앱에 드러나도록 만든 키입니다. 데이터 보호는 RLS가 담당합니다.
+> **Secret key(`sb_secret_`)와 service_role 키는 절대 앱이나 저장소에 넣지 마세요.**
+> 앱은 공개 키를 `apikey` 헤더로만 보냅니다. 새 공개 키는 JWT가 아니라서 Authorization 헤더에 넣으면 거부되기 때문입니다.
 
 ## 5. 관리자 서버 켜기 (관리자 앱 · AI 오차 보정)
 1. SQL Editor에서 이 폴더의 `admin.sql`을 실행합니다. `schema.sql` 다음에 실행해야 합니다.

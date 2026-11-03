@@ -24,7 +24,7 @@ const Api = (() => {
     const c = cfg(); if (!c.supabaseUrl) throw new Error('서버가 설정되지 않았습니다(config.js).');
     if (auth && session && Date.now() / 1000 > session.expires_at - 60) await refresh();
     let res;
-    try { res = await fetch(c.supabaseUrl + path, { method, headers: Object.assign({ apikey: c.supabaseAnonKey, 'Content-Type': 'application/json', Authorization: 'Bearer ' + (auth && session ? session.access_token : c.supabaseAnonKey) }, headers), body: body == null ? undefined : JSON.stringify(body) }); }
+    try { res = await fetch(c.supabaseUrl + path, { method, headers: Object.assign({ apikey: c.supabaseAnonKey, 'Content-Type': 'application/json' }, auth && session ? { Authorization: 'Bearer ' + session.access_token } : {}, headers), body: body == null ? undefined : JSON.stringify(body) }); }
     catch (e) { throw new Error('서버에 연결할 수 없습니다.'); }
     const txt = await res.text(); let j = null; try { j = txt ? JSON.parse(txt) : null; } catch (e) { j = { message: txt }; }
     if (!res.ok) { const m = (j && (j.message || j.msg || j.error_description || j.error)) || `서버 오류(${res.status})`; const er = new Error(/invalid login|invalid_grant/i.test(m) ? '아이디 또는 비밀번호가 올바르지 않습니다.' : /not admin/i.test(m) ? '관리자 권한이 없습니다.' : m); er.status = res.status; throw er; }
