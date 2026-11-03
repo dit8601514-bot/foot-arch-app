@@ -78,12 +78,14 @@ async function loadAll(force) {
   // 서버 규칙상 본인 프로필도 읽히므로, 목록에는 연구 동의자만 남긴다
   Object.assign(D, { stats, profiles: (profiles || []).filter(p => p.consent_research), exams: exams || [], refs: refs || [], models: models || [], loaded: true });
 }
-const refOf = examId => D.refs.find(r => r.exam_id === examId);
+// 기준값: 관리자가 입력한 임상 NDT가 우선, 없으면 사용자가 앱에서 직접 입력한 실측값(연구 동의자 기록에 포함)
+const refOf = examId => D.refs.find(r => r.exam_id === examId) || (() => { const e = D.exams.find(x => x.id === examId), r = e && e.data && e.data.reference; return r && isFinite(r.ndtMm) ? { exam_id: examId, user_id: e.user_id, clinical_mm: r.ndtMm, source: 'user' } : null; })();
 const userOf = id => D.profiles.find(p => p.id === id);
 // 참여자 코드: 사용자 ID에서 만든 가명(내보내기·학습에 이름 대신 사용)
 const pcode = id => 'P-' + String(id).replace(/-/g, '').slice(0, 8).toUpperCase();
 function trainingRows() {
-  return D.refs.map(r => { const e = D.exams.find(x => x.id === r.exam_id); const f = e && C.errorFeatures(e.data); return f ? { participantId: e.user_id, examId: e.id, f, ref: Number(r.clinical_mm) } : null; }).filter(Boolean);
+  const userRefs = D.exams.filter(e => !D.refs.some(r => r.exam_id === e.id)).map(e => refOf(e.id)).filter(Boolean); // 사용자가 직접 넣은 실측값도 학습에 포함
+  return D.refs.concat(userRefs).map(r => { const e = D.exams.find(x => x.id === r.exam_id); const f = e && C.errorFeatures(e.data); return f ? { participantId: e.user_id, examId: e.id, f, ref: Number(r.clinical_mm) } : null; }).filter(Boolean);
 }
 
 // ───── 화면 ─────

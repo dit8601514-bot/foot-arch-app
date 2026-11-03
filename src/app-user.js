@@ -647,8 +647,14 @@ function careHtml(pc, e) {
   const ACT = { consult: '🩺', exercise: '🏃', adherence: '📅', asym: '⚖️', retake: '📸', reference: '🏥' };
   const rows = [];
   rows.push(['개인 맞춤 추정', `<b>${mm(F.estimateMm)}</b> <span class="tiny">± ${F.ciMm.toFixed(1)} mm (95%)</span>`]);
-  if (s) rows.push(['이번 측정 반영', s.ref ? '전문가 측정값 사용' : `${Math.round(s.w * 100)}%${s.outlier ? ' · <span class="badge b-warn">평소와 다름</span>' : ''}`]);
-  if (pc.nRefs) rows.push(['내 오차 보정', `${sign(pc.biasMm)} <span class="tiny">(전문가 값 ${pc.nRefs}회 학습)</span>`]);
+  if (s) rows.push(['이번 측정 반영', s.ref ? '실제 잰 값 사용' : `${Math.round(s.w * 100)}%${s.outlier ? ' · <span class="badge b-warn">평소와 다름</span>' : ''}`]);
+  if (pc.nRefs) {
+    rows.push(['내 오차 보정', `${sign(pc.biasMm)} <span class="tiny">(실측 ${pc.nRefs}회 학습)</span>`]);
+    const hc = Object.entries(pc.heightCalib || {}).map(([k, c2]) => `${k === 'floor' ? '바닥 기준' : '기준선'} 앉음 ${sign(c2.bPre)} · 섬 ${sign(c2.bPost)}`).join(' / ');
+    if (hc) rows.push(['자세별 보정', `<span class="small">${hc}</span>`]);
+  }
+  if (e && pc.nRefs && !e.reference) rows.unshift(['이번 측정 AI 보정값', `<b>${mm(pc.personalMm(e))}</b> <span class="tiny">(앱 ${mm(e.comparison.changeMm)} → 내 실측 습관으로 보정)</span>`]);
+  if (e && e.reference) rows.unshift(['실제 잰 값', `<b>${mm(e.reference.ndtMm)}</b> <span class="tiny">(앱 ${mm(e.comparison.changeMm)} · 차이 ${sign(e.reference.ndtMm - e.comparison.changeMm)})</span>`]);
   rows.push(['내 측정 흔들림', `± ${pc.sdMm.toFixed(1)} mm <span class="tiny">${pc.nPairs ? `(반복 ${pc.nPairs}쌍 학습)` : '(기본값 · 3일 안에 한 번 더 재면 학습)'}</span>`]);
   if (F.changeSincePrevMm != null) rows.push(['지난번보다', `${sign(F.changeSincePrevMm)} <span class="tiny">${F.realChange ? '실제 변화로 보입니다' : `측정 흔들림 범위(±${pc.mdcMm.toFixed(1)} mm) 안`}</span>`]);
   if (F.slopePer30 != null) rows.push(['한 달 추세', `${sign(F.slopePer30)} / 30일`]);
@@ -661,7 +667,7 @@ function careHtml(pc, e) {
     <div class="sec-title" style="margin-top:10px">나만의 관리 계획</div>
     <ul class="care-acts">${pl.actions.map(a => `<li><span>${ACT[a.kind] || '•'}</span><span>${esc(a.text)}${a.kind === 'exercise' ? ' <a href="#/exercises">운동 보기 ›</a>' : ''}</span></li>`).join('')}
       ${pl.nextTestAt ? `<li><span>⏰</span><span>다음 검사: <b>${fmtDate(pl.nextTestAt, false)}</b> (${pl.nextTestDays}일 뒤) · 같은 시간대·같은 장소에서 재면 더 정확합니다</span></li>` : ''}</ul>
-    ${e ? `<button class="btn block" id="refBtn">${e.reference ? `전문가 측정값 수정 (현재 ${mm(e.reference.ndtMm)})` : '병원·전문가 측정값 입력 → 내 오차 학습'}</button>` : ''}
+    ${e ? `<button class="btn block" id="refBtn">${e.reference ? `실제 잰 값 수정 (하강 ${mm(e.reference.ndtMm)}${e.reference.preMm != null ? ` · ${(e.reference.preMm / 10).toFixed(1)}→${(e.reference.postMm / 10).toFixed(1)} cm` : ''})` : '자로 실제 잰 값 입력 → AI 오차 학습'}</button>` : ''}
     <p class="tiny" style="margin-top:8px">AI 맞춤 추정은 내 기록에서 통계적으로 계산한 참고값입니다. 진단이 아니며, 분류는 앱 측정값 기준으로 따로 표시합니다.</p>
   </div>`;
 }
@@ -672,25 +678,48 @@ async function renderCare(box, e) {
     const pc = C.personalCare(exams, { logs, selfReport: e && e.selfReport });
     box.innerHTML = careHtml(pc, e);
     const b = $('#refBtn', box); if (b) b.onclick = async () => {
-      const val = await refModal(e.reference ? e.reference.ndtMm : null); if (val === undefined) return;
-      if (val === null) delete e.reference; else e.reference = { ndtMm: val, source: 'user', at: Date.now() };
+      const val = await refModal(e.reference || null); if (val === undefined) return;
+      if (val === null) delete e.reference; else e.reference = Object.assign(val, { source: 'user', at: Date.now() });
       e.updatedAt = Date.now(); e._syncedAt = null; await save('exams', e); if (typeof Account !== 'undefined') Account.syncSoon();
-      toast(val === null ? '전문가 값을 지웠습니다.' : 'AI가 내 오차를 다시 학습했습니다.'); renderCare(box, e);
+      toast(val === null ? '실측값을 지웠습니다.' : 'AI가 내 오차를 다시 학습했습니다. 다음 측정부터 보정됩니다.'); renderCare(box, e);
     };
   } catch (er) { console.warn('care', er); box.innerHTML = ''; }
 }
 function refModal(cur) {
+  // 실측값 입력: 앉은 자세·선 자세 발배뼈 높이(자로 잰 값) 또는 하강량만. 단위 cm/mm
   return new Promise(res => {
+    const c = cur || {}, unit0 = c.unit || 'cm', show = v => v == null || !isFinite(v) ? '' : +(unit0 === 'cm' ? v / 10 : v).toFixed(2);
     const bg = document.createElement('div'); bg.className = 'modal-bg';
-    bg.innerHTML = `<div class="modal" role="dialog" aria-modal="true"><b>전문가 측정값</b><p class="small">병원·물리치료실 등에서 같은 날(또는 가까운 날) 잰 <b>발배뼈 하강(NDT)</b> 값을 mm로 입력하세요. AI가 앱 측정값과의 차이를 배워 다음부터 나에게 맞춰 보정합니다.</p>
-      <input id="refIn" type="number" inputmode="decimal" step="0.1" min="0" max="30" value="${cur != null ? cur : ''}" placeholder="예: 7.5" style="width:100%">
-      <div class="grid2" style="margin-top:12px"><button class="btn" data-a="no">취소</button><button class="btn primary" data-a="ok">저장</button></div>${cur != null ? '<button class="btn ghost block" data-a="del" style="margin-top:6px">값 지우기</button>' : ''}</div>`;
+    const close = () => bg.parentNode && bg.parentNode.removeChild(bg);
+    bg.innerHTML = `<div class="modal" role="dialog" aria-modal="true"><b>실제로 잰 값 입력</b>
+      <p class="small">자로 잰 <b>발배뼈 높이</b>(바닥 → 발배뼈 결절)를 넣어 주세요. AI가 앱 값과의 차이를 <b>앉은 자세·선 자세 따로</b> 배워, 다음 측정부터 나에게 맞춰 보정합니다.</p>
+      <div class="seg" id="ru"><button data-u="cm" class="${unit0 === 'cm' ? 'on' : ''}">cm</button><button data-u="mm" class="${unit0 === 'mm' ? 'on' : ''}">mm</button></div>
+      <div class="grid2" style="margin-top:10px"><div><label class="f" for="rPre">앉은 자세(체중부하 전)</label><input id="rPre" type="number" inputmode="decimal" step="0.01" value="${show(c.preMm)}" placeholder="예: 3.4"></div>
+        <div><label class="f" for="rPost">선 자세(체중부하 후)</label><input id="rPost" type="number" inputmode="decimal" step="0.01" value="${show(c.postMm)}" placeholder="예: 2.4"></div></div>
+      <label class="f" for="rNdt" style="margin-top:8px">또는 하강량(NDT)만</label><input id="rNdt" type="number" inputmode="decimal" step="0.01" value="${c.preMm == null ? show(c.ndtMm) : ''}" placeholder="높이를 모를 때만">
+      <div class="tiny" id="rPrev" style="margin-top:6px"></div>
+      <div class="grid2" style="margin-top:12px"><button class="btn" data-a="no">취소</button><button class="btn primary" data-a="ok">저장 → AI 학습</button></div>${cur ? '<button class="btn ghost block" data-a="del" style="margin-top:6px">값 지우기</button>' : ''}</div>`;
+    let unit = unit0;
+    const toMm = v => v === '' || v == null ? null : num(v) * (unit === 'cm' ? 10 : 1);
+    const read = () => ({ pre: toMm($('#rPre', bg).value), post: toMm($('#rPost', bg).value), nd: toMm($('#rNdt', bg).value) });
+    const prev = () => { const { pre, post, nd } = read(); $('#rPrev', bg).textContent = pre != null && post != null ? `= 앉음 ${pre.toFixed(1)} mm · 섬 ${post.toFixed(1)} mm · 하강 ${(pre - post).toFixed(1)} mm` : nd != null ? `= 하강 ${nd.toFixed(1)} mm` : ''; };
+    $$('#ru button', bg).forEach(bt => bt.onclick = () => { unit = bt.dataset.u; $$('#ru button', bg).forEach(x => x.classList.toggle('on', x === bt)); prev(); });
+    ['#rPre', '#rPost', '#rNdt'].forEach(id => $(id, bg).oninput = prev); prev();
     bg.addEventListener('click', ev => {
       const a = ev.target.dataset.a; if (!a && ev.target !== bg) return;
-      if (a === 'ok') { const v = num($('#refIn', bg).value); if (!(v >= 0 && v <= 30)) return toast('0~30 mm 사이 숫자로 입력해 주세요.', true); bg.remove(); return res(v); }
-      bg.remove(); res(a === 'del' ? null : undefined);
+      if (a === 'ok') {
+        const { pre, post, nd } = read();
+        if (pre != null || post != null) {
+          if (!(pre > 5 && pre < 90 && post > 0 && post < 90)) return toast(`높이는 ${unit === 'cm' ? '0.5~9 cm' : '5~90 mm'} 사이로 두 칸 모두 넣어 주세요.`, true);
+          if (post > pre + 3) return toast('선 자세 높이가 앉은 자세보다 많이 높습니다. 두 값을 바꿔 넣었는지 확인해 주세요.', true);
+          close(); return res({ ndtMm: Math.max(0, pre - post), preMm: pre, postMm: post, unit });
+        }
+        if (!(nd >= 0 && nd <= 30)) return toast('값을 넣어 주세요(하강량 0~30 mm).', true);
+        close(); return res({ ndtMm: nd, unit });
+      }
+      close(); res(a === 'del' ? null : undefined);
     });
-    document.body.appendChild(bg); setTimeout(() => $('#refIn', bg).focus(), 50);
+    document.body.appendChild(bg); setTimeout(() => $('#rPre', bg).focus(), 50);
   });
 }
 route('/care', 'AI 1:1 맞춤 케어', async (v) => {
@@ -701,7 +730,7 @@ route('/care', 'AI 1:1 맞춤 케어', async (v) => {
     <div class="card small"><b>AI가 나에게 맞추는 방법</b><ul class="list">
       <li>측정할 때마다 사진 품질(스티커 인식·선명도·휴대폰 움직임·체중부하)을 보고 얼마나 믿을지 정합니다.</li>
       <li>가까운 날 다시 잰 값의 차이로 <b>내 측정 흔들림</b>을 배우고, 그보다 큰 변화만 “실제 변화”로 봅니다.</li>
-      <li>전문가 측정값을 입력하면 <b>내 앱 측정값과의 차이</b>를 배워 보정합니다(값이 적을수록 조심스럽게).</li>
+      <li>자로 실제 잰 발배뼈 높이(앉음·섬)를 입력하면 <b>자세별로 내 앱 값과의 차이</b>를 배워 다음 측정부터 보정합니다(입력이 많을수록 정확, 적을수록 조심스럽게).</li>
       <li>평소와 너무 다른 측정은 원인을 알려 주고 다시 찍기를 권합니다.</li></ul></div>
     <p class="tiny">${esc(DISCLAIMER)}</p>`;
   for (const el of $$('.care-foot', v)) { const f = el.dataset.f, last = exams.filter(x => x.foot === f).sort((a, b) => b.createdAt - a.createdAt)[0]; await renderCare(el, last); }

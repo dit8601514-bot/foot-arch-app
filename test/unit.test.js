@@ -370,6 +370,17 @@ t('아치 각도: 직각 배치 = 90°, 일직선 = 180°', () => { near(C.archA
     const n = C.personalCare([mk(0, 'left', 3)]).plan, m = C.personalCare([mk(0, 'left', 12)]).plan, p = C.personalCare([mk(0, 'left', 7)], { selfReport: { pain: true } }).plan;
     ok(n.level === 'keep' && n.nextTestDays === 28, n.level); ok(m.level === 'intense' && m.nextTestDays === 7 && m.actions.some(a => a.kind === 'consult'), m.level); ok(p.level === 'consult', p.level);
   });
+  t('맞춤 케어: 실측 전·후 높이로 자세별 오차를 배워 다음 측정을 보정(사용자 실제 사례)', () => {
+    // 앱 33.5→27.8 mm(하강 5.7) / 실측 34→24 mm(하강 10): 선 자세에서 앱이 높게 잼
+    const e1 = mk(0, 'left', 5.7, { comparison: { changeMm: 5.7, preMm: 33.5, postMm: 27.8, scaleDiff: 0.005 }, reference: { ndtMm: 10, preMm: 34, postMm: 24 } });
+    const e2 = mk(5, 'left', 5.5, { comparison: { changeMm: 5.5, preMm: 33.0, postMm: 27.5, scaleDiff: 0.005 } });
+    const r = C.personalCare([e1, e2]), c = r.heightCalib.line;
+    ok(c && c.n === 1 && c.bPre > 0.3 && c.bPre < 0.5 && c.bPost < -3 && c.bPost > -3.8, JSON.stringify(c));
+    const p2 = r.personalMm(e2); ok(p2 > 8.5 && p2 < 10, '다음 측정 보정 ' + p2.toFixed(2));
+    // 실측이 쌓일수록 차이를 더 믿는다
+    const many = [0, 1, 2, 3].map(i => mk(i * 7, 'left', 5.7, { comparison: { changeMm: 5.7, preMm: 33.5, postMm: 27.8, scaleDiff: 0.005 }, reference: { ndtMm: 10, preMm: 34, postMm: 24 } }));
+    ok(C.personalCare(many).heightCalib.line.bPost < c.bPost, '4회 학습이 더 강함');
+  });
   t('맞춤 케어: 좌우 차이가 측정 흔들림보다 크면 약한 발에 운동 추가', () => {
     const r = C.personalCare([mk(0, 'left', 11), mk(0, 'right', 3)]); ok(r.asymReal && r.plan.actions.some(a => a.kind === 'asym' && a.text.includes('왼발')), JSON.stringify(r.plan.actions));
   });

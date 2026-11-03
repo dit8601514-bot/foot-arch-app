@@ -1009,10 +1009,17 @@
     const base = e => (e.aiCorrection && isFinite(e.aiCorrection.mm) ? Math.max(0, e.aiCorrection.mm) : e.comparison.changeMm);
     // ③ 개인 보정: 전문가 측정값이 있는 검사들의 잔차를 수축 평균(두 발 공통 — 같은 사람·같은 부착 습관)
     const refs = valid.filter(e => e.reference && isFinite(e.reference.ndtMm));
-    const res = refs.map(e => e.reference.ndtMm - base(e));
     const kShr = (CARE.refSd * CARE.refSd) / (CARE.refTau * CARE.refTau);
+    // ③-1 앉은 자세·선 자세 높이를 따로 배운다(실측 전·후 높이를 넣었을 때): 체중이 실리면 스티커 기준선도 함께
+    //      내려앉는 등 '선 자세에서만' 생기는 오차가 있어서, 하강량 하나로 배우는 것보다 정확하다. 측정 방식(바닥선/기준선)별로 따로.
+    const cal = personalHeightCalib(refs, kShr);
+    const corrected = e => { const h = appHeights(e), c2 = h && cal[h.method]; return c2 && c2.n ? Math.max(0, (h.pre + c2.bPre) - (h.post + c2.bPost)) : null; };
+    // ③-2 하강량만 넣은 기록(또는 높이 보정이 없는 측정 방식)은 하강량 잔차로 배운다
+    const res = refs.filter(e => !(isFinite(e.reference.preMm) && isFinite(e.reference.postMm) && appHeights(e))).map(e => e.reference.ndtMm - base(e));
     const bias = res.length ? res.reduce((x, y) => x + y, 0) / (res.length + kShr) : 0;
-    const biasSe = res.length ? Math.sqrt(CARE.refSd * CARE.refSd / (res.length + kShr)) : null;
+    const nCal = Object.values(cal).reduce((n, c2) => n + c2.n, 0);
+    const biasSe = res.length || nCal ? Math.sqrt(CARE.refSd * CARE.refSd / (res.length + nCal + kShr)) : null;
+    const personal = e => { const c2 = corrected(e); return c2 != null ? c2 : base(e) + bias; };
     // ② 개인 반복 오차: 같은 발, pairDays 안의 연속 측정 차이(품질 가중)
     const diffs = [];
     for (const f of ['left', 'right']) { const a = valid.filter(e => e.foot === f); for (let i = 1; i < a.length; i++) if (a[i].createdAt - a[i - 1].createdAt <= CARE.pairDays * DAY) diffs.push(base(a[i]) - base(a[i - 1])); }
@@ -1027,7 +1034,7 @@
       let x = null, P = null, tPrev = null; const series = [];
       for (const e of a) {
         // 전문가 값이 있는 검사는 그 값을 정밀 측정으로 쓴다(그날의 '정답')
-        const hasRef = e.reference && isFinite(e.reference.ndtMm), y = hasRef ? e.reference.ndtMm : base(e) + bias, w = hasRef ? 1 : measurementWeight(e), R = hasRef ? CARE.refSd * CARE.refSd : sd * sd / w;
+        const hasRef = e.reference && isFinite(e.reference.ndtMm), y = hasRef ? e.reference.ndtMm : personal(e), w = hasRef ? 1 : measurementWeight(e), R = hasRef ? CARE.refSd * CARE.refSd : sd * sd / w;
         if (x == null) { x = y; P = R + (biasSe ? biasSe * biasSe : 0); }
         else {
           const dt = Math.max(0, (e.createdAt - tPrev) / DAY), Pp = P + CARE.qDay * dt * dt + 0.02;
@@ -1046,14 +1053,32 @@
       const ci = 1.96 * Math.sqrt(last.sdEst * last.sdEst + (biasSe ? biasSe * biasSe : 0));
       const prev = series.length >= 2 ? series[series.length - 2] : null;
       const change = prev ? last.est - prev.est : null;
-      feet[f] = { n: a.length, estimateMm: Math.max(0, last.est), ciMm: ci, lastRawMm: last.raw, lastPersonalMm: Math.max(0, last.y), lastWeight: last.w, lastOutlier: last.outlier, lastZ: last.z,
+      feet[f] = { n: a.length, correctedLastMm: Math.max(0, personal(a[a.length - 1])), estimateMm: Math.max(0, last.est), ciMm: ci, lastRawMm: last.raw, lastPersonalMm: Math.max(0, last.y), lastWeight: last.w, lastOutlier: last.outlier, lastZ: last.z,
         changeSincePrevMm: change, realChange: change != null && Math.abs(change) >= mdc * 0.7, slopePer30: slope30,
         baselineMm: first.est, sinceBaselineMm: last.est - first.est, series, category: classify(Math.max(0, last.est)),
         lastIssues: measurementIssues(a[a.length - 1]), lastExamId: a[a.length - 1].id };
     }
     const both = feet.left && feet.right, asym = both ? Math.abs(feet.left.estimateMm - feet.right.estimateMm) : null;
     const plan = carePlan(feet, { asym, mdc, sd, logs, now, selfReport: opts.selfReport || {}, refs: refs.length });
-    return { feet, sdMm: sd, sdObsMm: sdObs, nPairs: nPair, mdcMm: mdc, biasMm: bias, biasSeMm: biasSe, nRefs: refs.length, asymMm: asym, asymReal: asym != null && asym >= mdc, learnedFrom: valid.length, plan };
+    const biasAll = refs.length ? mean(refs.map(e => personal(e) - base(e))) : 0;
+    return { feet, sdMm: sd, sdObsMm: sdObs, nPairs: nPair, mdcMm: mdc, biasMm: biasAll, biasSeMm: biasSe, nRefs: refs.length, heightCalib: cal, personalMm: e => Math.max(0, personal(e)), asymMm: asym, asymReal: asym != null && asym >= mdc, learnedFrom: valid.length, plan };
+  }
+  // 앱이 잰 전·후 높이(바닥선이 있으면 바닥 기준 = 표준 NDT, 없으면 P1–P3 기준선 기준)
+  function appHeights(e) {
+    const c = e && e.comparison; if (!c) return null;
+    if (c.floor && isFinite(c.floor.preMm) && isFinite(c.floor.postMm)) return { method: 'floor', pre: c.floor.preMm, post: c.floor.postMm };
+    if (isFinite(c.preMm) && isFinite(c.postMm)) return { method: 'line', pre: c.preMm, post: c.postMm };
+    return null;
+  }
+  // 실측 전·후 높이와 앱 높이의 차이를 측정 방식별로 수축 평균(적을수록 조심스럽게)
+  function personalHeightCalib(refs, kShr) {
+    const out = {};
+    for (const e of refs) {
+      const r = e.reference, h = appHeights(e); if (!h || !isFinite(r.preMm) || !isFinite(r.postMm)) continue;
+      const o = out[h.method] || (out[h.method] = { sPre: 0, sPost: 0, n: 0 }); o.sPre += r.preMm - h.pre; o.sPost += r.postMm - h.post; o.n++;
+    }
+    for (const k of Object.keys(out)) { const o = out[k]; o.bPre = o.sPre / (o.n + kShr); o.bPost = o.sPost / (o.n + kShr); }
+    return out;
   }
   // ⑦ 개인 관리 계획(규칙 기반 · 연구 기준 분류 + 개인 추세·자가 확인·운동 기록)
   function carePlan(feet, o) {
@@ -1644,6 +1669,6 @@
     rgbToHsv, detectStickers, labelLandmarks, signedDistanceToLine, distanceToLine, projectionT,
     measureImage, comparePrePost, classify, roundMm, errorMetrics,
     splitByParticipant, trainCalibration, applyCalibration, fitMethod, validateConversion,
-    motionBetween, framingCheck, laplacianVariance, archAngle, cropImage, detectInRoi, labelsConsistent, combineDetections, shapeDelta, AI_FEATURES, errorFeatures, trainErrorModel, applyErrorModel, fitRidge, createLandmarkKalman, chromaMap, ALIGN, alignmentCheck, LOAD, loadEvidence, shapeOf, FOOT_MODEL, GUIDE_LAYOUT, guideGeometry, guideCheck, fitFootModel, snapOutline, densify, segmentFoot, EXERCISE_DRAFTS, EXERCISE_CATEGORIES, youtubeId, resampleClosed, personalCare, measurementWeight, CARE, detectSoleLine, heightAboveSole
+    motionBetween, framingCheck, laplacianVariance, archAngle, cropImage, detectInRoi, labelsConsistent, combineDetections, shapeDelta, AI_FEATURES, errorFeatures, trainErrorModel, applyErrorModel, fitRidge, createLandmarkKalman, chromaMap, ALIGN, alignmentCheck, LOAD, loadEvidence, shapeOf, FOOT_MODEL, GUIDE_LAYOUT, guideGeometry, guideCheck, fitFootModel, snapOutline, densify, segmentFoot, appHeights, EXERCISE_DRAFTS, EXERCISE_CATEGORIES, youtubeId, resampleClosed, personalCare, measurementWeight, CARE, detectSoleLine, heightAboveSole
   };
 });
