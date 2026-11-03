@@ -254,6 +254,22 @@ t('가이드: 표준 배치 그대로면 목표 원 정렬 통과', () => { cons
 t('가이드: 발가락 왼쪽(오른발)도 대칭 배치 통과', () => { const sc = guideScene(GW, GH, { toe: 'left' }); const d = C.detectStickers(gimg(sc), { toeDirection: 'left' }); ok(d.ok, JSON.stringify(d.reasons)); ok(C.guideCheck(d, 'left').ok); });
 t('가이드: 발이 뒤로 치우치면 "앞으로" 코칭', () => { const sc = guideScene(GW, GH, { dx: -110 }); const a = C.guideCheck(C.detectStickers(gimg(sc)), 'right', { mode: 'fixed' }); ok(!a.ok && a.msg.includes('앞으로'), JSON.stringify(a)); });
 t('가이드: 너무 멀면(작게 보임) "가까이" 코칭', () => { const sc = guideScene(GW, GH, { scaleMul: 0.8 }); const a = C.guideCheck(C.detectStickers(gimg(sc)), 'right', { mode: 'fixed' }); ok(!a.ok && a.code === 'FAR', JSON.stringify(a)); });
+t('흔들림 구분: 세 점이 함께 이동·회전(휴대폰 흔들림)하면 형태 변화 ≈0, 발배뼈가 내려가면 큼', () => {
+  const mk = (P1, P2, P3) => ({ landmarks: { P1, P2, P3 }, quality: { diameterPx: 20 } });
+  const a = mk({ x: 400, y: 300 }, { x: 250, y: 240 }, { x: 100, y: 300 });
+  const th = 0.03, R = p => ({ x: 512 + (p.x - 250) * Math.cos(th) - (p.y - 280) * Math.sin(th) + 9, y: 280 + (p.x - 250) * Math.sin(th) + (p.y - 280) * Math.cos(th) - 7 });
+  const moved = mk(R(a.landmarks.P1), R(a.landmarks.P2), R(a.landmarks.P3));
+  ok(C.shapeDelta(a, moved) < 0.02, 'rigid ' + C.shapeDelta(a, moved));
+  const drop = mk({ x: 400, y: 300 }, { x: 250, y: 246 }, { x: 100, y: 300 });
+  ok(C.shapeDelta(a, drop) > 0.25, 'drop ' + C.shapeDelta(a, drop));
+});
+t('연속 촬영 결합: 프레임마다 영상이 흔들려도 바닥선 높이는 그대로', () => {
+  const fr = (dx, dy) => ({ ok: true, landmarks: { P1: { x: 400 + dx, y: 300 + dy }, P2: { x: 250 + dx, y: 240 + dy }, P3: { x: 100 + dx, y: 300 + dy }, axisAngleDeg: 0 }, quality: { sharp: true, diameterPx: 20, fitRmsPx: 0.2, sizeCv: 0.01, minAxisRatio: 0.98 }, sole: { ok: true, slope: 0, intercept: 340 + dy, rms: 0.3 }, confidence: 0.9, detectionConfidence: 0.9 });
+  const dets = [[0, 0], [6, -5], [-7, 4], [3, 8], [-4, -6], [8, 2], [-2, 7]].map(([x, y]) => fr(x, y));
+  const cb = C.combineDetections(dets, 5); ok(cb.ok);
+  const L = cb.det.landmarks, mid = (L.P1.y + L.P3.y) / 2, soleY = cb.det.sole.slope * ((L.P1.x + L.P3.x) / 2) + cb.det.sole.intercept;
+  ok(Math.abs(soleY - mid - 40) < 1e-9 && cb.det.sole.sdPx < 1e-9, (soleY - mid) + ' sd ' + cb.det.sole.sdPx);
+});
 t('적응형 가이드: 거리가 달라도(0.8배·1배) 발 전체가 보이면 통과', () => { for (const m of [0.8, 1.0]) { const sc = guideScene(GW, GH, { scaleMul: m }); const a = C.guideCheck(C.detectStickers(gimg(sc)), 'right'); ok(a.ok && a.adaptive, m + ' ' + a.msg); } });
 t('적응형 가이드: 뒤꿈치가 화면 밖이면 "앞으로" 안내', () => { const sc = guideScene(GW, GH, { dx: -150 }); const a = C.guideCheck(C.detectStickers(gimg(sc)), 'right'); ok(!a.ok && a.code === 'HEEL_CUT' && a.msg.includes('앞으로'), a.code + ' ' + a.msg); });
 t('적응형 가이드: 너무 작게 보이면 "가까이" 안내', () => { const sc = guideScene(GW, GH, { scaleMul: 0.5 }); const a = C.guideCheck(C.detectStickers(gimg(sc)), 'right'); ok(!a.ok && a.code === 'FAR', a.code); });

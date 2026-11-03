@@ -105,7 +105,7 @@ route('/self/run', '측정하기', async (v) => {
     if (!c.stickers) msg = f.det.stickers.length === 0 ? `${FOOT[foot()]} 안쪽이 화면 가이드 안에 들어오게 해 주십시오` : c.stickersCode === 'EXTRA' ? '주변의 파란 물건을 치워 주십시오' : c.stickersCode === 'OCCLUDED' ? '스티커가 가려졌습니다. 바지나 손을 치워 주십시오' : '스티커 세 개가 모두 보이게 해 주십시오';
     else if (!c.frame) msg = c.frameMsg;
     else if (!c.sharp) msg = '화면이 흐립니다. 조명을 밝게 하고 잠시 그대로 계십시오';
-    else if (!c.still) msg = '움직이지 마십시오';
+    else if (!c.still) msg = c.stillCode === 'PHONE' ? '휴대폰이 흔들리고 있습니다. 휴대폰을 고정해 주십시오' : '발을 움직이지 마십시오';
     if (!msg || (msg === lastHint.msg && now - lastHint.t < 12000)) return;
     lastHint = { t: now, msg }; say(msg, { interrupt: false });
   }
@@ -203,7 +203,7 @@ route('/self/run', '측정하기', async (v) => {
     if (phase === 'stand') {
       // 일어서는 동작 인지: ① 장면 전체 움직임이 커지거나 ② 스티커 추적이 끊기거나 ③ 스티커가 크게 움직이거나
       // ④ 움직임이 작아도 발 모양이 체중부하 형태로 바뀜(아치 하강·발 길이 증가가 연속 4프레임)
-      if (f.sceneMotion > T.sceneMove || f.motion > 0.3) moveFrames++; else moveFrames = Math.max(0, moveFrames - 1);
+      if (f.sceneMotion > T.sceneMove || f.motion > 1.0 || f.shapeMotion > 0.4) moveFrames++; else moveFrames = Math.max(0, moveFrames - 1);
       if (!f.det.ok) lostFrames++; else lostFrames = 0;
       const evNow = f.det.ok && liveRef ? C.loadEvidence(liveRef, C.shapeOf(f.det)) : null;
       shapeFrames = evNow && evNow.confirmed ? shapeFrames + 1 : 0;

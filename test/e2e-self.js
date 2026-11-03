@@ -86,6 +86,8 @@ async function scenario(tag, video, expectConfirmed, expectMm, opt) {
   if (!which || which === 'S') await scenario('S', 'self_std_shift.y4m', true, 8.0);
   // 시작 타이머 10초(실사용 기본값): 카운트다운 안내 후 정상 진행
   if (!which || which === 'T') await scenario('T', 'self_std_long.y4m', true, 8.0, { delay: 10 });
+  // 휴대폰이 계속 미세하게 흔들림(±5px·±0.4°) — 발은 가만히 있으므로 정상 촬영되어야 함
+  if (!which || which === 'H') await scenario('H', 'self_std_shake.y4m', true, 8.0);
   if (!which || which === 'K') await scenario('K', 'self_std.y4m', true, 8.0, { killAfterPre: true });
   if (!which || which === 'R1') await scenario('R1', 'self_std_rot90.y4m', true, 8.0);
   if (!which || which === 'R2') await scenario('R2', 'self_std_rot270.y4m', true, 8.0);

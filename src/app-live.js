@@ -276,7 +276,13 @@ function createTracker(opts) {
     st.hist = st.hist.filter(h => now - h.t < 600);
     const motion = st.hist.length >= 2 ? Math.max(...st.hist.map(h => C.motionBetween(h.det, det))) : Infinity;
     const speedDia = st.dia ? st.kf.speed() / st.dia : Infinity; // 칼만 추정 속도(스티커 지름/초)
-    c.still = c.stickers && motion < 0.15 && speedDia < 0.6; c.stillMsg = c.stickers && !c.still ? (st.hist.length < 2 ? '안정 상태 확인 중' : '발이 움직이고 있습니다') : '';
+    // 움직임 판정을 둘로 나눈다: ① 형태 변화(세 점의 상대 배치) = 발이 실제로 움직임 → 촬영 보류
+    // ② 세 점이 함께 이동 = 휴대폰 흔들림(측정값은 상대 배치라 영향이 거의 없음) → 크게 흔들릴 때만 보류(흐림은 선명도 검사가 따로 잡음)
+    const shapeMotion = st.hist.length >= 2 ? Math.max(...st.hist.map(h => C.shapeDelta(h.det, det))) : Infinity;
+    const footStill = shapeMotion < 0.12, phoneStill = motion < 0.8 && speedDia < 2.0;
+    c.still = c.stickers && footStill && phoneStill;
+    c.stillCode = !c.stickers || c.still ? '' : st.hist.length < 2 ? 'WAIT' : !footStill ? 'FOOT' : 'PHONE';
+    c.stillMsg = { WAIT: '안정 상태 확인 중', FOOT: '발이 움직이고 있습니다', PHONE: '휴대폰이 흔들리고 있습니다. 휴대폰을 고정해 주십시오', '': '' }[c.stillCode];
     // 정렬: 가이드 안(가장자리 여유) + 목표 영역 정밀 정렬(중앙·크기·수평) + 정면 촬영(스티커가 원으로 보임)
     const fr = det.landmarks ? C.framingCheck(det) : { ok: false, msg: '', code: 'NONE' };
     const al = det.landmarks ? C.guideCheck(det, getToe()) : { ok: false, msg: '', code: 'NONE' };
@@ -293,7 +299,7 @@ function createTracker(opts) {
     else if (det.ok && !pred) { st.kf.reset(); st.kf.update(det.landmarks, 0.3, now); st.colorModel = det.colorModel || null; st.dia = det.quality.diameterPx; }
     else { st.kf.miss(); if (!st.kf.active) { st.colorModel = null; st.dia = null; } }
     st.smooth = st.kf.positions() || (det.landmarks ? { P1: det.landmarks.P1, P2: det.landmarks.P2, P3: det.landmarks.P3 } : null);
-    return { c, ready, readyLoose, motion, speedDia, guide: al };
+    return { c, ready, readyLoose, motion, shapeMotion, speedDia, guide: al };
   }
   // 영상 회전(0/90/180/270): 처음엔 중력 센서로 추정, 이후 스티커 배치로 보정. 촬영이 시작되면 고정.
   function autoRotation() { return Orient.guess(video.videoHeight > video.videoWidth); }

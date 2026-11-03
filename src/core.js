@@ -1064,6 +1064,17 @@
    * 연속 촬영(버스트) 결합: 검출 성공·선명 프레임만 쓰고, P2 높이가 중앙값에서 크게 벗어난 프레임을 제외한 뒤
    * 기준점 좌표와 스티커 지름을 평균한다. 우연한 잡음 오차를 줄이고 프레임 간 반복성(SD)을 함께 보고한다.
    */
+  /**
+   * 형태 변화량(스티커 지름 단위): 세 점의 '서로에 대한' 배치만 비교한다.
+   * 휴대폰이 흔들려 세 점이 함께 이동·회전하면 0에 가깝고, 발 자세가 바뀌면(아치 하강, 발 길이 변화) 커진다.
+   */
+  function shapeDelta(a, b) {
+    if (!a || !b || !a.landmarks || !b.landmarks) return Infinity;
+    const f = d => { const L = d.landmarks, span = dist(L.P1, L.P3), dia = (d.quality && d.quality.diameterPx) || 1;
+      return { h: signedDistanceToLine(L.P2, L.P1, L.P3) / dia, s: span / dia, t: projectionT(L.P2, L.P3, L.P1) * span / dia }; };
+    const A = f(a), B = f(b);
+    return Math.max(Math.abs(A.h - B.h), Math.abs(A.s - B.s), Math.abs(A.t - B.t));
+  }
   function combineDetections(dets, minFrames) {
     const need = minFrames || 5;
     const good = dets.filter(d => d && d.ok && d.quality && d.quality.sharp);
@@ -1090,9 +1101,11 @@
     // 바닥선: 검출된 프레임이 절반 이상일 때만, 기준점 축 가운데에서의 높이와 기울기를 중앙값으로 결합
     const soles = keep.filter(d => d.sole && d.sole.ok);
     if (soles.length >= Math.ceil(keep.length / 2)) {
-      const xm = (out.landmarks.P1.x + out.landmarks.P3.x) / 2;
-      const m = median(soles.map(d => d.sole.slope)), ym = median(soles.map(d => d.sole.slope * xm + d.sole.intercept));
-      out.sole = { ok: true, slope: m, intercept: ym - m * xm, frames: soles.length, rms: median(soles.map(d => d.sole.rms)), sdPx: Math.sqrt(mean(soles.map(d => (d.sole.slope * xm + d.sole.intercept - ym) ** 2))) };
+      // 프레임마다 '그 프레임의 P1·P3 중점'에서 바닥선까지의 높이를 재어 결합한다(휴대폰이 흔들려 영상 전체가 이동해도 영향 없음)
+      const xm = (out.landmarks.P1.x + out.landmarks.P3.x) / 2, ymid = (out.landmarks.P1.y + out.landmarks.P3.y) / 2;
+      const rel = soles.map(d => { const cx = (d.landmarks.P1.x + d.landmarks.P3.x) / 2, cy = (d.landmarks.P1.y + d.landmarks.P3.y) / 2; return d.sole.slope * cx + d.sole.intercept - cy; });
+      const m = median(soles.map(d => d.sole.slope)), dy = median(rel), ym = ymid + dy;
+      out.sole = { ok: true, slope: m, intercept: ym - m * xm, frames: soles.length, rms: median(soles.map(d => d.sole.rms)), sdPx: Math.sqrt(mean(rel.map(v => (v - dy) ** 2))) };
     } else out.sole = { ok: false, reason: `바닥선이 확인된 프레임이 부족함(${soles.length}/${keep.length})`, frames: soles.length };
     return { ok: true, det: out, baseIndex: dets.indexOf(base) };
   }
@@ -1149,6 +1162,6 @@
     rgbToHsv, detectStickers, labelLandmarks, signedDistanceToLine, distanceToLine, projectionT,
     measureImage, comparePrePost, classify, roundMm, errorMetrics,
     splitByParticipant, trainCalibration, applyCalibration, fitMethod, validateConversion,
-    motionBetween, framingCheck, laplacianVariance, archAngle, cropImage, detectInRoi, labelsConsistent, combineDetections, createLandmarkKalman, chromaMap, ALIGN, alignmentCheck, LOAD, loadEvidence, shapeOf, FOOT_MODEL, GUIDE_LAYOUT, guideGeometry, guideCheck, fitFootModel, detectSoleLine, heightAboveSole
+    motionBetween, framingCheck, laplacianVariance, archAngle, cropImage, detectInRoi, labelsConsistent, combineDetections, shapeDelta, createLandmarkKalman, chromaMap, ALIGN, alignmentCheck, LOAD, loadEvidence, shapeOf, FOOT_MODEL, GUIDE_LAYOUT, guideGeometry, guideCheck, fitFootModel, detectSoleLine, heightAboveSole
   };
 });
