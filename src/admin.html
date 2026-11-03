@@ -7,10 +7,10 @@
 <title>AI Footarch 관리자</title>
 <meta name="theme-color" content="#1F5FE0">
 <style>
-:root{--bg:#EEF4FF;--surface:#fff;--line:#E5ECF8;--ink:#10213F;--ink-2:#4F5F7E;--brand:#1F5FE0;--brand-2:#E3ECFF;--good:#0B6B3A;--good-bg:#E3F6EC;--warn:#7A4D00;--warn-bg:#FFF1D1;--bad:#B42318;--bad-bg:#FDE9E7;
+:root{--bg:#EEF4FF;--surface:#fff;--line:#E5ECF8;--ink:#10213F;--ink-2:#4F5F7E;--brand:#3B5BFF;--brand-2:#E3ECFF;--good:#0B6B3A;--good-bg:#E3F6EC;--warn:#7A4D00;--warn-bg:#FFF1D1;--bad:#B42318;--bad-bg:#FDE9E7;
   font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Pretendard","Noto Sans KR",system-ui,sans-serif}
 *{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--ink);font-size:15px;line-height:1.5}
-.top{background:var(--brand);color:#fff;display:flex;align-items:center;gap:12px;padding:12px 20px;flex-wrap:wrap}
+.top{background:linear-gradient(125deg,#1D3BFF 0%,#5B3BF5 45%,#8B5CF6 70%,#0EA5E9 100%);color:#fff;display:flex;align-items:center;gap:12px;padding:12px 20px;flex-wrap:wrap}
 .top .logo{font-weight:900;font-style:italic;font-size:20px;letter-spacing:-.5px}.top .tag{background:rgba(255,255,255,.18);border-radius:999px;padding:3px 10px;font-size:12px;font-weight:700}
 .top nav{display:flex;gap:4px;flex-wrap:wrap;margin-left:auto}.top nav a{color:#fff;text-decoration:none;font-weight:700;font-size:14px;padding:8px 12px;border-radius:10px}.top nav a.on,.top nav a:hover{background:rgba(255,255,255,.18)}
 .top button{background:rgba(255,255,255,.18);border:0;color:#fff;border-radius:10px;padding:8px 12px;font:inherit;font-weight:700;cursor:pointer}
@@ -22,7 +22,7 @@ h1{font-size:22px;margin:4px 0 14px}h2{font-size:17px;margin:22px 0 10px}
 table{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}th,td{text-align:left;padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:middle}th{color:var(--ink-2);font-weight:600;font-size:13px}
 .scroll{overflow-x:auto}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1.5px solid var(--brand);background:#fff;color:var(--brand);border-radius:999px;min-height:40px;padding:0 16px;font:inherit;font-weight:700;cursor:pointer;text-decoration:none}
-.btn.primary{background:var(--brand);color:#fff}.btn.sm{min-height:32px;padding:0 12px;font-size:13px}.btn:disabled{opacity:.45;cursor:not-allowed}.btn.danger{border-color:var(--bad);color:var(--bad)}
+.btn.primary{background:linear-gradient(120deg,#3B5BFF 0%,#7C4DFF 60%,#22B8E6 100%);color:#fff;border-color:transparent;box-shadow:0 8px 18px rgba(91,59,245,.28)}.btn.sm{min-height:32px;padding:0 12px;font-size:13px}.btn:disabled{opacity:.45;cursor:not-allowed}.btn.danger{border-color:var(--bad);color:var(--bad)}
 input,select{font:inherit;font-size:15px;padding:9px 11px;border:1.5px solid var(--line);border-radius:10px;background:#fff;color:var(--ink)}input:focus{outline:none;border-color:#A9C0F0;box-shadow:0 0 0 3px rgba(31,95,224,.15)}
 input.num{width:96px}input.who{width:90px}
 label{font-size:13px;font-weight:700;color:var(--ink-2)}
