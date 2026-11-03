@@ -29,6 +29,11 @@ CONDS = {
     'small': {'radius': (6.5, 8)},
     'combo_hard': {'gains': (1.18, 1.0, 0.75), 'bright': 0.55, 'noise': 12, 'jpeg': 70, 'specular': True, 'grad': (0.6, 1.1), 'inner_grad': 0.2},
     # 거부되어야 하는 조건 (측정하면 안 됨)
+    # 표준 부착(Nielsen 2009: P1·P3 바닥에서 2 cm ≈ 스티커 지름 2배) — 바닥선 검출 평가용
+    'std_clean': {'standard': True},
+    'std_warm_low': {'standard': True, 'gains': (1.2, 1.0, 0.72), 'bright': 0.5, 'noise': 9},
+    'std_jpeg_shading': {'standard': True, 'jpeg': 60, 'grad': (0.55, 1.1)},
+    'std_tilt_specular': {'standard': True, 'axis': 0.9, 'specular': True},
     'reject_occluded': {'occlude': True, 'expect': 'reject'},
     'reject_extra_blue': {'extra_blue': True, 'expect': 'reject'},
     'reject_heavy_blur': {'defocus': 4.5, 'expect': 'reject'},
@@ -75,8 +80,14 @@ def render(cond, seed):
         for k in range(3): img[..., k] = img[..., k] * (1 - dmask) + den[k] * dtex * dmask
     # 스티커
     rmin, rmax = p.get('radius', (11, 16)); r = rng.uniform(rmin, rmax)
-    P3 = (heel + sgn * span * 0.06, ybase - rng.uniform(8, 16))
-    P1 = (toex - sgn * span * 0.12, ybase - rng.uniform(6, 14))
+    sole_y = ybase + 7  # 발바닥 경계(아래 다각형의 밑변) — 정확한 직선은 아래에서 계산
+    if p.get('standard'):
+        # 스티커 지름 10 mm 가정 → 2 cm = 지름 2배 = 반지름 4배(±10%) 위
+        P3 = (heel + sgn * span * 0.10, sole_y - 4 * r * rng.uniform(0.9, 1.1))
+        P1 = (toex - sgn * span * 0.16, sole_y - 4 * r * rng.uniform(0.9, 1.1))
+    else:
+        P3 = (heel + sgn * span * 0.06, ybase - rng.uniform(8, 16))
+        P1 = (toex - sgn * span * 0.12, ybase - rng.uniform(6, 14))
     tt = rng.uniform(0.33, 0.47); hpx = rng.uniform(32, 90)
     ang = math.atan2(P1[1] - P3[1], P1[0] - P3[0])
     nx, ny = -math.sin(ang), math.cos(ang)
@@ -134,8 +145,13 @@ def render(cond, seed):
     def perp(pt):
         dx, dy = P1[0] - P3[0], P1[1] - P3[1]; L = math.hypot(dx, dy)
         return abs((pt[0] - P3[0]) * dy - (pt[1] - P3[1]) * dx) / L
+    sa, sb = (toex + sgn * 30, ybase + 6), (heel - sgn * 25, ybase + 8)  # 발바닥 밑변(연속 좌표)
+    def floor_h(pt):
+        dx, dy = sb[0] - sa[0], sb[1] - sa[1]; L = math.hypot(dx, dy)
+        return abs((pt[0] - sa[0]) * dy - (pt[1] - sa[1]) * dx) / L
     return im, {'cond': cond, 'seed': seed, 'toe': toe, 'expect': p.get('expect', 'detect'), 'radius': r, 'axis': axis,
-                'P1': P1, 'P2': P2, 'P3': P3, 'heightPx': perp(P2), 'w': W, 'h': H}
+                'P1': P1, 'P2': P2, 'P3': P3, 'heightPx': perp(P2), 'w': W, 'h': H, 'standard': bool(p.get('standard')),
+                'sole': [sa, sb], 'floorH': {'P1': floor_h(P1), 'P2': floor_h(P2), 'P3': floor_h(P3)}}
 
 
 if __name__ == '__main__':

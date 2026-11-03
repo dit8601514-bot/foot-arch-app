@@ -27,7 +27,7 @@ jobs:
         run: |
           pip install --quiet numpy pillow
           BENCH_OUT=ci python3 bench/gen.py 3 500
-          BENCH_DIR=ci BENCH_MIN_SUCCESS=0.97 BENCH_MAX_WRONG=0 BENCH_MAX_P95=1.0 node bench/run.js src/core.js ALG-CI
+          BENCH_DIR=ci BENCH_MIN_SUCCESS=0.97 BENCH_MAX_WRONG=0 BENCH_MAX_P95=1.0 BENCH_MAX_FLOOR_P95=0.8 BENCH_MIN_STD_SOLE=0.6 node bench/run.js src/core.js ALG-CI
       - name: 단일 HTML 빌드
         run: node build.js
       - uses: actions/configure-pages@v5

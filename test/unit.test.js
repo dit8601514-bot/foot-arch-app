@@ -239,6 +239,44 @@ t('체중부하 근거: 거리(축척)만 달라지면 미확인(지름 정규�
   ok(!C.loadEvidence(a, b).confirmed, JSON.stringify(C.loadEvidence(a, b)));
 });
 
+// 11. 표준 가이드 · 바닥선 · 바닥 기준 측정
+function guideScene(Wg, Hg, opts) {
+  const o = Object.assign({ toe: 'right', dx: 0, dy: 0, p2t: 0.42, p2Cm: 3.6, scaleMul: 1 }, opts);
+  const g = C.guideGeometry(Wg, Hg, o.toe); const sc = g.scale * o.scaleMul;
+  const sgn = o.toe === 'left' ? -1 : 1, base = { x: g.P3.x + o.dx, y: g.floorY - 2 * sc + o.dy };
+  const P3 = base, P1 = { x: base.x + sgn * 14.5 * sc, y: base.y }, P2 = { x: base.x + sgn * 14.5 * sc * o.p2t, y: g.floorY + o.dy - o.p2Cm * sc };
+  const r = 0.5 * sc; // 지름 1 cm 스티커
+  return { P1, P2, P3, r, soleY: g.floorY + o.dy, sc, x0: Math.min(P3.x, P1.x) - 5 * sc, x1: Math.max(P3.x, P1.x) + 6 * sc, stickers: [P1, P2, P3].map(p => ({ x: p.x, y: p.y, r })) };
+}
+const GW = 1280, GH = 720;
+const gimg = (sc, extra) => makeImage(GW, GH, Object.assign({ stickers: sc.stickers, soleY: sc.soleY, footX0: sc.x0, footX1: sc.x1, noise: 4 }, extra));
+t('가이드: 표준 배치 그대로면 목표 원 정렬 통과', () => { const sc = guideScene(GW, GH); const d = C.detectStickers(gimg(sc)); ok(d.ok, JSON.stringify(d.reasons)); const a = C.guideCheck(d, 'right'); ok(a.ok, JSON.stringify(a)); });
+t('가이드: 발가락 왼쪽(오른발)도 대칭 배치 통과', () => { const sc = guideScene(GW, GH, { toe: 'left' }); const d = C.detectStickers(gimg(sc), { toeDirection: 'left' }); ok(d.ok, JSON.stringify(d.reasons)); ok(C.guideCheck(d, 'left').ok); });
+t('가이드: 발이 뒤로 치우치면 "앞으로" 코칭', () => { const sc = guideScene(GW, GH, { dx: -110 }); const a = C.guideCheck(C.detectStickers(gimg(sc)), 'right'); ok(!a.ok && a.msg.includes('앞으로'), JSON.stringify(a)); });
+t('가이드: 너무 멀면(작게 보임) "가까이" 코칭', () => { const sc = guideScene(GW, GH, { scaleMul: 0.8 }); const a = C.guideCheck(C.detectStickers(gimg(sc)), 'right'); ok(!a.ok && a.code === 'FAR', JSON.stringify(a)); });
+t('가이드: 가운데 스티커가 너무 낮으면 발배뼈 위치 확인 안내', () => { const sc = guideScene(GW, GH, { p2Cm: 1.2 }); const d = C.detectStickers(gimg(sc)); const a = C.guideCheck(d, 'right'); ok(!a.ok && a.code === 'P2_ZONE', JSON.stringify(a)); });
+t('바닥선: 평평한 발바닥 경계 검출, P2 바닥 높이 오차 ≤ 0.3px', () => {
+  const sc = guideScene(GW, GH); const d = C.detectStickers(gimg(sc)); ok(d.sole && d.sole.ok, JSON.stringify(d.sole));
+  near(C.heightAboveSole(d.landmarks.P2, d.sole), sc.soleY - 0.5 - sc.P2.y, 0.3, 'P2 바닥 높이');
+});
+t('바닥선: 바닥과 피부색이 같으면 검출 거부(오검출 방지)', () => { const sc = guideScene(GW, GH); const d = C.detectStickers(gimg(sc, { bg: [222, 178, 150] })); ok(!d.sole.ok, JSON.stringify(d.sole)); });
+t('바닥 기준 측정: 표준 부착(20mm)이면 부착 높이 점검 통과, 36mm면 안내', () => {
+  const conv = { stickerDiameterMm: 10, validated: true };
+  const sc = guideScene(GW, GH); const m = C.measureImage(C.detectStickers(gimg(sc)), conv);
+  ok(m.floor.ok && m.floor.placement.every(p => p.ok), JSON.stringify(m.floor)); near(m.floor.P3Mm, 20, 0.6, 'P3 높이 mm');
+  const hi = guideScene(GW, GH, { dy: 0 }); const st = hi.stickers.map((p, i) => i === 2 ? { x: p.x, y: p.y - 1.6 * hi.sc, r: p.r } : p);
+  const m2 = C.measureImage(C.detectStickers(makeImage(GW, GH, { stickers: st, soleY: hi.soleY, footX0: hi.x0, footX1: hi.x1, noise: 4 })), conv);
+  ok(m2.floor.ok && m2.floor.placementNotes.length === 1 && m2.floor.placementNotes[0].includes('P3'), JSON.stringify(m2.floor));
+});
+t('바닥 기준 하강: 전·후 차이 계산 + 분류 기준을 바닥 방식으로 바꿀 수 있음', () => {
+  const conv = { stickerDiameterMm: 10, validated: true };
+  const A = guideScene(GW, GH, { p2Cm: 4.2 }), B = guideScene(GW, GH, { p2Cm: 3.4 });
+  const ma = C.measureImage(C.detectStickers(gimg(A)), conv), mb = C.measureImage(C.detectStickers(gimg(B)), conv);
+  ma.imageSize = mb.imageSize = [GW, GH];
+  const r = C.comparePrePost(ma, mb, conv); ok(r.floor, JSON.stringify(r)); near(r.floor.dropMm, 8, 0.4, '바닥 기준 하강');
+  const r2 = C.comparePrePost(ma, mb, Object.assign({ primaryMeasure: 'floor' }, conv)); eq(r2.primary, 'floor'); near(r2.changeMm, 8, 0.4);
+});
+
 const pass = results.filter(r => r[1] === 'PASS').length;
 for (const r of results) console.log(`${r[1]}  ${r[0]}${r[2] ? '  — ' + r[2] : ''}`);
 console.log(`\n${pass}/${results.length} 통과`);

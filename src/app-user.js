@@ -2,7 +2,7 @@
 /* ═════════════ 일반 사용자 화면 ═════════════ */
 function convSettings() {
   const v = S.settings.validation;
-  return { stickerDiameterMm: S.settings.stickerDiameterMm, validated: !!(v && v.pass && v.diameterMm === S.settings.stickerDiameterMm) };
+  return { stickerDiameterMm: S.settings.stickerDiameterMm, validated: !!(v && v.pass && v.diameterMm === S.settings.stickerDiameterMm), primaryMeasure: S.settings.primaryMeasure || 'line' };
 }
 function defaultToe(foot) { return foot === 'left' ? 'right' : 'left'; } // 안쪽 면 촬영 시 자연스러운 발가락 방향
 function stepper(n) { return `<div class="stepper" aria-label="검사 ${n}/6단계">${[1, 2, 3, 4, 5, 6].map(i => `<span class="${i <= n ? 'on' : ''}"></span>`).join('')}</div>`; }
@@ -75,27 +75,80 @@ route('/guide', '검사 안내', async (v, p) => {
   };
 });
 
-// 해부학적 그림(발 안쪽 면, 단순화) — toe: 'right'|'left'
+// 해부학적 그림(발 안쪽 면) — 촬영 가이드와 같은 표준 발 모델(C.FOOT_MODEL)로 그린다. toe: 'right'|'left'
 function footSvg(toe, highlight) {
-  const m = toe === 'left';
-  const X = x => m ? 320 - x : x;
-  const pts = { P3: [70, 118], P2: [150, 96], P1: [236, 124], MM: [128, 66] };
-  const outline = 'M40 140 C30 120 34 96 58 92 C70 90 84 70 96 40 L104 14 L150 14 L150 46 C170 70 210 92 250 106 C272 112 292 116 300 126 C304 134 300 140 290 140 Z';
-  return `<svg class="foot-svg" viewBox="0 0 320 160" role="img" aria-label="${m ? '발가락이 왼쪽을 향한' : '발가락이 오른쪽을 향한'} 발 안쪽 면 스티커 부착 위치 그림">
-    <line x1="0" y1="141" x2="320" y2="141" stroke="#9aa7a9" stroke-width="2"/>
-    <g transform="${m ? 'translate(320,0) scale(-1,1)' : ''}">
-      <path d="${outline}" fill="#f1d3bf" stroke="#b98d72" stroke-width="2"/>
-      <path d="M112 112 C140 98 170 100 200 112" fill="none" stroke="#c99f86" stroke-width="2" stroke-dasharray="3 3"/>
-      <circle cx="128" cy="66" r="9" fill="none" stroke="#8d6e5e" stroke-width="1.5" stroke-dasharray="3 2"/>
-      ${['P3', 'P2', 'P1'].map(k => `<circle cx="${pts[k][0]}" cy="${pts[k][1]}" r="${highlight === k ? 9 : 7}" fill="#1f5fd1" stroke="#fff" stroke-width="2"/>`).join('')}
-      <line x1="${pts.P1[0]}" y1="${pts.P1[1]}" x2="${pts.P3[0]}" y2="${pts.P3[1]}" stroke="#e0a800" stroke-width="1.5"/>
-    </g>
-    <text x="${X(128) + (m ? -14 : 14)}" y="58" font-size="10" fill="#6b5345" text-anchor="${m ? 'end' : 'start'}">안쪽 복사뼈(부착 위치 아님)</text>
-    ${[['P1', '제1중족골두', 236, 124], ['P2', '발배뼈 부위', 150, 96], ['P3', '발꿈치뼈', 70, 118]].map(([k, n, x, y]) => `<text x="${X(x)}" y="${y + 26 > 156 ? 156 : y + 26}" font-size="11" font-weight="700" fill="#10201f" text-anchor="middle">${k} ${n}</text>`).join('')}
-    <text x="${m ? 12 : 308}" y="12" font-size="10" fill="#4a5a5c" text-anchor="${m ? 'start' : 'end'}">발가락 쪽 ${m ? '←' : '→'}</text>
+  const W = 320, H = 196, G = C.guideGeometry(W, H, toe, { p3x: 0.17, spanW: 0.52, floorY: 0.78 }), M = C.FOOT_MODEL, left = toe === 'left';
+  const pt = p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`;
+  const P2 = { x: G.X(M.P3.x + 0.42 * (M.P1.x - M.P3.x)), y: G.Y(3.8) };
+  const heel = { x: G.heelX, y: G.Y(M.P3.y) };
+  const mk = (p, k) => `<circle cx="${p.x}" cy="${p.y}" r="${highlight === k ? 7.5 : 6}" fill="#1f5fd1" stroke="#fff" stroke-width="2"/>`;
+  const anchor = left ? 'end' : 'start', sg = left ? -1 : 1;
+  return `<svg class="foot-svg" viewBox="0 0 ${W} ${H}" role="img" aria-label="${left ? '오른발' : '왼발'} 안쪽 면 표준 스티커 부착 위치: P1·P3는 바닥에서 2 cm, P3는 발꿈치 뒤끝에서 4 cm">
+    <line x1="4" y1="${G.floorY}" x2="${W - 4}" y2="${G.floorY}" stroke="#8a9799" stroke-width="2"/>
+    <text x="${W - 6}" y="${G.floorY + 13}" font-size="9.5" fill="#4a5a5c" text-anchor="end">바닥</text>
+    <polygon points="${G.outline.map(pt).join(' ')}" fill="#f1d3bf" stroke="#b98d72" stroke-width="2"/>
+    <circle cx="${G.malleolus.x}" cy="${G.malleolus.y}" r="${G.malleolus.r}" fill="none" stroke="#8d6e5e" stroke-width="1.3" stroke-dasharray="3 2"/>
+    <text x="${G.malleolus.x + sg * 13}" y="${G.malleolus.y - 9}" font-size="9.5" fill="#6b5345" text-anchor="${anchor}">안쪽 복사뼈(부착 위치 아님)</text>
+    <line x1="${G.P1.x}" y1="${G.P1.y}" x2="${G.P3.x}" y2="${G.P3.y}" stroke="#e0a800" stroke-width="1.5"/>
+    <line x1="${P2.x}" y1="${P2.y}" x2="${P2.x}" y2="${G.P3.y}" stroke="#0aa3b5" stroke-width="1.3" stroke-dasharray="3 2"/>
+    <!-- 치수: 바닥에서 2 cm, 발꿈치 뒤끝에서 4 cm -->
+    <line x1="${G.P3.x - sg * 10}" y1="${G.floorY}" x2="${G.P3.x - sg * 10}" y2="${G.P3.y}" stroke="#c0392b" stroke-width="1.2"/>
+    <text x="${G.P3.x - sg * 13}" y="${(G.floorY + G.P3.y) / 2 + 3}" font-size="9.5" fill="#c0392b" text-anchor="${left ? 'start' : 'end'}">2 cm</text>
+    <line x1="${G.P1.x + sg * 10}" y1="${G.floorY}" x2="${G.P1.x + sg * 10}" y2="${G.P1.y}" stroke="#c0392b" stroke-width="1.2"/>
+    <text x="${G.P1.x + sg * 13}" y="${(G.floorY + G.P1.y) / 2 + 3}" font-size="9.5" fill="#c0392b" text-anchor="${anchor}">2 cm</text>
+    <line x1="${heel.x}" y1="${G.floorY + 6}" x2="${G.P3.x}" y2="${G.floorY + 6}" stroke="#c0392b" stroke-width="1.2"/>
+    <text x="${(heel.x + G.P3.x) / 2}" y="${G.floorY + 17}" font-size="9.5" fill="#c0392b" text-anchor="middle">4 cm</text>
+    ${mk(G.P3, 'P3')}${mk(P2, 'P2')}${mk(G.P1, 'P1')}
+    <text x="${G.P3.x}" y="${G.P3.y - 11}" font-size="11" font-weight="700" fill="#10201f" text-anchor="middle">P3</text>
+    <text x="${P2.x}" y="${P2.y - 11}" font-size="11" font-weight="700" fill="#10201f" text-anchor="middle">P2</text>
+    <text x="${G.P1.x}" y="${G.P1.y - 11}" font-size="11" font-weight="700" fill="#10201f" text-anchor="middle">P1</text>
+    <text x="${left ? 12 : W - 12}" y="14" font-size="10" fill="#4a5a5c" text-anchor="${left ? 'start' : 'end'}">발가락 쪽 ${left ? '←' : '→'}</text>
   </svg>`;
 }
+// 인쇄용 부착 자(실제 크기): 바닥에 세워 2 cm 높이와 발꿈치에서 4 cm 지점을 표시
+function placementRulerSvg() {
+  const ticks = [];
+  for (let mm = 0; mm <= 60; mm++) ticks.push(`<line x1="8" y1="${70 - mm}" x2="${mm % 10 === 0 ? 16 : mm % 5 === 0 ? 13 : 11}" y2="${70 - mm}" stroke="#000" stroke-width="0.2"/>`);
+  for (let mm = 0; mm <= 100; mm++) ticks.push(`<line x1="${8 + mm}" y1="70" x2="${8 + mm}" y2="${mm % 10 === 0 ? 66 : mm % 5 === 0 ? 67.5 : 68.5}" stroke="#000" stroke-width="0.2"/>`);
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="150mm" height="95mm" viewBox="0 0 150 95">
+<rect width="150" height="95" fill="#fff"/>
+<rect x="8" y="10" width="110" height="60" fill="none" stroke="#000" stroke-width="0.4"/>
+${ticks.join('')}
+<line x1="8" y1="50" x2="118" y2="50" stroke="#d00" stroke-width="0.6"/>
+<text x="20" y="48" font-size="3.6" font-family="sans-serif" fill="#d00">← 바닥에서 2 cm: P1·P3 스티커 중심 높이</text>
+<line x1="48" y1="10" x2="48" y2="70" stroke="#00f" stroke-width="0.5" stroke-dasharray="2 1"/>
+<text x="50" y="16" font-size="3.4" font-family="sans-serif" fill="#00f">발꿈치 뒤끝에서 4 cm: P3 중심</text>
+<circle cx="48" cy="50" r="2" fill="none" stroke="#d00" stroke-width="0.5"/>
+<text x="8" y="6" font-size="3.6" font-family="sans-serif">발 아치 앱 스티커 부착 자 — "실제 크기(100%)"로 인쇄 후 아래 100 mm 눈금을 자로 확인하세요</text>
+<text x="8" y="77" font-size="3.1" font-family="sans-serif">사용법: ① 아래 선(0)을 바닥에 대고 카드를 발 안쪽에 세웁니다. ② 왼쪽 끝을 발꿈치 뒤끝에 맞춥니다.</text>
+<text x="8" y="82" font-size="3.1" font-family="sans-serif">③ 파란 점선과 빨간 선이 만나는 ○ 위치에 P3 스티커 중심을 붙입니다. ④ 제1중족골두 안쪽에도 빨간 선 높이(2 cm)로 P1을 붙입니다.</text>
+<text x="8" y="87" font-size="3.1" font-family="sans-serif">⑤ P2는 발배뼈 결절(안쪽 복사뼈 아래 앞쪽의 가장 튀어나온 뼈)에 붙입니다. 기준: Nielsen 등(2009) 3마커 방법.</text>
+<line x1="8" y1="91" x2="108" y2="91" stroke="#000" stroke-width="0.3"/><text x="110" y="92" font-size="3" font-family="sans-serif">100 mm</text>
+</svg>`;
+}
 
+const STICKER_STANDARD_HTML = `
+    <div class="card">
+      <b>표준 부착 위치</b> <span class="tiny">(Nielsen 등, 2009 · J Foot Ankle Res 2:12의 3마커 방법)</span>
+      <dl class="kv" style="grid-template-columns:auto 1fr;margin-top:6px">
+        <dt>P1</dt><dd style="text-align:left">제1중족골두(엄지발가락 뿌리 안쪽 뼈) 안쪽 면, <b>바닥에서 2 cm 위</b></dd>
+        <dt>P2</dt><dd style="text-align:left">발배뼈 결절 — 안쪽 복사뼈 <b>아래 앞쪽</b>에서 가장 튀어나온 뼈. 안쪽 복사뼈 자체가 아닙니다.</dd>
+        <dt>P3</dt><dd style="text-align:left">발꿈치뼈 안쪽 면, <b>바닥에서 2 cm 위</b>, <b>발꿈치 뒤끝에서 4 cm 앞</b></dd>
+      </dl>
+      <p class="tiny">앱은 P2에서 P1–P3 기준선까지의 수직거리 변화를 잽니다(위 논문과 같은 정의). 바닥선이 보이면 바닥 기준 발배뼈 높이(표준 NDT 방식)도 함께 계산하고, P1·P3가 2 cm 높이에 붙었는지 점검합니다.</p>
+      <button class="btn block" id="rulerBtn">인쇄용 부착 자 내려받기(SVG)</button>
+    </div>
+    <h3>부착 방법</h3>
+    <ol class="steps">
+      <li>피부의 땀·로션을 닦고 말립니다.</li>
+      <li>의자에 앉아 발을 바닥에 편하게 둡니다(체중을 싣지 않음).</li>
+      <li><b>발배뼈 결절 찾기:</b> 안쪽 복사뼈에서 엄지발가락 쪽 아래로 손가락을 미끄러뜨리면 처음 만져지는 단단한 돌출부입니다. 발을 안쪽으로 살짝 돌리면 더 잘 튀어나옵니다.</li>
+      <li>부착 자를 발 안쪽에 세워 <b>P3</b>(발꿈치 뒤끝에서 4 cm, 높이 2 cm)와 <b>P1</b>(제1중족골두, 높이 2 cm)을 붙입니다.</li>
+      <li><b>P2</b>는 스티커 중심이 발배뼈 결절의 가장 튀어나온 곳에 오도록 붙입니다.</li>
+      <li>세 스티커는 같은 크기의 파란색 원형 스티커를 씁니다(지름은 연구자 설정과 같아야 합니다).</li>
+    </ol>`;
+function bindRuler(root) { const b = $('#rulerBtn', root); if (b) b.onclick = () => download('foot-arch-placement-ruler.svg', placementRulerSvg(), 'image/svg+xml'); }
 // ───── 스티커 부착 위치 안내 ─────
 route('/stickers', '스티커 부착 위치', async (v) => {
   if (!S.exam) return go('#/guide');
@@ -104,20 +157,7 @@ route('/stickers', '스티커 부착 위치', async (v) => {
     <h2>${FOOT[S.exam.foot]} 스티커 부착</h2>
     <p class="muted small">${FOOT[S.exam.foot]}의 <b>안쪽 면</b>을 옆에서 본 그림입니다. ${S.exam.foot === 'left' ? '왼발 안쪽을 보면 발가락이 화면 오른쪽' : '오른발 안쪽을 보면 발가락이 화면 왼쪽'}을 향합니다.</p>
     ${footSvg(toe)}
-    <div class="card">
-      <dl class="kv" style="grid-template-columns:auto 1fr">
-        <dt>P1</dt><dd style="text-align:left">제1중족골두 — 엄지발가락 뿌리 안쪽의 뼈 돌출부</dd>
-        <dt>P2</dt><dd style="text-align:left">발배뼈 부위 — 안쪽 복사뼈 <b>아래 앞쪽</b>의 뼈 돌출부(발배뼈 결절). 안쪽 복사뼈 자체가 아닙니다.</dd>
-        <dt>P3</dt><dd style="text-align:left">발꿈치뼈 부위 — 발꿈치 안쪽 면</dd>
-      </dl>
-    </div>
-    <h3>부착 방법</h3>
-    <ol class="steps">
-      <li>피부의 땀·로션을 닦고 말립니다.</li>
-      <li>앉은 자세에서 손가락으로 뼈 돌출부를 만져 위치를 확인합니다.</li>
-      <li>P1 → P3 → P2 순서로 스티커 중심이 뼈 돌출부 위에 오도록 붙입니다.</li>
-      <li>세 스티커는 같은 크기의 파란색 원형 스티커를 사용합니다.</li>
-    </ol>
+    ${STICKER_STANDARD_HTML}
     <h3>주의사항</h3>
     <ul class="list small">
       <li>스티커가 구겨지거나 접히면 원형으로 인식되지 않습니다.</li>
@@ -127,6 +167,7 @@ route('/stickers', '스티커 부착 위치', async (v) => {
       <li><b>위치가 잘못되었다면</b> 스티커를 떼고 다시 붙인 후 처음부터 촬영하세요. 촬영 후 앱이 위치가 이상하다고 안내하는 경우에도 다시 부착하세요.</li>
     </ul>
     <button class="btn primary block big" id="next">다음: 촬영 자세 안내</button>`;
+  bindRuler(v);
   $('#next', v).onclick = () => go('#/posture');
 });
 
@@ -249,6 +290,8 @@ route('/capture/:phase', '촬영', async (v, p) => {
         ${det.quality.burst ? `<dt>연속 촬영</dt><dd>${det.quality.burst.used}/${det.quality.burst.total} 프레임 사용 · 높이 SD ${det.quality.burst.heightSdPx.toFixed(2)} px</dd>` : ''}
         <dt>P2–기준선 거리</dt><dd>${px(meas.heightPx)}${meas.heightMm != null ? ' / ' + mm(meas.heightMm) : ''}</dd>
         <dt>mm 환산 상태</dt><dd>${statusBadge(meas.status)}</dd>
+        <dt>바닥선</dt><dd>${meas.floor && meas.floor.ok ? `검출 · P2 높이 ${meas.floor.P2Mm != null ? mm(meas.floor.P2Mm) : px(meas.floor.P2Px)}` : '미확인'}</dd>
+        ${meas.floor && meas.floor.P1Mm != null ? `<dt>P1·P3 부착 높이</dt><dd>${mm(meas.floor.P1Mm, 0)} / ${mm(meas.floor.P3Mm, 0)} <span class="tiny">(표준 20 mm)</span></dd>` : ''}
       </dl>${meas.status !== '측정 가능' && meas.notes.length ? `<ul class="list tiny">${meas.notes.map(n => `<li>${esc(n)}</li>`).join('')}</ul>` : ''}
       <p class="tiny">빨간 십자가 실제 검출된 스티커 중심, 노란 선이 P1–P3 기준선, 하늘색 점선이 P2에서 기준선까지의 수직거리입니다. 표시된 P1·P2·P3 위치가 실제 스티커와 다르면 다시 촬영하세요.</p></div>` : ''}
       ${det.ok ? '<button class="btn primary block big" id="use">이 사진 사용</button>' : ''}
@@ -346,6 +389,14 @@ route('/result/:id', '측정 결과', async (v, p) => {
       <dt>촬영 방식</dt><dd>${modeLabel(e.pre.mode)} / ${modeLabel(e.post.mode)}</dd>
       ${e.loadRecognition ? `<dt>체중부하 인지</dt><dd>${loadRecText(e.loadRecognition)}</dd>` : ''}
     </dl><p class="tiny">신뢰도 값은 검출 형태·선명도에서 계산한 휴리스틱 지표이며, 실제 측정 정확도로 검증된 값이 아닙니다.</p></div>
+    <div class="card"><b>발배뼈 하강 측정값</b><dl class="kv" style="margin-top:6px">
+      <dt>P1–P3 기준선 하강<div class="tiny">연구 정의 · Nielsen 등 2009</div></dt><dd>${c.lineChangeMm != null ? mm(c.lineChangeMm) : c.changePx != null ? px(c.changePx) : '—'}</dd>
+      <dt>바닥 기준 발배뼈 높이<div class="tiny">표준 NDT 방식</div></dt><dd>${c.floor ? `${mm(c.floor.preMm)} → ${mm(c.floor.postMm)}` : '<span class="tiny">바닥선 미확인</span>'}</dd>
+      <dt>바닥 기준 하강</dt><dd>${c.floor ? mm(c.floor.dropMm) : '—'}</dd>
+      ${c.floor ? `<dt>기준선 자체 내려앉음</dt><dd>${mm(c.floor.lineHeightChangeMm)}</dd>` : ''}
+      <dt>분류에 쓴 값</dt><dd>${c.primary === 'floor' ? '바닥 기준 하강' : 'P1–P3 기준선 하강'}</dd>
+    </dl>${(() => { const pl = (e.pre.measure.floor && e.pre.measure.floor.placementNotes) || []; const why = !c.floor ? [e.pre.measure.floor, e.post.measure.floor].filter(f => f && !f.ok).map(f => f.reason)[0] : null; return (pl.length ? `<div class="note warn small">${pl.map(esc).join('<br>')} 다음 검사에서는 부착 자로 위치를 맞춰 주세요.</div>` : '') + (why ? `<p class="tiny">바닥선을 쓰지 못한 이유: ${esc(why)}</p>` : ''); })()}
+    </div>
     <div class="card"><b>결과 설명</b><p class="small">${esc(explain)}</p></div>
     ${flexSectionHtml(e)}
     <div id="imgs"></div>

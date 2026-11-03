@@ -9,7 +9,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  const ALGORITHM_VERSION = 'ALG-2.0.0';
+  const ALGORITHM_VERSION = 'ALG-2.1.0';
 
   // 기본 검출 파라미터 (휴리스틱 값 — 실제 사진으로 검증 후 연구자가 조정해야 함)
   const DEFAULT_DETECT = {
@@ -536,6 +536,7 @@
     for (const iss of lm.issues) result.reasons.push(iss);
     if (result.confidence < p.minConfidence && !result.reasons.length) result.reasons.push({ code: 'LOW_CONF', msg: `검출 신뢰도(${(result.confidence * 100).toFixed(0)}%)가 기준(${p.minConfidence * 100}%) 미만입니다.` });
     result.ok = result.reasons.length === 0;
+    if (result.ok && !(opts && opts.skipSole)) result.sole = detectSoleLine(img, result);
     return result;
   }
   // 예측 위치와 후보의 최적 대응(3개 선택 × 순서) — 모든 조합 중 총거리 최소, 각 거리 ≤ 게이트
@@ -575,14 +576,28 @@
     if (q.minAxisRatio < c.minAxisRatioForMm) needs.push(`스티커가 타원으로 보입니다(단축/장축 ${q.minAxisRatio.toFixed(2)}). 카메라를 발 안쪽 면과 수직으로 맞춰 주세요.`);
     if (q.sizeCv > c.maxSizeCv) needs.push(`세 스티커의 겉보기 크기 차이(${(q.sizeCv * 100).toFixed(1)}%)가 커서 원근 왜곡 또는 발 회전이 의심됩니다.`);
     if (q.diameterPx < c.minDiameterPx) needs.push(`스티커가 너무 작게 찍혔습니다(${q.diameterPx.toFixed(0)}px). 카메라를 조금 더 가까이 두세요.`);
-    if (needs.length) { out.status = '보정 필요'; out.notes = needs; return out; }
+    if (needs.length) { out.status = '보정 필요'; out.notes = needs; attachFloor(out, det, c); return out; }
     out.mmPerPx = c.stickerDiameterMm / q.diameterPx;
     out.heightMm = out.heightPx * out.mmPerPx;
     out.spanMm = out.spanPx * out.mmPerPx;
     out.status = '측정 가능';
+    attachFloor(out, det, c);
     return out;
   }
 
+  // 바닥 기준 높이(px, 가능하면 mm)와 스티커 부착 높이 점검(표준: P1·P3 바닥에서 20 mm)
+  function attachFloor(out, det, c) {
+    const so = det.sole;
+    if (!so || !so.ok) { out.floor = { ok: false, reason: so ? so.reason : '바닥선 미검출' }; return; }
+    const L = det.landmarks, f = { ok: true, P1Px: heightAboveSole(L.P1, so), P2Px: heightAboveSole(L.P2, so), P3Px: heightAboveSole(L.P3, so), soleFrames: so.frames || 1, soleSdPx: so.sdPx || 0 };
+    if (out.mmPerPx) {
+      for (const k of ['P1', 'P2', 'P3']) f[k + 'Mm'] = f[k + 'Px'] * out.mmPerPx;
+      const std = c.standardStickerHeightMm || 20, tol = c.stickerHeightTolMm || 6;
+      f.placement = ['P1', 'P3'].map(k => ({ key: k, mm: f[k + 'Mm'], ok: Math.abs(f[k + 'Mm'] - std) <= tol }));
+      f.placementNotes = f.placement.filter(x => !x.ok).map(x => `${x.key === 'P1' ? 'P1(제1중족골두)' : 'P3(발꿈치뼈)'} 스티커 높이 ${x.mm.toFixed(0)} mm — 표준 ${std} mm(바닥에서 2 cm)와 차이가 큽니다.`);
+    }
+    out.floor = f;
+  }
   /** 체중부하 전·후 비교 */
   function comparePrePost(pre, post, conv, calibration) {
     const c = Object.assign({}, DEFAULT_CONVERSION, conv || {});
@@ -618,6 +633,14 @@
     }
     r.preMm = preMm; r.postMm = postMm;
     r.changeMm = Math.abs(preMm - postMm);
+    r.lineChangeMm = r.changeMm; r.primary = 'line';
+    // 바닥 기준(표준 NDT 방식): 전·후 모두 바닥선이 확인된 경우
+    if (pre.floor && pre.floor.ok && post.floor && post.floor.ok) {
+      r.floor = { preMm: pre.floor.P2Px * common, postMm: post.floor.P2Px * common };
+      r.floor.dropMm = r.floor.preMm - r.floor.postMm;
+      r.floor.lineHeightChangeMm = ((pre.floor.P1Px + pre.floor.P3Px) - (post.floor.P1Px + post.floor.P3Px)) / 2 * common; // 스티커 기준선 자체의 내려앉음
+      if (c.primaryMeasure === 'floor') { r.changeMm = Math.abs(r.floor.dropMm); r.primary = 'floor'; }
+    } else if (c.primaryMeasure === 'floor') r.notes.push('바닥선이 확인되지 않아 P1–P3 기준선 방식으로 분류했습니다.');
     r.scaleDiff = sd;
     if (r.changeMm >= c.maxPlausibleChangeMm) { r.status = '측정 불가'; r.notes.push(`변화량(${r.changeMm.toFixed(1)}mm)이 비정상적으로 큽니다. 스티커 위치·자세를 확인하고 다시 검사해 주세요.`); r.changeMm = null; return r; }
     if (postMm - preMm > c.riseReviewMm) r.flags.push('체중부하 후 아치 높이가 오히려 높게 측정되었습니다. 자세·스티커 위치 검토가 필요합니다.');
@@ -789,6 +812,151 @@
     return Object.assign(out, { ok: true, code: 'OK', msg: '발이 가이드에 정확히 들어왔습니다' });
   }
 
+  // ═══════════════ 표준 발 가이드 모델 (안쪽 면, 발가락 오른쪽 기준, 단위 cm) ═══════════════
+  /**
+   * 스티커 부착 표준: Nielsen 등(2009, J Foot Ankle Res 2:12)의 3마커 방법
+   *  - P3 발꿈치뼈 안쪽: 바닥에서 2 cm 위, 발꿈치 뒤끝에서 4 cm 앞
+   *  - P1 제1중족골두 안쪽: 바닥에서 2 cm 위
+   *  - P2 발배뼈 결절(가장 튀어나온 곳)
+   * 윤곽선 좌표는 화면 안내용 일반화 형상(성인 발 길이 약 25 cm 가정)이며 측정에는 쓰지 않는다.
+   */
+  const FOOT_MODEL = {
+    lengthCm: 25.3, truncatedCm: 18.5,         // 발 길이, 발꿈치~제1중족지관절(대표값: 성인 평균 발 길이 25.3 cm 연구 참고)
+    P3: { x: 4, y: 2 }, P1: { x: 18.5, y: 2 }, // 표준 부착 위치
+    P2zone: { t: [0.18, 0.62], hCm: [1.8, 6.5] }, // 발배뼈 결절 탐색 범위: P3→P1 진행 비율 t, 바닥 위 높이(cm)
+    malleolus: { x: 6.2, y: 7.2 },
+    outline: [[0, 1.4], [0.25, 3.6], [1.0, 6.6], [2.2, 9.6], [2.8, 12.5], [8.6, 12.5], [9.6, 9.4], [12.5, 7.0], [16.0, 5.0], [19.5, 3.7], [22.5, 2.8], [24.6, 2.0], [25.3, 1.1], [25.0, 0.25], [22.5, 0], [18.0, 0], [15.6, 0.45], [12.5, 1.15], [9.5, 1.1], [7.2, 0.4], [5.8, 0], [2.0, 0], [0.5, 0.35]]
+  };
+  // 화면 배치: 표준 발을 이 비율로 놓았을 때 P3·P1이 목표 원의 중심. 모두 프레임 폭 W 단위(가로세로비와 무관).
+  const GUIDE_LAYOUT = { p3x: 0.22, spanW: 0.52, floorY: 0.80, p3R: 0.065, p1R: 0.075 };
+  /** 프레임 크기와 발가락 방향에 맞춘 가이드 기하(픽셀). */
+  function guideGeometry(W, H, toe, layout) {
+    const L = Object.assign({}, GUIDE_LAYOUT, layout || {}), M = FOOT_MODEL;
+    const scale = (L.spanW * W) / (M.P1.x - M.P3.x);          // px / cm
+    const floor = L.floorY * H, sgn = toe === 'left' ? -1 : 1;
+    const ox = toe === 'left' ? W - L.p3x * W : L.p3x * W;     // P3 화면 x
+    const X = cm => ox + sgn * (cm - M.P3.x) * scale, Y = cm => floor - cm * scale;
+    return {
+      scale, floorY: floor, toe,
+      P3: { x: X(M.P3.x), y: Y(M.P3.y), r: L.p3R * W }, P1: { x: X(M.P1.x), y: Y(M.P1.y), r: L.p1R * W },
+      outline: M.outline.map(([x, y]) => ({ x: X(x), y: Y(y) })), malleolus: { x: X(M.malleolus.x), y: Y(M.malleolus.y), r: 0.9 * scale },
+      heelX: X(0), toeX: X(M.lengthCm), X, Y
+    };
+  }
+  /**
+   * 목표 원 정렬 판정: P3·P1이 각자의 원 안, P2가 발배뼈 범위 안(실제 P1·P3 기준).
+   * 반환 { ok, code, msg, inP3, inP1, inP2 } — msg는 무엇을 하면 되는지(방향 포함).
+   */
+  function guideCheck(det, toe, layout) {
+    if (!det || !det.landmarks) return { ok: false, code: 'NONE', msg: '발 안쪽의 스티커 세 개가 화면에 보이게 해 주십시오' };
+    const [W, H] = det.imageSize, g = guideGeometry(W, H, toe, layout), L = det.landmarks;
+    const d3 = Math.hypot(L.P3.x - g.P3.x, L.P3.y - g.P3.y), d1 = Math.hypot(L.P1.x - g.P1.x, L.P1.y - g.P1.y);
+    const inP3 = d3 <= g.P3.r, inP1 = d1 <= g.P1.r;
+    // P2 범위: 실제 P3→P1 축에서의 진행 비율과, 축에서의 높이(바닥 기준 높이 범위 − 표준 2 cm)
+    const span = dist(L.P1, L.P3), sc = span / (FOOT_MODEL.P1.x - FOOT_MODEL.P3.x);
+    const t = projectionT(L.P2, L.P3, L.P1), hl = signedDistanceToLine(L.P2, L.P1, L.P3) / sc + FOOT_MODEL.P3.y;
+    const Z = FOOT_MODEL.P2zone, inP2 = t >= Z.t[0] && t <= Z.t[1] && hl >= Z.hCm[0] && hl <= Z.hCm[1];
+    const out = { inP3, inP1, inP2, d3: d3 / g.P3.r, d1: d1 / g.P1.r, t, p2HeightCm: hl, geom: g };
+    if (inP3 && inP1) {
+      if (!inP2) return Object.assign(out, { ok: false, code: 'P2_ZONE', msg: hl < Z.hCm[0] ? '가운데 스티커가 너무 낮습니다. 발배뼈 결절에 붙였는지 확인해 주십시오' : '가운데 스티커 위치를 확인해 주십시오. 발배뼈 결절에 붙여야 합니다' });
+      return Object.assign(out, { ok: true, code: 'OK', msg: '발이 가이드에 정확히 들어왔습니다' });
+    }
+    // 코칭: 크기(거리) → 앞뒤 → 높이 순서로 가장 큰 어긋남부터
+    const cur = Math.abs(L.P1.x - L.P3.x), want = Math.abs(g.P1.x - g.P3.x), sr = cur / want;
+    if (sr < 0.88) return Object.assign(out, { code: 'FAR', msg: '휴대폰을 발에 조금 더 가까이 두십시오' });
+    if (sr > 1.14) return Object.assign(out, { code: 'NEAR', msg: '휴대폰을 발에서 조금 더 멀리 두십시오' });
+    const mx = (L.P1.x + L.P3.x) / 2 - (g.P1.x + g.P3.x) / 2, my = (L.P1.y + L.P3.y) / 2 - (g.P1.y + g.P3.y) / 2;
+    if (Math.abs(mx) >= Math.abs(my) * 0.8) {
+      const needRight = mx < 0, forward = (toe === 'right') === needRight;
+      return Object.assign(out, { code: needRight ? 'SHIFT_RIGHT' : 'SHIFT_LEFT', msg: forward ? '발을 조금 앞으로 옮겨 주십시오' : '발을 조금 뒤로 옮겨 주십시오' });
+    }
+    if (my < 0) return Object.assign(out, { code: 'TOO_HIGH', msg: '발이 화면 위쪽에 있습니다. 휴대폰 렌즈가 발 높이를 똑바로 향하게 세워 주십시오' });
+    return Object.assign(out, { code: 'TOO_LOW', msg: '발이 화면 아래쪽에 있습니다. 휴대폰 렌즈가 발 높이를 똑바로 향하게 세워 주십시오' });
+  }
+
+  // ═══════════════ 바닥선(발바닥–바닥 경계) 검출 ═══════════════
+  /**
+   * 발꿈치(P3)와 앞발(P1) 아래의 세로줄들을 아래로 훑어 피부가 끝나는 경계를 찾고, 두 구간의 경계점에 직선을 맞춘다.
+   * 안쪽 면에서 발바닥이 바닥에 닿는 곳은 발꿈치와 앞발이므로 이 직선이 바닥선이다(아치 부분은 들려 있어 쓰지 않음).
+   * 피부 기준색: 각 스티커 바로 아래(스티커 가장자리와 바닥 사이)에서 표본을 취한다.
+   * 반환: { ok, a, b(직선 위 두 점), angleDeg, rms, n, reason } — 신뢰할 수 없으면 ok=false와 이유.
+   */
+  function detectSoleLine(img, det, opts) {
+    const o = Object.assign({ cols: 9, maxRmsPx: 1.6, maxAbsAngleDeg: 12, minFrac: 0.6 }, opts || {});
+    if (!det || !det.landmarks) return { ok: false, reason: '기준점 없음' };
+    const { data, width: W, height: H } = img, L = det.landmarks, dia = det.quality.diameterPx, R = dia / 2;
+    const px = (x, y) => { const i = ((y | 0) * W + (x | 0)) * 4; return [data[i], data[i + 1], data[i + 2]]; };
+    const cdist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+    const toward = Math.sign(L.P1.x - L.P3.x) || 1; // 발가락 방향(+x/-x)
+    const pts = [], stats = {};
+    for (const [key, P, c0, c1] of [['P3', L.P3, -0.7, 1.6], ['P1', L.P1, -1.4, 0.9]]) {
+      let found = 0;
+      // 기준 피부색: 스티커 좌우 옆(같은 높이)의 피부 — 스티커 아래가 피부인지 확인하는 데 쓴다
+      const side = [0, 0, 0]; let sn = 0;
+      const inward = key === 'P3' ? toward : -toward; // 두 스티커 사이(발 안쪽) 방향만 — 발꿈치 뒤·발가락 쪽 옆은 발 바깥일 수 있음
+      for (const sx of [1.1 * inward, 1.6 * inward]) for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+        const X = Math.round(P.x + sx * dia + dx), Y = Math.round(P.y + dy); if (X < 0 || Y < 0 || X >= W || Y >= H) continue; const q = px(X, Y); side[0] += q[0]; side[1] += q[1]; side[2] += q[2]; sn++;
+      }
+      if (!sn) continue; side[0] /= sn; side[1] /= sn; side[2] /= sn;
+      for (let k = 0; k < o.cols; k++) {
+        const x = Math.round(P.x + toward * dia * (c0 + (c1 - c0) * k / (o.cols - 1)));
+        if (x < 2 || x >= W - 2) continue;
+        // 색 기울기 프로파일: 아래 2행 평균과 위 2행 평균의 색 거리(3열 평균). 피부의 완만한 음영은 작고, 발바닥–바닥 경계는 크다.
+        const yS = Math.round(P.y + R + 0.3 * dia), yE = Math.min(H - 4, Math.round(P.y + 4.5 * dia));
+        if (yE - yS < 6) continue;
+        const rowc = y => { const c = [0, 0, 0]; for (let dx = -1; dx <= 1; dx++) { const q = px(x + dx, y); c[0] += q[0] / 3; c[1] += q[1] / 3; c[2] += q[2] / 3; } return c; };
+        const avg2 = (y1, y2) => { const a1 = rowc(y1), a2 = rowc(y2); return [(a1[0] + a2[0]) / 2, (a1[1] + a2[1]) / 2, (a1[2] + a2[2]) / 2]; };
+        const g = [];
+        for (let y = yS; y <= yE; y++) g.push(cdist(avg2(y + 1, y + 2), avg2(y - 2, y - 1)));
+        // 스티커 바로 아래가 피부인지(스티커 옆 피부색과 비슷한지). 스티커가 바닥에 너무 가까우면 바닥이 잡히므로 제외.
+        const below = avg2(yS, yS + 1);
+        if (cdist(below, side) > Math.max(22, 0.35 * Math.hypot(...side) * 0.25 + 18)) { if (o.debug) o.debug.push(['below', key, cdist(below, side)]); continue; }
+        let im = 0; for (let i = 1; i < g.length; i++) if (g[i] > g[im]) im = i;
+        const gMed = median(g);
+        if (g[im] < Math.max(8, 3 * gMed) || im === 0 || im === g.length - 1) { if (o.debug) o.debug.push(['peak', key, g[im], gMed, im, g.length]); continue; }
+        // 경계 위쪽은 피부(옆 피부색과 비슷), 아래쪽은 다른 색이어야 한다
+        const yy = yS + im, upC = avg2(Math.max(yS, yy - 3), Math.max(yS, yy - 2)), dnC = avg2(Math.min(H - 2, yy + 3), Math.min(H - 2, yy + 4));
+        if (cdist(upC, side) > cdist(dnC, side) || cdist(dnC, upC) < 12) { if (o.debug) o.debug.push(['side', key, cdist(upC, side), cdist(dnC, side), cdist(dnC, upC)]); continue; }
+        // 포물선 보간으로 기울기 최대점(서브픽셀). 위 창(y-2,y-1)과 아래 창(y+1,y+2)의 경계는 y+0.5 → 이 열의 경계 y
+        const d1 = g[im - 1], d2 = g[im], d3 = g[im + 1], den = d1 - 2 * d2 + d3;
+        const off = den < 0 ? 0.5 * (d1 - d3) / den : 0;
+        const edge = { y: yS + im + off + 1 }, fracUse = 0; // 위·아래 창의 중심 = y → 계단 경계 위치(pts에는 edge.y - 1)
+        pts.push({ x, y: edge.y - 1 + fracUse, key }); found++;
+      }
+      stats[key] = found / o.cols;
+    }
+    if (stats.P3 < o.minFrac || stats.P1 < o.minFrac) return { ok: false, reason: '발바닥 경계를 충분히 찾지 못함(바닥과 피부색이 비슷하거나 그림자)', stats };
+    // 견고한 직선 피팅(y = m x + c, Tukey 가중 반복)
+    let m = 0, c = median(pts.map(p => p.y)), w = pts.map(() => 1);
+    for (let it = 0; it < 10; it++) {
+      let sw = 0, sx = 0, sy = 0, sxx = 0, sxy = 0;
+      pts.forEach((p, i) => { sw += w[i]; sx += w[i] * p.x; sy += w[i] * p.y; sxx += w[i] * p.x * p.x; sxy += w[i] * p.x * p.y; });
+      const den = sw * sxx - sx * sx; if (Math.abs(den) < 1e-9) break;
+      m = (sw * sxy - sx * sy) / den; c = (sy - m * sx) / sw;
+      const r = pts.map(p => p.y - (m * p.x + c)), s = Math.max(0.3, 1.4826 * median(r.map(Math.abs))), k = 4.685 * s;
+      w = r.map(v => Math.abs(v) >= k ? 0 : (1 - (v / k) ** 2) ** 2);
+    }
+    const res = pts.map(p => p.y - (m * p.x + c)), inl = res.filter((_, i) => w[i] > 0);
+    const rms = Math.sqrt(inl.reduce((s2, v) => s2 + v * v, 0) / Math.max(1, inl.length));
+    const angleDeg = Math.atan(m) * 180 / Math.PI;
+    const axisDeg = Math.atan2(L.P1.y - L.P3.y, L.P1.x - L.P3.x) * 180 / Math.PI;
+    const axisFix = Math.abs(axisDeg) > 90 ? axisDeg - Math.sign(axisDeg) * 180 : axisDeg;
+    const xa = Math.min(L.P1.x, L.P3.x), xb = Math.max(L.P1.x, L.P3.x);
+    const out = { a: { x: xa, y: m * xa + c }, b: { x: xb, y: m * xb + c }, slope: m, intercept: c, angleDeg, rms, n: inl.length, stats };
+    if (rms > o.maxRmsPx) return Object.assign(out, { ok: false, reason: `경계가 고르지 않음(잔차 ${rms.toFixed(2)}px)` });
+    // 바닥선 자체의 기울기(휴대폰 롤)만 본다. 스티커 축과 비교하지 않는 이유: 부착 높이가 다르면 축이 기울어지는 것이 정상이며 그것을 점검해야 하므로.
+    if (Math.abs(angleDeg) > o.maxAbsAngleDeg) return Object.assign(out, { ok: false, reason: `바닥선이 ${Math.abs(angleDeg).toFixed(1)}° 기울어짐(휴대폰 수평 확인)` });
+    out.axisDiffDeg = Math.abs(angleDeg - axisFix);
+    const below = ['P1', 'P3'].every(k => L[k].y < m * L[k].x + c - R);
+    if (!below) return Object.assign(out, { ok: false, reason: '바닥선이 스티커보다 위에서 잡힘' });
+    return Object.assign(out, { ok: true });
+  }
+  // 점에서 바닥선까지 수직 거리(px). 바닥선 위쪽(발 쪽)이 양수.
+  function heightAboveSole(p, sole) {
+    const n = Math.hypot(sole.slope, 1);
+    return ((sole.slope * p.x + sole.intercept) - p.y) / n;
+  }
+
   // ───────────────────────── 체중부하 인지(형태 근거) ─────────────────────────
   /**
    * 비체중부하 기록(ref)과 현재 검출(cur)을 스티커 지름 단위로 비교해 체중이 실렸다는 형태 근거를 계산한다.
@@ -832,6 +1000,7 @@
     const shift = p => { p.x += x0; p.y += y0; };
     for (const s of det.stickers.concat(det.rejected)) { s.cx += x0; s.cy += y0; s.bbox[0] += x0; s.bbox[1] += y0; }
     if (det.landmarks) ['P1', 'P2', 'P3'].forEach(n => shift(det.landmarks[n]));
+    if (det.sole && det.sole.slope != null) { det.sole.intercept = det.sole.intercept + y0 - det.sole.slope * x0; if (det.sole.a) { shift(det.sole.a); shift(det.sole.b); } }
     det.imageSize = [img.width, img.height]; det.roi = [x0, y0, w, h];
     if (!det.ok || det.reasons.some(r => r.code === 'BORDER')) return null;
     return det;
@@ -869,6 +1038,13 @@
       burst: { total: dets.length, used: keep.length, heightSdPx: keep.length > 1 ? Math.sqrt(hk.reduce((s, v) => s + (v - mean(hk)) ** 2, 0) / (keep.length - 1)) : 0 }
     });
     out.confidence = median(keep.map(d => d.confidence)); out.detectionConfidence = median(keep.map(d => d.detectionConfidence));
+    // 바닥선: 검출된 프레임이 절반 이상일 때만, 기준점 축 가운데에서의 높이와 기울기를 중앙값으로 결합
+    const soles = keep.filter(d => d.sole && d.sole.ok);
+    if (soles.length >= Math.ceil(keep.length / 2)) {
+      const xm = (out.landmarks.P1.x + out.landmarks.P3.x) / 2;
+      const m = median(soles.map(d => d.sole.slope)), ym = median(soles.map(d => d.sole.slope * xm + d.sole.intercept));
+      out.sole = { ok: true, slope: m, intercept: ym - m * xm, frames: soles.length, rms: median(soles.map(d => d.sole.rms)), sdPx: Math.sqrt(mean(soles.map(d => (d.sole.slope * xm + d.sole.intercept - ym) ** 2))) };
+    } else out.sole = { ok: false, reason: `바닥선이 확인된 프레임이 부족함(${soles.length}/${keep.length})`, frames: soles.length };
     return { ok: true, det: out, baseIndex: dets.indexOf(base) };
   }
   /**
@@ -924,6 +1100,6 @@
     rgbToHsv, detectStickers, labelLandmarks, signedDistanceToLine, distanceToLine, projectionT,
     measureImage, comparePrePost, classify, roundMm, errorMetrics,
     splitByParticipant, trainCalibration, applyCalibration, fitMethod, validateConversion,
-    motionBetween, framingCheck, laplacianVariance, cropImage, detectInRoi, labelsConsistent, combineDetections, createLandmarkKalman, chromaMap, ALIGN, alignmentCheck, LOAD, loadEvidence, shapeOf
+    motionBetween, framingCheck, laplacianVariance, cropImage, detectInRoi, labelsConsistent, combineDetections, createLandmarkKalman, chromaMap, ALIGN, alignmentCheck, LOAD, loadEvidence, shapeOf, FOOT_MODEL, GUIDE_LAYOUT, guideGeometry, guideCheck, detectSoleLine, heightAboveSole
   };
 });

@@ -57,11 +57,9 @@ route('/self', '자가 검사 (음성 안내)', async (v, p) => {
 route('/stickers-info', '스티커 부착 위치', async (v) => {
   v.innerHTML = `<h2>스티커 부착 위치</h2>
     <div class="seg" id="fs"><button data-v="left" class="on">왼발</button><button data-v="right">오른발</button></div><div id="box" style="margin-top:10px"></div>
-    <div class="card"><dl class="kv" style="grid-template-columns:auto 1fr">
-      <dt>P1</dt><dd style="text-align:left">제1중족골두 — 엄지발가락 뿌리 안쪽의 뼈 돌출부</dd>
-      <dt>P2</dt><dd style="text-align:left">발배뼈 부위 — 안쪽 복사뼈 <b>아래 앞쪽</b>의 뼈 돌출부. 안쪽 복사뼈 자체가 아닙니다.</dd>
-      <dt>P3</dt><dd style="text-align:left">발꿈치뼈 부위 — 발꿈치 안쪽 면</dd></dl></div>
+    ${STICKER_STANDARD_HTML}
     <a class="btn block" href="#/self">자가 검사로 돌아가기</a>`;
+  bindRuler(v);
   const paint = f => { $$('#fs button', v).forEach(b => b.classList.toggle('on', b.dataset.v === f)); $('#box', v).innerHTML = footSvg(defaultToe(f)); };
   $$('#fs button', v).forEach(b => b.onclick = () => paint(b.dataset.v)); paint('left');
 });

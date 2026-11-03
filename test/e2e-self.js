@@ -9,7 +9,8 @@ const srv = http.createServer((q, s) => { let u = decodeURIComponent(q.url.split
 const R = []; const log = (n, ok, d) => { R.push([n, ok ? 'PASS' : 'FAIL', d || '']); console.log(ok ? 'PASS' : 'FAIL', n, d || ''); };
 fs.mkdirSync(path.join(__dirname, 'shots'), { recursive: true });
 
-async function scenario(tag, video, expectConfirmed) {
+async function scenario(tag, video, expectConfirmed, expectMm) {
+  expectMm = expectMm == null ? 7.14 : expectMm;
   const b = await chromium.launch({ args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--use-file-for-fake-video-capture=' + path.join(__dirname, 'img', video)] });
   const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, permissions: ['camera'] });
   await ctx.addInitScript(() => { window.__spoken = []; const sy = window.speechSynthesis; if (sy) { const orig = sy.speak.bind(sy); sy.speak = u => { if (u.text.trim()) window.__spoken.push(u.text); try { orig(u); } catch (e) {} }; } });
@@ -23,10 +24,10 @@ async function scenario(tag, video, expectConfirmed) {
   await pg.goto(U + '#/self'); await pg.waitForSelector('#feetSeg'); await pg.click('#feetSeg button[data-v="left"]');
   if (tag === 'A') await shot('s02-self-setup');
   const t0 = Date.now(); await pg.click('#go');
-  await pg.waitForSelector('#vid'); await pg.waitForTimeout(4500); if (tag === 'A') await shot('s03-self-align');
+  await pg.waitForSelector('#vid'); await pg.waitForTimeout(4500); if (tag === 'A') await shot('s03-self-align'); if (tag === 'C') await shot('s03-std-align');
   // 체중부하 단계 화면(인지 카드) 캡처
   await pg.waitForFunction(() => document.querySelector('#lcMove') && document.querySelector('#lcMove').textContent === '확인', null, { timeout: 45000 }).catch(() => {});
-  await pg.waitForTimeout(1500); if (tag === 'A') await shot('s04-self-load');
+  await pg.waitForTimeout(1500); if (tag === 'A') await shot('s04-self-load'); if (tag === 'C') await shot('s04-std-load');
   const ok = await pg.waitForFunction(() => location.hash.startsWith('#/result/'), null, { timeout: 60000 }).then(() => true).catch(() => false);
   const secs = ((Date.now() - t0) / 1000).toFixed(1);
   const spoken = await pg.evaluate(() => window.__spoken);
@@ -45,7 +46,13 @@ async function scenario(tag, video, expectConfirmed) {
     await pg.waitForSelector('.result-big'); await shot(`s05-result-${tag}`);
     const big = (await pg.textContent('.result-big')).trim(), main = await pg.textContent('main');
     if (expectConfirmed) {
-      log(`[${tag}] 결과: 변화량 ≈7.14mm · 경증`, Math.abs(parseFloat(big) - 7.14) <= 0.15 && main.includes('경증 평발 의심'), big);
+      log(`[${tag}] 결과: 변화량 ≈${expectMm}mm · 경증`, Math.abs(parseFloat(big) - expectMm) <= 0.2 && main.includes('경증 평발 의심'), big);
+      if (tag === 'C') {
+        const ex = await pg.evaluate(async () => { const e = (await DB.all('exams'))[0]; return { line: e.comparison.lineChangeMm, floor: e.comparison.floor, pl: e.pre.measure.floor && e.pre.measure.floor.placement }; });
+        log(`[${tag}] 바닥 기준 발배뼈 높이 ≈42→34mm, 하강 ≈8mm (표준 NDT 방식)`, ex.floor && Math.abs(ex.floor.preMm - 42) < 0.5 && Math.abs(ex.floor.postMm - 34) < 0.5 && Math.abs(ex.floor.dropMm - 8) < 0.4, JSON.stringify(ex.floor && { pre: ex.floor.preMm.toFixed(2), post: ex.floor.postMm.toFixed(2), drop: ex.floor.dropMm.toFixed(2) }));
+        log(`[${tag}] P1·P3 부착 높이 표준(20mm) 점검 통과`, ex.pl && ex.pl.every(x => x.ok && Math.abs(x.mm - 20) < 0.6), JSON.stringify(ex.pl));
+        log(`[${tag}] 결과 화면에 두 측정값(기준선·바닥) 표시`, main.includes('P1–P3 기준선 하강') && main.includes('바닥 기준 발배뼈 높이') && !main.includes('바닥선 미확인'));
+      }
       log(`[${tag}] 결과: 체중부하 인지 기록(일어섬·아치 하강)`, main.includes('일어섬 확인') && main.includes('아치 하강 확인'));
       log(`[${tag}] 유연성 평발 양상 안내`, main.includes('유연성 평발 양상'));
       await pg.check('[data-sq="restFlat"]'); await pg.waitForTimeout(300);
@@ -64,6 +71,7 @@ async function scenario(tag, video, expectConfirmed) {
   const which = process.argv[2];
   if (!which || which === 'A') await scenario('A', 'self.y4m', true);
   if (!which || which === 'B') await scenario('B', 'self_nochange.y4m', false);
+  if (!which || which === 'C') await scenario('C', 'self_std.y4m', true, 8.0);
   srv.close();
   fs.writeFileSync(path.join(__dirname, 'e2e-self-results.json'), JSON.stringify(R, null, 1));
   console.log(`\n${R.filter(r => r[1] === 'PASS').length}/${R.length} 통과`);

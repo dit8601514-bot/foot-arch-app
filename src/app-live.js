@@ -42,20 +42,35 @@ const Voice = (() => {
 })();
 
 // 화면 가이드(점선) — 판정에 쓰는 C.GUIDE와 같은 영역을 그린다
-function drawGuide(g, ox, oy, w, h, okState, hint) {
-  const G = C.GUIDE, A = C.ALIGN;
-  g.strokeStyle = okState ? 'rgba(46,204,113,.95)' : 'rgba(255,255,255,.6)'; g.setLineDash([8, 6]); g.lineWidth = okState ? 3 : 2;
-  g.strokeRect(ox + w * G.x0, oy + h * G.y0, w * (G.x1 - G.x0), h * (G.y1 - G.y0)); g.setLineDash([]);
-  // 목표 영역: 세 스티커의 중심이 들어와야 하는 상자 + 발 길이 범위(최소·최대 폭 표시)
-  const tx0 = ox + w * A.cx[0], tx1 = ox + w * A.cx[1], ty0 = oy + h * A.cy[0], ty1 = oy + h * A.cy[1];
-  g.fillStyle = okState ? 'rgba(46,204,113,.18)' : 'rgba(255,255,255,.10)'; g.fillRect(tx0, ty0, tx1 - tx0, ty1 - ty0);
-  g.strokeStyle = okState ? 'rgba(46,204,113,.95)' : 'rgba(255,255,255,.75)'; g.lineWidth = 1.5; g.strokeRect(tx0, ty0, tx1 - tx0, ty1 - ty0);
-  const midY = (ty0 + ty1) / 2;
-  for (const sp of A.span) { const half = w * sp / 2; g.beginPath(); g.moveTo(ox + w / 2 - half, midY - 10); g.lineTo(ox + w / 2 - half, midY + 10); g.moveTo(ox + w / 2 + half, midY - 10); g.lineTo(ox + w / 2 + half, midY + 10); g.stroke(); }
+// 표준 발 가이드(안쪽 면 실루엣 · 바닥선 · 스티커 목표 영역)를 영상 위에 그린다. 판정(C.guideCheck)과 같은 기하를 쓴다.
+function drawGuide(g, ox, oy, k, IW, IH, toe, st, hint, sole) {
+  const G = C.guideGeometry(IW, IH, toe), M = C.FOOT_MODEL;
+  const T = p => [ox + p.x * k, oy + p.y * k];
+  const ok = st && st.ready, green = 'rgba(46,204,113,.95)', white = 'rgba(255,255,255,.85)', yellow = 'rgba(255,212,0,.95)';
+  // 발 윤곽
+  g.beginPath(); G.outline.forEach((p, i) => { const [x, y] = T(p); i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.closePath();
+  g.fillStyle = ok ? 'rgba(46,204,113,.10)' : 'rgba(255,255,255,.07)'; g.fill();
+  g.strokeStyle = ok ? green : white; g.lineWidth = 2; g.setLineDash([]); g.stroke();
+  // 안쪽 복사뼈(부착 위치 아님)
+  const [mx, my] = T(G.malleolus); g.setLineDash([3, 3]); g.lineWidth = 1.2; g.strokeStyle = 'rgba(255,255,255,.6)'; g.beginPath(); g.arc(mx, my, G.malleolus.r * k, 0, 7); g.stroke(); g.setLineDash([]);
+  // 표준 바닥선
+  const [fx0, fy] = T({ x: Math.min(G.heelX, G.toeX) - 0.03 * IW, y: G.floorY }), [fx1] = T({ x: Math.max(G.heelX, G.toeX) + 0.03 * IW, y: G.floorY });
+  g.strokeStyle = 'rgba(255,255,255,.7)'; g.setLineDash([10, 6]); g.lineWidth = 1.5; g.beginPath(); g.moveTo(fx0, fy); g.lineTo(fx1, fy); g.stroke(); g.setLineDash([]);
+  // P2(발배뼈) 탐색 영역: 표준 위치 기준 사각형
+  const Z = M.P2zone, cm = (t, h) => T({ x: G.X(M.P3.x + t * (M.P1.x - M.P3.x)), y: G.Y(h) });
+  const q = [cm(Z.t[0], Z.hCm[0]), cm(Z.t[1], Z.hCm[0]), cm(Z.t[1], Z.hCm[1]), cm(Z.t[0], Z.hCm[1])];
+  g.beginPath(); q.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.closePath();
+  g.setLineDash([5, 4]); g.lineWidth = 1.5; g.strokeStyle = st && st.inP2 ? green : 'rgba(255,255,255,.65)'; g.stroke(); g.setLineDash([]);
+  // P3·P1 목표 원
+  const ring = (P, inside, label) => { const [x, y] = T(P); g.lineWidth = inside ? 3 : 2; g.strokeStyle = inside ? green : st && st.seen ? yellow : white; g.beginPath(); g.arc(x, y, P.r * k, 0, 7); g.stroke(); g.font = 'bold 12px system-ui'; g.fillStyle = 'rgba(0,0,0,.55)'; const w2 = g.measureText(label).width + 8; g.fillRect(x - w2 / 2, y + P.r * k + 3, w2, 17); g.fillStyle = '#fff'; g.textAlign = 'center'; g.fillText(label, x, y + P.r * k + 16); g.textAlign = 'start'; };
+  ring(G.P3, st && st.inP3, 'P3 발꿈치'); ring(G.P1, st && st.inP1, 'P1 엄지 뿌리');
+  { const [x, y] = q[3]; g.font = 'bold 12px system-ui'; g.fillStyle = 'rgba(0,0,0,.55)'; g.fillRect(x, y - 18, 62, 16); g.fillStyle = '#fff'; g.fillText('P2 발배뼈', x + 4, y - 6); }
+  // 검출된 실제 바닥선(발바닥 경계)
+  if (sole && sole.ok) { const xa = 0.03 * IW, xb = 0.97 * IW, [ax, ay] = T({ x: xa, y: sole.slope * xa + sole.intercept }), [bx, by] = T({ x: xb, y: sole.slope * xb + sole.intercept }); g.strokeStyle = 'rgba(0,229,255,.95)'; g.lineWidth = 2; g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke(); g.font = '11px system-ui'; g.fillStyle = '#00e5ff'; g.fillText('바닥선 검출', bx - 70, by - 5); }
   if (hint) {
-    g.font = 'bold 15px system-ui'; const tw = g.measureText(hint).width + 20;
-    g.fillStyle = 'rgba(0,0,0,.65)'; g.fillRect(ox + (w - tw) / 2, oy + h - 34, tw, 26);
-    g.fillStyle = '#ffd400'; g.textAlign = 'center'; g.fillText(hint, ox + w / 2, oy + h - 16); g.textAlign = 'start';
+    g.font = 'bold 15px system-ui'; const tw = g.measureText(hint).width + 20, W2 = IW * k;
+    g.fillStyle = 'rgba(0,0,0,.65)'; g.fillRect(ox + (W2 - tw) / 2, oy + 8, tw, 26);
+    g.fillStyle = '#ffd400'; g.textAlign = 'center'; g.fillText(hint, ox + W2 / 2, oy + 26); g.textAlign = 'start';
   }
 }
 // 장면 움직임: 축소 회색 영상의 프레임 간 평균 절대 차이(0~255). 일어서는 동작처럼 화면 전체가 바뀌는 것을 잡는다.
@@ -89,7 +104,7 @@ function createTracker(opts) {
     c.still = c.stickers && motion < 0.15 && speedDia < 0.6; c.stillMsg = c.stickers && !c.still ? (st.hist.length < 2 ? '안정 상태 확인 중' : '발이 움직이고 있습니다') : '';
     // 정렬: 가이드 안(가장자리 여유) + 목표 영역 정밀 정렬(중앙·크기·수평) + 정면 촬영(스티커가 원으로 보임)
     const fr = det.landmarks ? C.framingCheck(det) : { ok: false, msg: '', code: 'NONE' };
-    const al = det.landmarks ? C.alignmentCheck(det, getToe()) : { ok: false, msg: '', code: 'NONE' };
+    const al = det.landmarks ? C.guideCheck(det, getToe()) : { ok: false, msg: '', code: 'NONE' };
     const faceOn = det.quality && det.quality.minAxisRatio >= 0.9;
     c.frame = fr.ok && al.ok && !!faceOn;
     c.frameMsg = !det.landmarks ? '' : !fr.ok ? fr.msg : !al.ok ? al.msg : !faceOn ? '휴대폰이 발 안쪽 면을 정면으로 향하게 해 주십시오' : '';
@@ -101,7 +116,7 @@ function createTracker(opts) {
     else if (det.ok && !pred) { st.kf.reset(); st.kf.update(det.landmarks, 0.3, now); st.colorModel = det.colorModel || null; st.dia = det.quality.diameterPx; }
     else { st.kf.miss(); if (!st.kf.active) { st.colorModel = null; st.dia = null; } }
     st.smooth = st.kf.positions() || (det.landmarks ? { P1: det.landmarks.P1, P2: det.landmarks.P2, P3: det.landmarks.P3 } : null);
-    return { c, ready, motion, speedDia };
+    return { c, ready, motion, speedDia, guide: al };
   }
   async function tick() {
     const { img } = imageDataFromSource(video, 640);
@@ -121,7 +136,7 @@ function createTracker(opts) {
     const wr = wrap.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
     overlay.width = wr.width * dpr; overlay.height = wr.height * dpr; const g = overlay.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0);
     const k = Math.min(wr.width / IW, wr.height / IH), ox = (wr.width - IW * k) / 2, oy = (wr.height - IH * k) / 2;
-    drawGuide(g, ox, oy, IW * k, IH * k, a.ready, det.landmarks && !a.c.frame ? (a.c.frameMsg || '').replace(/ 주십시오| 주세요|십시오/g, '') : '');
+    drawGuide(g, ox, oy, k, IW, IH, getToe(), { ready: a.ready, seen: !!det.landmarks, inP3: a.guide.inP3, inP1: a.guide.inP1, inP2: a.guide.inP2 }, det.landmarks && !a.c.frame ? (a.c.frameMsg || '').replace(/ 주십시오| 주세요|십시오/g, '') : '', det.sole);
     drawOverlay(g, { stickers: det.stickers, rejected: det.rejected, landmarks: det.landmarks && st.smooth ? Object.assign({}, det.landmarks, st.smooth) : det.landmarks }, k, k, ox, oy);
     onFrame(Object.assign({ det, fps: st.fpsT.length, roi: !!det.roi, sceneMotion }, a));
   }

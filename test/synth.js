@@ -7,7 +7,8 @@ function makeImage(w, h, opts) {
   const fx = w / 2, fy = h * 0.58, fa = w * 0.40, fb = h * 0.20;
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
     let c = o.bg;
-    if (o.foot && ((x - fx) / fa) ** 2 + ((y - fy) / fb) ** 2 <= 1) c = o.skin;
+    if (o.soleY != null) { if (x >= o.footX0 && x <= o.footX1 && y >= o.soleY - h * 0.32 && y + 0.5 <= o.soleY) c = o.skin; } // 평평한 발바닥(경계 y = soleY)
+    else if (o.foot && ((x - fx) / fa) ** 2 + ((y - fy) / fb) ** 2 <= 1) c = o.skin;
     const i = (y * w + x) * 4; data[i] = c[0]; data[i + 1] = c[1]; data[i + 2] = c[2]; data[i + 3] = 255;
   }
   const blue = [28, 86, 214];
