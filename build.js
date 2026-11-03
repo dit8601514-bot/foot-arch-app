@@ -15,5 +15,9 @@ fs.writeFileSync(path.join(out, 'sw.js'), fs.readFileSync(path.join(__dirname, '
 fs.copyFileSync(path.join(__dirname, 'public', 'manifest.webmanifest'), path.join(out, 'manifest.webmanifest'));
 fs.copyFileSync(path.join(__dirname, 'public', 'config.js'), path.join(out, 'config.js'));
 for (const f of fs.readdirSync(path.join(__dirname, 'public', 'icons'))) fs.copyFileSync(path.join(__dirname, 'public', 'icons', f), path.join(out, 'icons', f));
+// 관리자 앱(/admin): 사용자 앱과 분리된 별도 페이지(핵심 계산 코드만 공유)
+const admin = r('admin.html').replace('<!--CORE-->', () => '<script>\n' + safe(core) + '\n</script>').replace('<!--ADMIN-->', () => '<script>\n' + safe(r('admin.js')) + '\n</script>');
+fs.mkdirSync(path.join(out, 'admin'), { recursive: true });
+fs.writeFileSync(path.join(out, 'admin', 'index.html'), admin);
 fs.writeFileSync(path.join(out, '.nojekyll'), '');
 console.log('built', build, html.length, 'bytes');

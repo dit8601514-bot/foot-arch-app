@@ -1,46 +1,86 @@
-// 테스트용 모의 Supabase 서버: 앱이 쓰는 Auth·REST 엔드포인트만 구현하고, RLS처럼 본인 행만 접근하게 한다.
+// 테스트용 모의 Supabase 서버: 앱·관리자 앱이 쓰는 Auth·REST·RPC만 구현하고,
+// supabase/schema.sql + admin.sql 의 행 수준 보안(RLS)과 같은 규칙으로 접근을 막는다.
 'use strict';
 const http = require('http'), crypto = require('crypto');
 function createMock(anonKey) {
-  const users = new Map(), tokens = new Map(), refresh = new Map(), tables = { exams: new Map(), exercise_logs: new Map() };
+  const users = new Map(), tokens = new Map(), refresh = new Map(), admins = new Set();
+  const tables = { exams: new Map(), exercise_logs: new Map(), profiles: new Map(), reference_ndt: new Map(), calibration_models: new Map() };
+  const KEY = { reference_ndt: 'exam_id' };
   const issue = u => { const at = 'at_' + crypto.randomUUID(), rt = 'rt_' + crypto.randomUUID(); tokens.set(at, u.id); refresh.set(rt, u.id); return { access_token: at, refresh_token: rt, expires_in: 3600, expires_at: Math.floor(Date.now() / 1000) + 3600, token_type: 'bearer', user: { id: u.id, email: u.email, user_metadata: u.meta } }; };
   const log = [];
+  const isAdmin = uid => !!uid && admins.has(uid);
+  const researchOk = uid => { const p = tables.profiles.get(uid); return !!(p && p.consent_research); };
+  // 표 별 읽기 규칙(RLS select)
+  const canRead = (t, r, uid) => {
+    if (t === 'profiles') return r.id === uid || (isAdmin(uid) && r.consent_research);
+    if (t === 'exams' || t === 'exercise_logs') return r.user_id === uid || (isAdmin(uid) && researchOk(r.user_id));
+    if (t === 'reference_ndt') return r.user_id === uid || (isAdmin(uid) && researchOk(r.user_id));
+    if (t === 'calibration_models') return r.active || isAdmin(uid);
+    return false;
+  };
+  // PostgREST 필터: col=eq.v / col=not.is.null (select·order·limit·on_conflict는 무시)
+  const filters = url => [...url.searchParams.entries()].filter(([k]) => !['select', 'order', 'limit', 'on_conflict'].includes(k));
+  const match = (r, fs) => fs.every(([k, v]) => v === 'not.is.null' ? r[k] != null : v.startsWith('eq.') ? String(r[k]) === decodeURIComponent(v.slice(3)) : true);
   const srv = http.createServer((req, res) => {
     const H = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'apikey, authorization, content-type, prefer', 'Access-Control-Allow-Methods': 'GET,POST,PATCH,DELETE,OPTIONS', 'Content-Type': 'application/json' };
     const send = (code, obj) => { res.writeHead(code, H); res.end(obj === undefined ? '' : JSON.stringify(obj)); };
     if (req.method === 'OPTIONS') return send(204);
     let body = ''; req.on('data', c => body += c); req.on('end', () => {
       const url = new URL(req.url, 'http://x'), j = body ? JSON.parse(body) : null;
-      log.push(req.method + ' ' + url.pathname);
+      log.push(req.method + ' ' + url.pathname + url.search);
       if (req.headers.apikey !== anonKey) return send(401, { message: 'Invalid API key' });
-      const bearer = (req.headers.authorization || '').replace(/^Bearer /, ''), uid = tokens.get(bearer);
+      const bearer = (req.headers.authorization || '').replace(/^Bearer /, ''), uid = tokens.get(bearer) || null;
       if (url.pathname === '/auth/v1/signup') {
         if ([...users.values()].some(u => u.email === j.email)) return send(422, { msg: 'User already registered' });
         if (!j.password || j.password.length < 6) return send(422, { msg: 'Password should be at least 6 characters' });
-        const u = { id: crypto.randomUUID(), email: j.email, password: j.password, meta: j.data || {} }; users.set(u.id, u); return send(200, issue(u));
+        const u = { id: crypto.randomUUID(), email: j.email, password: j.password, meta: j.data || {} }; users.set(u.id, u);
+        const m = u.meta; tables.profiles.set(u.id, { id: u.id, username: m.username, name: m.name, phone: m.phone, consent_privacy_at: m.consent_privacy_at, consent_sensitive_at: m.consent_sensitive_at, consent_research: !!m.consent_research, created_at: new Date().toISOString() });
+        return send(200, issue(u));
       }
       if (url.pathname === '/auth/v1/token') {
         if (url.searchParams.get('grant_type') === 'password') { const u = [...users.values()].find(x => x.email === j.email && x.password === j.password); return u ? send(200, issue(u)) : send(400, { error: 'invalid_grant', error_description: 'Invalid login credentials' }); }
         const id = refresh.get(j.refresh_token); if (!id || !users.has(id)) return send(400, { error: 'invalid_grant' }); refresh.delete(j.refresh_token); return send(200, issue(users.get(id)));
       }
       if (url.pathname === '/auth/v1/logout') { tokens.delete(bearer); return send(204); }
-      if (!uid || !users.has(uid)) return send(401, { message: 'JWT expired or invalid' });
-      if (url.pathname === '/rest/v1/rpc/delete_user') { users.delete(uid); for (const t of Object.values(tables)) for (const [k, r] of t) if (r.user_id === uid) t.delete(k); return send(204); }
-      const m = url.pathname.match(/^\/rest\/v1\/(exams|exercise_logs)$/); if (!m) return send(404, { message: 'not found' });
-      const t = tables[m[1]];
-      if (req.method === 'GET') return send(200, [...t.values()].filter(r => r.user_id === uid).sort((a, b) => b.created_at.localeCompare(a.created_at)).map(r => ({ id: r.id, data: r.data })));
+      const tm = url.pathname.match(/^\/rest\/v1\/(\w+)$/);
+      // 활성 모델 읽기는 로그인 없이도 가능(공개 키)
+      if (!uid && !(tm && tm[1] === 'calibration_models' && req.method === 'GET')) return send(401, { message: 'JWT expired or invalid' });
+      // ── RPC ──
+      const rp = url.pathname.match(/^\/rest\/v1\/rpc\/(\w+)$/);
+      if (rp) {
+        const fn = rp[1];
+        if (fn === 'delete_user') { users.delete(uid); tables.profiles.delete(uid); for (const t of ['exams', 'exercise_logs', 'reference_ndt']) for (const [k, r] of tables[t]) if (r.user_id === uid) tables[t].delete(k); return send(204); }
+        if (fn === 'is_admin') return send(200, isAdmin(uid));
+        if (!isAdmin(uid)) return send(400, { message: 'not admin' });
+        if (fn === 'admin_stats') { const P = [...tables.profiles.values()]; return send(200, { users: P.length, research_users: P.filter(p => p.consent_research).length, exams: tables.exams.size, research_exams: [...tables.exams.values()].filter(e => researchOk(e.user_id)).length, references: tables.reference_ndt.size, exercise_logs: tables.exercise_logs.size }); }
+        if (fn === 'activate_model') { for (const m of tables.calibration_models.values()) m.active = m.id === j.model_id; return send(204); }
+        if (fn === 'deactivate_models') { for (const m of tables.calibration_models.values()) m.active = false; return send(204); }
+        return send(404, { message: 'no function' });
+      }
+      if (!tm || !tables[tm[1]]) return send(404, { message: 'not found' });
+      const tn = tm[1], t = tables[tn], key = KEY[tn] || 'id', fs = filters(url);
+      if (req.method === 'GET') return send(200, [...t.values()].filter(r => canRead(tn, r, uid) && match(r, fs)).sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || ''))));
       if (req.method === 'POST') {
-        for (const row of [].concat(j)) { const ex = t.get(row.id); if (ex && ex.user_id !== uid) return send(403, { message: 'new row violates row-level security policy' }); t.set(row.id, Object.assign({}, row, { user_id: uid })); }
+        for (const row0 of [].concat(j)) {
+          const row = Object.assign({}, row0), ex = t.get(row[key]);
+          if (tn === 'exams' || tn === 'exercise_logs') { if (ex && ex.user_id !== uid) return send(403, { message: 'new row violates row-level security policy' }); row.user_id = uid; }
+          else if (tn === 'reference_ndt') { const e = tables.exams.get(row.exam_id); if (!isAdmin(uid) || !researchOk(row.user_id) || !e || e.user_id !== row.user_id) return send(403, { message: 'new row violates row-level security policy' }); row.created_by = uid; }
+          else if (tn === 'calibration_models') { if (!isAdmin(uid)) return send(403, { message: 'new row violates row-level security policy' }); row.created_by = uid; row.created_at = row.created_at || new Date().toISOString(); }
+          else return send(403, { message: 'new row violates row-level security policy' });
+          t.set(row[key], Object.assign({}, ex || {}, row));
+        }
         return send(201);
       }
       if (req.method === 'DELETE') {
-        const f = url.searchParams.get('id') || '';
-        for (const [k, r] of t) if (r.user_id === uid && (f === 'not.is.null' || f === 'eq.' + k)) t.delete(k);
+        if (tn !== 'exams' && tn !== 'exercise_logs') return send(403, { message: 'permission denied' });
+        for (const [k, r] of t) if (r.user_id === uid && match(r, fs)) t.delete(k);
         return send(204);
       }
       send(405, { message: 'method' });
     });
   });
-  return { srv, users, tables, log };
+  // 시험용: 관리자 지정(실제 서버에서는 SQL Editor에서만 가능)
+  const makeAdmin = username => { const u = [...users.values()].find(x => x.meta.username === username); if (u) admins.add(u.id); return !!u; };
+  return { srv, users, tables, log, admins, makeAdmin };
 }
 module.exports = { createMock };

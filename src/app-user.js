@@ -35,7 +35,7 @@ route('/home', 'AI Footarch', async (v) => {
     </a>`; }).join('')}</div>
     ${mgmt ? `<a class="mini" style="margin-top:10px" href="#/manage"><div class="row"><b class="grow small">유연성 평발 관리 중</b><span class="badge b-warn">${esc(mgmt)}</span></div></a>` : ''}
     ${!isStandalone() && location.protocol === 'https:' ? `<div class="mini small" style="margin-top:10px"><b>홈 화면에 앱으로 추가</b><div class="tiny">${installEvt ? '<button class="btn sm primary" id="install" style="margin-top:6px">앱 설치</button>' : /iPhone|iPad/.test(navigator.userAgent) ? 'Safari 아래쪽 공유 버튼 → “홈 화면에 추가”' : '브라우저 메뉴 → “앱 설치” 또는 “홈 화면에 추가”'}</div></div>` : ''}
-    <div class="links"><a href="#/stickers-info">스티커 부착 위치</a><a href="#/guide?foot=left">단계별 검사</a><a href="#/r/home">연구자 모드</a></div>
+    <div class="links"><a href="#/stickers-info">스티커 부착 위치</a><a href="#/guide?foot=left">단계별 검사</a></div>
     <p class="tiny" style="text-align:center;margin:4px 8px 0">개인 건강관리용 참고 정보이며 진단이 아닙니다.</p>`;
   $$('[data-foot]', v).forEach(b => b.onclick = () => go('#/guide?foot=' + b.dataset.foot));
   if ($('#install', v)) $('#install', v).onclick = async () => { installEvt.prompt(); await installEvt.userChoice.catch(() => {}); installEvt = null; render(); };
@@ -353,6 +353,15 @@ async function finalizeExam(ex, log) {
     algorithmVersion: C.ALGORITHM_VERSION, appVersion: APP_VERSION, calibrationModel: model ? model.version : null,
     conversion: convSettings(), isTest: false, selfReport: {}, loadRecognition: ex.loadRecognition || null
   };
+  // AI 오차 보정: 관리자가 배포한 모델이 있으면 임상 NDT 추정치를 함께 저장(앱 측정값·분류는 바꾸지 않음)
+  try {
+    const am = typeof Account !== 'undefined' ? (await Promise.race([Account.fetchAiModel(), new Promise(r => setTimeout(() => r(Account.aiModel()), 2500))])) : null;
+    const feat = am && cmp.status === '측정 가능' ? C.errorFeatures(rec) : null;
+    if (feat && am.data && am.data.method && am.data.method !== 'identity') {
+      const v2 = C.applyErrorModel(am.data, feat);
+      if (isFinite(v2)) { rec.aiCorrection = { mm: v2, version: am.version, modelId: am.id, method: am.data.method, piMm: am.data.piMm, cvMae: am.data.cvMae, category: C.classify(Math.max(0, v2)) }; log(`AI 오차 보정(v${am.version}): 임상 NDT 추정 ${mm(v2)}`); }
+    }
+  } catch (e) { console.warn('ai', e); }
   for (const ph of ['pre', 'post']) if (ex[ph]._blob) {
     const bid = uid(); if (await save('blobs', { id: bid, kind: 'image', examId: rec.id, phase: ph, blob: ex[ph]._blob, createdAt: Date.now() })) rec[ph].imageId = bid;
   }
@@ -405,6 +414,7 @@ route('/result/:id', '측정 결과', async (v, p) => {
       ${metric(ICON.height, '발배뼈 높이(바닥 기준)', '앉음 → 섬 · 표준 NDT 방식', fl ? `${mm(fl.preMm)} → ${mm(fl.postMm)}` : '<span class="tiny">바닥선 미확인</span>')}
       ${fl ? metric(ICON.drop, '바닥 기준 하강', '', mm(fl.dropMm)) : ''}
       ${metric(ICON.angle, '스티커 아치 각도', 'P3–P2–P1 · 앉음 → 섬', ang ? `${deg(ang.pre)} → ${deg(ang.post)}` : '—')}
+      ${e.aiCorrection ? metric(ICON.chart, 'AI 보정 (임상 NDT 추정)', `모델 v${e.aiCorrection.version} · 예상 오차 ±${(e.aiCorrection.piMm || 0).toFixed(1)} mm${e.aiCorrection.category ? ' · ' + e.aiCorrection.category.label : ''}`, mm(e.aiCorrection.mm)) : ''}
       ${metric(ICON.check, '측정 신뢰도', '검출·선명도 기반 휴리스틱', pct(e.measurementConfidence))}
     </div>
     <button class="btn primary block big" id="detailBtn">상세 리포트 보기</button>
@@ -594,7 +604,8 @@ route('/settings', '설정 및 개인정보', async (v) => {
       <button class="btn block" id="exp">내 데이터 내보내기(JSON)</button>
       <button class="btn danger block" id="wipe">내 검사·운동 기록 모두 삭제</button></div>
     <div class="card small"><dl class="kv"><dt>앱 버전</dt><dd>${APP_VERSION}</dd><dt>측정 알고리즘</dt><dd>${C.ALGORITHM_VERSION}</dd><dt>스티커 지름 설정</dt><dd>${S.settings.stickerDiameterMm ? S.settings.stickerDiameterMm + ' mm' : '미설정'}</dd><dt>mm 환산</dt><dd>${esc(convBasisText())}</dd></dl></div>
-    <a class="btn block" href="#/r/home">연구자·관리자 모드</a>`;
+    <a class="btn ghost block" href="#/r/home">기기 내 연구 도구(오프라인)</a>
+    <p class="tiny" style="text-align:center">관리자 화면은 사용자 앱과 분리되어 있습니다: 앱 주소 뒤에 <b>/admin/</b></p>`;
   bindAccountCard(v);
   $('#saveS', v).onclick = async () => {
     const pid = $('#pid', v).value.trim();

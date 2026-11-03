@@ -767,6 +767,145 @@
     return { pass: Math.abs(eH) <= tol && Math.abs(eS) <= tol * 2, heightMm: m.heightMm, spanMm: m.spanMm, errHeight: eH, errSpan: eS, tolerance: tol, measure: m };
   }
 
+
+  // ═══════════════ AI 오차 보정 모델: 앱 NDT → 임상 NDT(자로 잰 실제 값) 추정 ═══════════════
+  /**
+   * 학습 자료: 같은 사람·같은 발을 앱과 임상 NDT(전문가가 자로 측정)로 함께 잰 짝.
+   * 특징: 앱이 이미 재는 값만 쓴다(새로 지어내는 값 없음). 없는 값은 학습 평균으로 채운다.
+   */
+  const AI_FEATURES = [
+    { key: 'ai', label: '앱 NDT(기준선 하강, mm)' },
+    { key: 'floorDrop', label: '바닥 기준 하강(mm)' },
+    { key: 'preFloor', label: '앉은 자세 발배뼈 높이(mm)' },
+    { key: 'angleChange', label: '스티커 아치 각도 변화(°)' },
+    { key: 'spanGain', label: '체중부하 시 발 길이 변화(%)' },
+    { key: 'diaPx', label: '스티커 크기(px · 촬영 거리)' },
+    { key: 'tilt', label: '발 축 기울기(°)' },
+    { key: 'sizeCv', label: '스티커 크기 편차(% · 원근)' },
+    { key: 'placeErr', label: 'P1·P3 부착 높이 오차(mm)' }
+  ];
+  const fin = v => (typeof v === 'number' && isFinite(v)) ? v : null;
+  /** 검사 기록 1건 → 특징 값(없으면 null). ai(앱 NDT)가 없으면 null을 돌려준다. */
+  function errorFeatures(e) {
+    if (!e || !e.comparison || fin(e.comparison.changeMm) == null) return null;
+    const c = e.comparison, fl = c.floor || {}, pm = (e.pre && e.pre.measure) || {}, pq = (e.pre && e.pre.quality) || {};
+    const lr = e.loadRecognition && e.loadRecognition.final;
+    const pl = pm.floor && pm.floor.placement;
+    return {
+      ai: c.changeMm,
+      floorDrop: fin(fl.dropMm), preFloor: fin(fl.preMm),
+      angleChange: fin(c.archAngle && c.archAngle.change),
+      spanGain: lr && isFinite(lr.spanGain) ? lr.spanGain * 100 : null,
+      diaPx: fin(pq.diameterPx), tilt: isFinite(pm.axisAngleDeg) ? Math.abs(pm.axisAngleDeg) : null,
+      sizeCv: isFinite(pq.sizeCv) ? pq.sizeCv * 100 : null,
+      placeErr: pl && pl.length ? mean(pl.map(x => Math.abs(x.mm - 20))) : null
+    };
+  }
+  // 작은 선형계 풀이(가우스 소거, 부분 피벗)
+  function solveLinear(A, b) {
+    const n = b.length, M = A.map((r, i) => r.concat([b[i]]));
+    for (let c = 0; c < n; c++) {
+      let p = c; for (let r = c + 1; r < n; r++) if (Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r;
+      if (Math.abs(M[p][c]) < 1e-12) return null;
+      [M[c], M[p]] = [M[p], M[c]];
+      for (let r = 0; r < n; r++) if (r !== c) { const f = M[r][c] / M[c][c]; for (let k = c; k <= n; k++) M[r][k] -= f * M[c][k]; }
+    }
+    return M.map((r, i) => r[n] / r[i]);
+  }
+  /** 릿지 회귀: 특징 표준화 후 (XᵀX + λI)β = Xᵀy. 결측·변화 없는 특징은 제외한다. */
+  function fitRidge(rows, lambda, keys) {
+    const ks = (keys || AI_FEATURES.map(f => f.key)).filter(k => {
+      const vals = rows.map(r => r.f[k]).filter(v => v != null);
+      if (vals.length < Math.max(3, rows.length * 0.5)) return false;
+      const m = mean(vals); return Math.sqrt(mean(vals.map(v => (v - m) ** 2))) > 1e-9;
+    });
+    if (!ks.includes('ai')) return null;
+    const mu = {}, sd = {};
+    for (const k of ks) { const vals = rows.map(r => r.f[k]).filter(v => v != null); mu[k] = mean(vals); sd[k] = Math.sqrt(mean(vals.map(v => (v - mu[k]) ** 2))) || 1; }
+    const X = rows.map(r => ks.map(k => r.f[k] == null ? 0 : (r.f[k] - mu[k]) / sd[k]));
+    const ym = mean(rows.map(r => r.ref)), y = rows.map(r => r.ref - ym);
+    const p = ks.length, A = Array.from({ length: p }, (_, i) => Array.from({ length: p }, (_, j) => X.reduce((s, x) => s + x[i] * x[j], 0) + (i === j ? lambda : 0)));
+    const b = Array.from({ length: p }, (_, i) => X.reduce((s, x, n) => s + x[i] * y[n], 0));
+    const beta = solveLinear(A, b); if (!beta) return null;
+    return { method: 'ridge', lambda, features: ks, mean: mu, std: sd, coef: Object.fromEntries(ks.map((k, i) => [k, beta[i]])), intercept: ym };
+  }
+  function fitErrorCandidate(method, rows, o) {
+    if (method === 'identity') return { method };
+    if (method === 'bias') return { method, bias: mean(rows.map(r => r.f.ai - r.ref)) };
+    if (method === 'linear') { const m = fitMethod('linear', rows.map(r => ({ ai: r.f.ai, ref: r.ref }))); return m; }
+    if (method === 'ridge') {
+      // λ는 학습 자료 안에서만(참여자 단위 교차검증) 고른다 → 시험 자료로 새는 정보 없음
+      const lams = (o && o.lambdas) || [0.3, 1, 3, 10, 30, 100];
+      const ids = [...new Set(rows.map(r => r.participantId))];
+      if (ids.length < 3) return fitRidge(rows, 10);
+      let best = null;
+      for (const lam of lams) {
+        let err = 0, n = 0;
+        for (const id of ids) {
+          const tr = rows.filter(r => r.participantId !== id), te = rows.filter(r => r.participantId === id);
+          const m = fitRidge(tr, lam); if (!m) continue;
+          for (const r of te) { err += Math.abs(applyErrorModel(m, r.f) - r.ref); n++; }
+        }
+        if (n && (!best || err / n < best.mae)) best = { lam, mae: err / n };
+      }
+      return best ? fitRidge(rows, best.lam) : null;
+    }
+    return null;
+  }
+  /** 보정 모델 적용: 특징 → 임상 NDT 추정값(mm). */
+  function applyErrorModel(m, f) {
+    if (!m || !f || fin(f.ai) == null) return f ? f.ai : null;
+    if (m.method === 'identity') return f.ai;
+    if (m.method === 'bias') return f.ai - m.bias;
+    if (m.method === 'linear') return m.slope * f.ai + m.intercept;
+    if (m.method === 'ridge') { let y = m.intercept; for (const k of m.features) { const v = f[k]; if (v != null && isFinite(v)) y += m.coef[k] * (v - m.mean[k]) / m.std[k]; } return y; }
+    return f.ai;
+  }
+  /**
+   * AI 오차 보정 학습. rows: [{ participantId, f: errorFeatures(exam), ref: 임상 NDT(mm) }]
+   * 평가: 참여자 한 명씩 빼고 학습해 그 사람을 예측(LOPO 교차검증) — 학습에 안 쓴 사람에 대한 오차로만 판단.
+   * 배포 권고: 보정 없음 대비 평균 절대 오차(MAE)가 10% 이상 줄고 RMSE도 줄 때만.
+   */
+  // 참여자별 평균 절대 오차 차이(보정 없음 − 후보)를 참여자 단위로 재표집해 95% 구간을 구한다
+  function bootstrapGain(ids, rows, pBase, pCand, seed) {
+    const per = new Map(); rows.forEach((r, i) => { const d = Math.abs(pBase[i].ai - pBase[i].ref) - Math.abs(pCand[i].ai - pCand[i].ref); const a = per.get(r.participantId) || []; a.push(d); per.set(r.participantId, a); });
+    const g = ids.map(id => mean(per.get(id))), rnd = mulberry32(seed), B = 2000, stats = [];
+    for (let b = 0; b < B; b++) { let s = 0; for (let k = 0; k < g.length; k++) s += g[Math.floor(rnd() * g.length)]; stats.push(s / g.length); }
+    stats.sort((a, b) => a - b);
+    return { mean: mean(g), low: stats[Math.floor(B * 0.05)], high: stats[Math.floor(B * 0.975)] };
+  }
+  function trainErrorModel(rows, options) {
+    const o = Object.assign({ minParticipants: 8, minRows: 16, minGain: 0.10, methods: ['identity', 'bias', 'linear', 'ridge'] }, options || {});
+    const clean = rows.filter(r => r.participantId && r.f && fin(r.f.ai) != null && fin(r.ref) != null);
+    const ids = [...new Set(clean.map(r => r.participantId))];
+    if (clean.length < o.minRows || ids.length < o.minParticipants)
+      return { ok: false, reason: `학습 자료가 부족합니다: 짝 자료 ${clean.length}건(최소 ${o.minRows}), 참여자 ${ids.length}명(최소 ${o.minParticipants}). 같은 사람을 앱과 임상 NDT로 함께 잰 자료를 더 모아 주세요.`, n: clean.length, participants: ids.length };
+    const preds = Object.fromEntries(o.methods.map(m => [m, []]));
+    for (const id of ids) {
+      const tr = clean.filter(r => r.participantId !== id), te = clean.filter(r => r.participantId === id);
+      for (const meth of o.methods) {
+        const m = fitErrorCandidate(meth, tr, o);
+        for (const r of te) preds[meth].push({ ai: m ? applyErrorModel(m, r.f) : r.f.ai, ref: r.ref });
+      }
+    }
+    const cv = Object.fromEntries(o.methods.map(m => [m, errorMetrics(preds[m])]));
+    const order = o.methods.slice().sort((a, b) => cv[a].mae - cv[b].mae);
+    const chosen = order[0], base = cv.identity;
+    // 우연한 개선 걸러내기: 참여자 단위 부트스트랩(2,000회)으로 '보정 없음 대비 오차 감소'가 95% 이상 유지되는지 확인
+    const gainCi = chosen === 'identity' ? null : bootstrapGain(ids, clean, preds.identity, preds[chosen], o.seed || 42);
+    const improved = chosen !== 'identity' && cv[chosen].mae <= base.mae * (1 - o.minGain) && cv[chosen].rmse < base.rmse && gainCi && gainCi.low > 0;
+    const model = fitErrorCandidate(improved ? chosen : 'identity', clean, o);
+    const resid = preds[improved ? chosen : 'identity'].map(p => p.ai - p.ref), rsd = Math.sqrt(mean(resid.map(e => e * e)));
+    const weights = model && model.method === 'ridge' ? model.features.map(k => ({ key: k, label: (AI_FEATURES.find(f => f.key === k) || {}).label || k, coef: model.coef[k] })).sort((a, b) => Math.abs(b.coef) - Math.abs(a.coef)) : [];
+    return {
+      ok: true, improved, chosen: improved ? chosen : 'identity', bestCandidate: chosen, cv, weights, gainCi,
+      model: Object.assign({}, model, { kind: 'ndt-error', n: clean.length, participants: ids.length, piMm: 1.96 * rsd, cvMae: cv[improved ? chosen : 'identity'].mae, baseMae: base.mae, trainedAt: new Date().toISOString(), algorithm: ALGORITHM_VERSION }),
+      recommendation: improved
+        ? `교차검증에서 평균 오차가 ${base.mae.toFixed(2)} → ${cv[chosen].mae.toFixed(2)} mm로 ${((1 - cv[chosen].mae / base.mae) * 100).toFixed(0)}% 줄었습니다. 검토 후 배포할 수 있습니다.`
+        : `교차검증에서 보정 없음(평균 오차 ${base.mae.toFixed(2)} mm)보다 확실하게(${(o.minGain * 100).toFixed(0)}% 이상, 참여자 재표집 95% 기준) 나아진 모델이 없습니다. 보정 없이 앱 값을 그대로 쓰는 것을 권합니다.`
+    };
+  }
+
   // ───────────────────────── 촬영 준비 상태(실시간) ─────────────────────────
   /** 연속 프레임의 검출 결과로 움직임을 판정한다. */
   function motionBetween(a, b) {
@@ -1162,6 +1301,6 @@
     rgbToHsv, detectStickers, labelLandmarks, signedDistanceToLine, distanceToLine, projectionT,
     measureImage, comparePrePost, classify, roundMm, errorMetrics,
     splitByParticipant, trainCalibration, applyCalibration, fitMethod, validateConversion,
-    motionBetween, framingCheck, laplacianVariance, archAngle, cropImage, detectInRoi, labelsConsistent, combineDetections, shapeDelta, createLandmarkKalman, chromaMap, ALIGN, alignmentCheck, LOAD, loadEvidence, shapeOf, FOOT_MODEL, GUIDE_LAYOUT, guideGeometry, guideCheck, fitFootModel, detectSoleLine, heightAboveSole
+    motionBetween, framingCheck, laplacianVariance, archAngle, cropImage, detectInRoi, labelsConsistent, combineDetections, shapeDelta, AI_FEATURES, errorFeatures, trainErrorModel, applyErrorModel, fitRidge, createLandmarkKalman, chromaMap, ALIGN, alignmentCheck, LOAD, loadEvidence, shapeOf, FOOT_MODEL, GUIDE_LAYOUT, guideGeometry, guideCheck, fitFootModel, detectSoleLine, heightAboveSole
   };
 });

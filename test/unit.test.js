@@ -270,6 +270,37 @@ t('연속 촬영 결합: 프레임마다 영상이 흔들려도 바닥선 높이
   const L = cb.det.landmarks, mid = (L.P1.y + L.P3.y) / 2, soleY = cb.det.sole.slope * ((L.P1.x + L.P3.x) / 2) + cb.det.sole.intercept;
   ok(Math.abs(soleY - mid - 40) < 1e-9 && cb.det.sole.sdPx < 1e-9, (soleY - mid) + ' sd ' + cb.det.sole.sdPx);
 });
+// 12. AI 오차 보정(앱 NDT → 임상 NDT)
+function synthPairs(nP, gen, seed) {
+  let a = seed || 7; const rnd = () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; // mulberry32
+  const g = () => { let u = 0; for (let i = 0; i < 6; i++) u += rnd(); return (u - 3) / Math.sqrt(0.5); };
+  const rows = [];
+  for (let p = 0; p < nP; p++) for (let k = 0; k < 2; k++) {
+    const ref = 4 + 10 * rnd(), tilt = 6 * rnd(), dia = 18 + 14 * rnd();
+    rows.push(Object.assign({ participantId: 'P' + p, ref }, { f: gen(ref, tilt, dia, g) }));
+  }
+  return rows;
+}
+t('AI 보정: 앱이 체계적으로 틀리면(과대 추정 + 기울기 영향) 교차검증 오차가 크게 줄고 배포 권고', () => {
+  const rows = synthPairs(24, (ref, tilt, dia, g) => ({ ai: ref * 1.18 + 0.35 * tilt - 0.8 + 0.35 * g(), floorDrop: ref * 1.05 + 0.5 * g(), tilt, diaPx: dia, preFloor: 40 + 2 * g(), angleChange: 8 + 2 * g(), spanGain: 1 + 0.5 * g(), sizeCv: 2 + g() * 0.5, placeErr: Math.abs(g()) }), 11);
+  const r = C.trainErrorModel(rows);
+  ok(r.ok && r.improved, JSON.stringify(r.recommendation));
+  ok(r.cv[r.chosen].mae < r.cv.identity.mae * 0.5, `MAE ${r.cv.identity.mae.toFixed(2)} → ${r.cv[r.chosen].mae.toFixed(2)}`);
+  ok(r.model.piMm > 0 && r.model.n === 48 && r.model.participants === 24);
+  const f = rows[0].f, y = C.applyErrorModel(r.model, f); ok(isFinite(y) && Math.abs(y - rows[0].ref) < 2.5, y + ' vs ' + rows[0].ref);
+});
+t('AI 보정: 앱이 이미 정확하면(순수 잡음) 보정하지 않음을 권고', () => {
+  const rows = synthPairs(20, (ref, tilt, dia, g) => ({ ai: ref + 0.5 * g(), tilt, diaPx: dia, preFloor: 40 + 2 * g() }), 5);
+  const r = C.trainErrorModel(rows); ok(r.ok && !r.improved && r.model.method === 'identity', r.chosen + ' ' + r.recommendation);
+});
+t('AI 보정: 자료가 부족하면 학습하지 않고 이유를 알림', () => {
+  const rows = synthPairs(5, (ref) => ({ ai: ref }), 3); const r = C.trainErrorModel(rows); ok(!r.ok && r.reason.includes('부족'), r.reason);
+});
+t('AI 보정: 검사 기록에서 특징 추출(없는 값은 null)', () => {
+  const f = C.errorFeatures({ comparison: { changeMm: 8, floor: { dropMm: 8.1, preMm: 42 }, archAngle: { change: 12.1 } }, pre: { measure: { axisAngleDeg: -1.5, floor: { placement: [{ mm: 21 }, { mm: 19 }] } }, quality: { diameterPx: 24, sizeCv: 0.02 } }, loadRecognition: { final: { spanGain: 0.013 } } });
+  ok(f.ai === 8 && f.floorDrop === 8.1 && f.tilt === 1.5 && Math.abs(f.spanGain - 1.3) < 1e-9 && f.placeErr === 1 && Math.abs(f.sizeCv - 2) < 1e-9);
+  ok(C.errorFeatures({ comparison: { changeMm: null } }) === null);
+});
 t('적응형 가이드: 거리가 달라도(0.8배·1배) 발 전체가 보이면 통과', () => { for (const m of [0.8, 1.0]) { const sc = guideScene(GW, GH, { scaleMul: m }); const a = C.guideCheck(C.detectStickers(gimg(sc)), 'right'); ok(a.ok && a.adaptive, m + ' ' + a.msg); } });
 t('적응형 가이드: 뒤꿈치가 화면 밖이면 "앞으로" 안내', () => { const sc = guideScene(GW, GH, { dx: -150 }); const a = C.guideCheck(C.detectStickers(gimg(sc)), 'right'); ok(!a.ok && a.code === 'HEEL_CUT' && a.msg.includes('앞으로'), a.code + ' ' + a.msg); });
 t('적응형 가이드: 너무 작게 보이면 "가까이" 안내', () => { const sc = guideScene(GW, GH, { scaleMul: 0.5 }); const a = C.guideCheck(C.detectStickers(gimg(sc)), 'right'); ok(!a.ok && a.code === 'FAR', a.code); });

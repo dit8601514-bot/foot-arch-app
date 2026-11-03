@@ -86,7 +86,7 @@ const Account = (() => {
           const t = Date.now(); for (const r of pending) { r.ownerId = uid; r._syncedAt = t; await DB.put(store, r); }
           out.up += pending.length;
         }
-        const remote = await call(`/rest/v1/${table}?select=id,data&order=created_at.desc&limit=1000`);
+        const remote = await call(`/rest/v1/${table}?select=id,data&user_id=eq.${encodeURIComponent(uid)}&order=created_at.desc&limit=1000`);
         const have = new Set(all.map(r => r.id));
         for (const row of remote || []) if (!have.has(row.id)) { await DB.put(store, Object.assign({}, row.data, { ownerId: uid, _syncedAt: Date.now() })); out.down++; }
       }
@@ -107,7 +107,20 @@ const Account = (() => {
   // 다른 계정이 이 기기에서 올려 둔(이미 서버에 있는) 기록은 로그인 시 기기에서 치운다
   async function clearOthers(uid) { for (const st of ['exams', 'logs']) for (const r of await DB.all(st)) if (r.ownerId && r.ownerId !== uid && r._syncedAt) await DB.del(st, r.id); }
   async function pendingCount() { const u = user(); if (!u) return 0; let n = 0; for (const st of ['exams', 'logs']) n += (await DB.all(st)).filter(r => !r.isTest && !r._syncedAt).length; return n; }
+  // ───── AI 오차 보정 모델: 관리자가 배포한(active) 모델 1개를 내려받아 이 기기에 보관 ─────
+  const AIM = 'footarch.aimodel';
+  function aiModel() { try { return JSON.parse(ls.get(AIM) || 'null'); } catch (e) { return null; } }
+  async function fetchAiModel() {
+    if (!configured()) return aiModel();
+    try {
+      const rows = await call('/rest/v1/calibration_models?select=id,version,data&active=eq.true&limit=1', { auth: !!user() });
+      const m = rows && rows[0] ? { id: rows[0].id, version: rows[0].version, data: rows[0].data, fetchedAt: Date.now() } : null;
+      if (m) ls.set(AIM, JSON.stringify(m)); else ls.del(AIM);
+      return m;
+    } catch (e) { return aiModel(); } // 오프라인: 마지막으로 받은 모델 사용
+  }
   return {
+    aiModel, fetchAiModel,
     configured, user, signUp, signIn, signOut, sync, syncSoon, deleteAccount, pendingCount, cfg, removeRemote,
     isGuest: () => ls.get(GUEST) === '1', setGuest: v2 => v2 ? ls.set(GUEST, '1') : ls.del(GUEST),
     get loggedIn() { return !!user(); }
