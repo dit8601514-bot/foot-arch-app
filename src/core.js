@@ -1373,9 +1373,10 @@
     }
     let method = 'edge';
     if (stats.P3 < o.minFrac || stats.P1 < o.minFrac) {
-      const m2 = o.noModel ? null : detectSoleLineModel(img, det, o);
+      const q = det.quality || {}, crisp = q.edgeWidthPx != null && q.edgeLimitPx && q.edgeWidthPx <= 0.6 * q.edgeLimitPx; // 2차 방법은 사진이 선명할 때만(흐리면 경계 위치가 치우침)
+      const m2 = o.noModel || !crisp ? null : detectSoleLineModel(img, det, o);
       if (!m2 || !m2.pts || m2.stats.P3 < 0.45 || m2.stats.P1 < 0.45) return { ok: false, reason: '발바닥 경계를 충분히 찾지 못함(바닥과 피부색이 비슷하거나 그림자)', stats, stats2: m2 && m2.stats };
-      pts.length = 0; m2.pts.forEach(p => pts.push(p)); method = 'model'; Object.assign(stats, m2.stats);
+      pts.length = 0; m2.pts.forEach(p => pts.push(p)); method = 'model'; Object.assign(stats, m2.stats); o.maxRmsPx = Math.min(o.maxRmsPx, 1.25);
     }
     // 견고한 직선 피팅(y = m x + c, Tukey 가중 반복)
     let m = 0, c = median(pts.map(p => p.y)), w = pts.map(() => 1);
@@ -1457,9 +1458,11 @@
         const up = bi ? pre[bi] / bi : -2, dn = (tot - pre[bi]) / (v.length - bi);
         if (!(up < -1 && dn > 1)) continue; // 위는 피부, 아래는 바닥이 분명해야
         // 서브픽셀: 경계 ±3px에서 위아래 색 차이가 가장 큰 곳
-        const yb = y0 + bi; let gb = -1, yy = yb;
-        for (let y = yb - 3; y <= yb + 3; y++) { if (!inside(x, y - 2) || !inside(x, y + 2)) continue; const a1 = at(x, y - 2), a2 = at(x, y + 1); let g = 0; for (let c = 0; c < 3; c++) g += Math.abs(data[a2 + c] - data[a1 + c]); if (g > gb) { gb = g; yy = y; } }
-        pts.push({ x, y: yy - 0.5, key }); found++;
+        // 서브픽셀: 경계 ±3px의 색 기울기(3열 평균, 위 2행·아래 2행 창) 최대점 + 포물선 보간
+        const yb = y0 + bi, G = y => { let g = 0; for (let dx = -1; dx <= 1; dx++) { if (!inside(x + dx, y - 2) || !inside(x + dx, y + 2)) return 0; for (let c = 0; c < 3; c++) g += Math.abs(data[at(x + dx, y + 1) + c] + data[at(x + dx, y + 2) + c] - data[at(x + dx, y - 1) + c] - data[at(x + dx, y - 2) + c]); } return g; };
+        let gb = -1, yy = yb; for (let y = yb - 3; y <= yb + 3; y++) { const g = G(y); if (g > gb) { gb = g; yy = y; } }
+        const g1 = G(yy - 1), g3 = G(yy + 1), den = g1 - 2 * gb + g3, off = den < 0 ? Math.max(-0.5, Math.min(0.5, 0.5 * (g1 - g3) / den)) : 0;
+        pts.push({ x, y: yy + off, key }); found++; // 1차 방법과 같은 좌표 규약
       }
       stats[key] = found / o.cols;
     }
