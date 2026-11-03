@@ -1,7 +1,7 @@
 'use strict';
 /* ═════════════ 기본: 저장소 · 상태 · 유틸 · 라우터 ═════════════ */
 const C = window.FootCore;
-const APP_VERSION = '2.9.1';
+const APP_VERSION = '2.10.0';
 const STORES = ['settings', 'exams', 'exercises', 'logs', 'errors', 'models', 'blobs', 'validations'];
 
 const DB = (() => {
@@ -90,11 +90,7 @@ async function rescaleExams(fromMm, toMm) {
 
 // 초기 운동 콘텐츠: 이름·일반 설명만 초안으로 제공, 처방 수치·영상은 비워둔다(연구 프로토콜 입력 필요)
 async function seedContent() {
-  const drafts = [
-    { name: '짧은 발 운동(Short Foot Exercise)', purpose: '발바닥 내재근을 활성화하여 내측 종아치 지지를 돕는 운동', posture: '의자에 앉아 발바닥 전체를 바닥에 붙이고 발가락은 편안하게 둔다.', steps: ['발가락을 구부리지 않은 채 엄지발가락 뿌리(제1중족골두)를 발꿈치 쪽으로 끌어당기듯 힘을 준다.', '아치가 살짝 높아지는 것을 확인하고 그 상태를 유지한다.', '천천히 힘을 풀고 처음 자세로 돌아온다.'], cautions: ['발가락을 말아 쥐지 않는다.', '통증이 생기면 즉시 중단한다.'] },
-    { name: '수건 당기기(Towel Curl)', purpose: '발가락 굽힘근 사용을 연습하는 운동', posture: '의자에 앉아 발 아래 수건을 펼쳐 둔다.', steps: ['발꿈치를 바닥에 고정한다.', '발가락으로 수건을 움켜쥐어 몸쪽으로 끌어당긴다.', '수건을 다시 펴고 반복한다.'], cautions: ['미끄러운 바닥에서는 시행하지 않는다.', '발가락 경련이 생기면 쉬었다가 진행한다.'] },
-    { name: '발꿈치 들기(Heel Raise)', purpose: '종아리 근육과 발목 주변 근육을 강화하는 운동', posture: '벽이나 의자를 잡고 양발을 골반 너비로 벌려 선다.', steps: ['체중을 엄지발가락 쪽에 고르게 싣고 발꿈치를 천천히 들어 올린다.', '꼭대기에서 잠시 멈춘다.', '천천히 발꿈치를 내린다.'], cautions: ['균형이 불안하면 반드시 지지물을 잡는다.', '발목이 바깥으로 꺾이지 않게 한다.'] }
-  ];
+  const drafts = C.EXERCISE_DRAFTS;
   for (const d of drafts) await save('exercises', Object.assign({ id: uid(), reps: '', sets: '', holdSec: '', perWeek: '', source: '', reviewed: false, videoBlobId: null, videoUrl: '', draft: true, createdAt: Date.now() }, d));
   S.settings.seeded = true; await saveSettings();
 }

@@ -44,7 +44,24 @@ const Api = (() => {
   }
   async function signOut() { try { await call('/auth/v1/logout', { method: 'POST' }); } catch (e) {} save(null); }
   const rpc = (fn, body) => call('/rest/v1/rpc/' + fn, { method: 'POST', body: body || {} });
-  return { cfg, configured, call, rpc, signIn, signOut, get loggedIn() { return !!session; }, get user() { return session && session.user; } };
+  // 영상 파일 올리기(Supabase Storage): 진행률을 알 수 있게 XHR 사용
+  function upload(bucket, path, file, onProgress) {
+    return new Promise(async (resolve, reject) => {
+      try { if (session && Date.now() / 1000 > session.expires_at - 60) await refresh(); } catch (e) { return reject(e); }
+      const c = cfg(), x = new XMLHttpRequest();
+      x.open('POST', `${c.supabaseUrl}/storage/v1/object/${bucket}/${path.split('/').map(encodeURIComponent).join('/')}`);
+      x.setRequestHeader('apikey', c.supabaseAnonKey); x.setRequestHeader('Authorization', 'Bearer ' + session.access_token);
+      x.setRequestHeader('Content-Type', file.type || 'video/mp4'); x.setRequestHeader('x-upsert', 'true'); x.setRequestHeader('cache-control', '3600');
+      x.upload.onprogress = e => { if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total); };
+      x.onload = () => { if (x.status >= 200 && x.status < 300) return resolve(); let m = ''; try { const j = JSON.parse(x.responseText); m = j.message || j.error || ''; } catch (e) { m = x.responseText; }
+        reject(new Error(x.status === 413 || /exceeded|too large|size/i.test(m) ? '파일이 너무 큽니다(최대 50 MB). 영상을 줄여서 올려 주세요.' : /bucket not found/i.test(m) ? '영상 저장소가 없습니다. supabase/content.sql을 먼저 실행해 주세요.' : /mime|type/i.test(m) ? '지원하지 않는 파일 형식입니다(mp4·mov·webm).' : /row-level|unauthorized|403/i.test(m + x.status) ? '영상을 올릴 권한이 없습니다(관리자 계정·content.sql 확인).' : `올리기 실패(${x.status}) ${m}`)); };
+      x.onerror = () => reject(new Error('서버에 연결할 수 없습니다.'));
+      x.send(file);
+    });
+  }
+  const publicUrl = (bucket, path) => `${cfg().supabaseUrl}/storage/v1/object/public/${bucket}/${path.split('/').map(encodeURIComponent).join('/')}`;
+  const removeFiles = (bucket, paths) => call(`/storage/v1/object/${bucket}`, { method: 'DELETE', body: { prefixes: paths } });
+  return { cfg, configured, call, rpc, signIn, signOut, upload, publicUrl, removeFiles, get loggedIn() { return !!session; }, get user() { return session && session.user; } };
 })();
 
 // ───── 데이터(연구 동의자 범위) ─────
@@ -74,7 +91,7 @@ const routes = {};
 const route = (p, title, fn) => { routes[p] = { title, fn }; };
 function topbar(cur) {
   $('#top').innerHTML = `<span class="logo">AI Footarch</span><span class="tag">관리자</span>
-    ${Api.loggedIn ? `<nav>${[['dash', '대시보드'], ['users', '사용자·측정'], ['errors', '오차 분석'], ['ai', 'AI 보정 모델'], ['export', '데이터 내보내기']].map(([k, l]) => `<a href="#/${k}" class="${cur === k ? 'on' : ''}">${l}</a>`).join('')}</nav><button id="logout">로그아웃</button>` : ''}`;
+    ${Api.loggedIn ? `<nav>${[['dash', '대시보드'], ['users', '사용자·측정'], ['content', '운동 영상'], ['errors', '오차 분석'], ['ai', 'AI 보정 모델'], ['export', '데이터 내보내기']].map(([k, l]) => `<a href="#/${k}" class="${cur === k ? 'on' : ''}">${l}</a>`).join('')}</nav><button id="logout">로그아웃</button>` : ''}`;
   const lo = $('#logout'); if (lo) lo.onclick = async () => { await Api.signOut(); Object.assign(D, { loaded: false }); location.hash = '#/login'; };
 }
 async function render() {
@@ -210,6 +227,106 @@ route('ai', 'AI 보정 모델', async (v) => {
   const de = $('#deact', v); if (de) de.onclick = async () => { try { await Api.rpc('deactivate_models'); toast('배포를 중지했습니다. 사용자 앱은 앱 측정값만 표시합니다.'); D.loaded = false; render(); } catch (e) { toast(e.message, true); } };
   $$('button.act', v).forEach(b => b.onclick = async () => { try { await Api.rpc('activate_model', { model_id: b.dataset.id }); toast('다시 배포했습니다.'); D.loaded = false; render(); } catch (e) { toast(e.message, true); } });
 });
+
+// ───── 운동(중재) 영상 관리 ─────
+const CATS = C.EXERCISE_CATEGORIES, BUCKET = 'exercise-videos', MAXMB = 50;
+const vidSrc = x => x.video_path ? Api.publicUrl(BUCKET, x.video_path) : (x.video_url || '');
+const notReady = e => /exercise_content|relation .* does not exist|schema cache/i.test(e.message);
+const SETUP = `<div class="note warn"><b>처음 한 번 서버 준비가 필요합니다.</b><br>Supabase → SQL Editor에서 저장소의 <code>supabase/content.sql</code> 내용을 붙여 넣고 Run 하세요(운동 표 + 영상 저장소가 만들어집니다).</div>`;
+route('content', '운동 영상', async (v, arg) => {
+  let rows;
+  try { rows = await Api.call('/rest/v1/exercise_content?select=*&order=sort.asc,created_at.asc'); }
+  catch (e) { if (notReady(e)) { v.innerHTML = `<h1>운동 영상</h1>${SETUP}`; return; } throw e; }
+  rows = (rows || []).sort((a, b) => (a.sort - b.sort) || String(a.created_at).localeCompare(String(b.created_at)));
+  if (arg) return contentEdit(v, arg === 'new' ? null : rows.find(r => r.id === arg), rows);
+  const catLabel = k => (CATS.find(c => c[0] === k) || [k, k])[1];
+  v.innerHTML = `<div class="row"><h1 class="grow">운동 영상 <span class="muted small">(중재 콘텐츠)</span></h1><a class="btn primary" href="#/content/new">+ 운동 추가</a></div>
+    <p class="small muted">여기서 올린 운동과 영상은 <b>모든 사용자 앱</b>의 ‘족궁재활영상’과, 연결한 분류의 <b>측정 결과 화면</b>에 바로 나타납니다.</p>
+    ${rows.length ? '' : `<div class="card"><b>아직 등록된 운동이 없습니다.</b><p class="small">기본 운동(짧은 발 운동·수건 당기기·발꿈치 들기)을 불러온 뒤 영상만 올려도 됩니다.</p><button class="btn" id="seed">기본 운동 3개 불러오기</button></div>`}
+    <div class="card scroll"><table><tr><th>순서</th><th>운동</th><th>연결 분류</th><th>영상</th><th>공개</th><th></th></tr>
+    ${rows.map(r => `<tr><td>${r.sort}</td><td><b>${esc(r.name)}</b><div class="small muted">${esc(r.purpose || '')}</div></td>
+      <td>${(r.categories || []).map(k => `<span class="badge">${esc(catLabel(k))}</span>`).join(' ') || '<span class="badge b-warn">연결 없음</span>'}</td>
+      <td>${r.video_path ? '<span class="badge b-good">파일</span>' : r.video_url ? `<span class="badge b-good">${C.youtubeId(r.video_url) ? '유튜브' : '주소'}</span>` : '<span class="badge b-warn">영상 없음</span>'}</td>
+      <td>${r.published ? '<span class="badge b-good">공개</span>' : '<span class="badge">숨김</span>'}</td>
+      <td><a class="btn sm" href="#/content/${r.id}">편집</a></td></tr>`).join('')}</table></div>`;
+  const sb = $('#seed'); if (sb) sb.onclick = async () => {
+    sb.disabled = true;
+    try {
+      const body = C.EXERCISE_DRAFTS.map((d, i) => ({ id: crypto.randomUUID(), name: d.name, purpose: d.purpose || '', posture: d.posture || '', steps: d.steps || [], cautions: d.cautions || [], categories: i === 0 ? ['normal', 'mild', 'moderate', 'severe'] : i === 1 ? ['mild', 'moderate', 'severe'] : ['moderate', 'severe'], sort: (i + 1) * 10, published: true }));
+      await Api.call('/rest/v1/exercise_content', { method: 'POST', body, headers: { Prefer: 'return=minimal' } }); toast('기본 운동을 불러왔습니다. 이제 영상을 올려 주세요.'); render();
+    } catch (e) { toast(e.message, true); sb.disabled = false; }
+  };
+});
+function contentEdit(v, x0, rows) {
+  const isNew = !x0, x = Object.assign({ id: crypto.randomUUID(), name: '', purpose: '', posture: '', steps: [], cautions: [], reps: '', sets: '', hold_sec: '', per_week: '', source: '', categories: [], video_path: null, video_url: '', sort: ((rows.length ? Math.max(...rows.map(r => r.sort || 0)) : 0) + 10), published: true }, x0 || {});
+  let file = null, removeVideo = false;
+  const ta = (id, label, arr, ph) => `<label for="${id}">${label}</label><textarea id="${id}" rows="4" placeholder="${ph}" style="width:100%;font:inherit;padding:9px 11px;border:1.5px solid var(--line);border-radius:10px">${esc((arr || []).join('\n'))}</textarea>`;
+  const inp = (id, label, val, ph, w) => `<div${w ? ` style="flex:${w}"` : ''}><label for="${id}">${label}</label><input id="${id}" value="${esc(val || '')}" placeholder="${ph || ''}" style="width:100%"></div>`;
+  v.innerHTML = `<div class="row"><a class="btn sm" href="#/content">‹ 목록</a><h1 class="grow" style="margin:0">${isNew ? '운동 추가' : '운동 편집'}</h1></div>
+    <div class="card"><h2 style="margin-top:0">1. 영상</h2>
+      <div id="pv"></div>
+      <div class="row" style="margin-top:10px"><label class="btn primary" for="vf" style="cursor:pointer">영상 파일 선택(mp4·mov)</label><input type="file" id="vf" accept="video/mp4,video/quicktime,video/webm,video/x-m4v,.mp4,.mov,.m4v,.webm" style="display:none"><span class="small muted" id="fi">최대 ${MAXMB} MB · 가로 영상 권장</span></div>
+      <div style="margin-top:12px"><label for="vu">또는 영상 주소(유튜브 링크 또는 mp4 주소)</label><input id="vu" style="width:100%" value="${esc(x.video_path ? '' : x.video_url || '')}" placeholder="https://youtu.be/… 또는 https://…/video.mp4"></div>
+      <div id="prog" style="display:none;margin-top:10px"><div style="background:var(--line);border-radius:5px"><div class="bar" id="pb" style="width:0"></div></div><div class="small muted" id="pt"></div></div>
+      ${x.video_path || x.video_url ? '<button class="btn sm" id="rmv" style="margin-top:10px">영상 빼기</button>' : ''}
+    </div>
+    <div class="card"><h2 style="margin-top:0">2. 운동 정보</h2>
+      ${inp('nm', '운동 이름 *', x.name, '예: 짧은 발 운동(Short Foot Exercise)')}
+      <div style="margin-top:10px">${inp('pu', '운동 목적', x.purpose, '예: 발바닥 내재근을 활성화하여 아치를 지지')}</div>
+      <div style="margin-top:10px">${inp('po', '올바른 자세', x.posture, '예: 의자에 앉아 발바닥 전체를 바닥에 붙인다')}</div>
+      <div style="margin-top:10px">${ta('st', '수행 방법(한 줄에 하나씩)', x.steps, '1단계\n2단계')}</div>
+      <div style="margin-top:10px">${ta('ca', '주의사항(한 줄에 하나씩)', x.cautions, '통증이 있으면 중단한다')}</div>
+      <div class="row" style="margin-top:10px">${inp('re', '반복 횟수(회)', x.reps, '10', 1)}${inp('se', '세트 수', x.sets, '3', 1)}${inp('ho', '유지 시간(초)', x.hold_sec, '5', 1)}${inp('pw', '주당 빈도(회/주)', x.per_week, '5', 1)}</div>
+      <div style="margin-top:10px">${inp('so', '근거(논문·프로토콜)', x.source, '예: 연구 프로토콜 v1')}</div>
+    </div>
+    <div class="card"><h2 style="margin-top:0">3. 누구에게 보여 줄까요?</h2>
+      <p class="small muted">측정 결과가 이 분류인 사용자의 결과 화면에 ‘운동 중재’로 나타납니다.</p>
+      <div class="row">${CATS.map(([k, l]) => `<label style="font-size:15px;display:flex;gap:6px;align-items:center"><input type="checkbox" data-cat="${k}" ${x.categories.includes(k) ? 'checked' : ''}> ${l}</label>`).join('')}</div>
+      <div class="row" style="margin-top:12px"><div><label for="so2">표시 순서(작을수록 위)</label><input id="so2" class="num" type="number" value="${x.sort}"></div>
+        <label style="font-size:15px;display:flex;gap:6px;align-items:center;margin-top:18px"><input type="checkbox" id="pub" ${x.published ? 'checked' : ''}> 사용자 앱에 공개</label></div>
+    </div>
+    <div class="row"><button class="btn primary" id="save" style="min-width:160px">저장</button><span class="grow"></span>${isNew ? '' : '<button class="btn" id="del" style="border-color:var(--bad);color:var(--bad)">삭제</button>'}</div>`;
+  const paintPreview = () => {
+    const u = file ? URL.createObjectURL(file) : removeVideo ? '' : ($('#vu').value.trim() || vidSrc(x)), yt = C.youtubeId(u);
+    $('#pv').innerHTML = !u ? '<div class="note warn small">영상이 아직 없습니다. 파일을 고르거나 주소를 넣어 주세요.</div>'
+      : yt ? `<div style="position:relative;aspect-ratio:16/9;max-width:560px"><iframe src="https://www.youtube-nocookie.com/embed/${yt}" style="position:absolute;inset:0;width:100%;height:100%;border:0;border-radius:12px" allowfullscreen></iframe></div>`
+      : `<video src="${esc(u)}" controls playsinline preload="metadata" style="width:100%;max-width:560px;border-radius:12px;background:#000"></video>`;
+  };
+  paintPreview();
+  $('#vf').onchange = e => {
+    const f = e.target.files[0]; if (!f) return;
+    if (f.size > MAXMB * 1048576) { toast(`파일이 ${(f.size / 1048576).toFixed(0)} MB로 너무 큽니다(최대 ${MAXMB} MB). 휴대폰 사진 앱의 ‘편집 → 해상도 낮추기’나 압축 앱으로 줄여 주세요.`, true); e.target.value = ''; return; }
+    file = f; removeVideo = false; $('#vu').value = ''; $('#fi').textContent = `${f.name} · ${(f.size / 1048576).toFixed(1)} MB (저장하면 올라갑니다)`; paintPreview();
+  };
+  $('#vu').oninput = () => { if ($('#vu').value.trim()) { file = null; $('#vf').value = ''; removeVideo = false; } paintPreview(); };
+  const rmv = $('#rmv'); if (rmv) rmv.onclick = () => { removeVideo = true; file = null; $('#vu').value = ''; paintPreview(); };
+  $('#save').onclick = async () => {
+    const name = $('#nm').value.trim(); if (!name) return toast('운동 이름을 입력해 주세요.', true);
+    const url = $('#vu').value.trim(); if (url && !/^https:\/\//i.test(url)) return toast('영상 주소는 https:// 로 시작해야 합니다.', true);
+    const lines = id => $(id).value.split('\n').map(s2 => s2.trim()).filter(Boolean);
+    const btn = $('#save'); btn.disabled = true;
+    try {
+      const oldPath = x.video_path; let video_path = removeVideo || url ? null : x.video_path, video_url = url || (removeVideo ? null : (x.video_path ? null : x.video_url || null));
+      if (file) {
+        const ext = (file.name.match(/\.(\w{2,4})$/) || [, 'mp4'])[1].toLowerCase();
+        const path = `${x.id}/${Date.now()}.${ext}`;
+        $('#prog').style.display = ''; $('#pt').textContent = '영상 올리는 중… 0%';
+        await Api.upload(BUCKET, path, file, p => { $('#pb').style.width = Math.round(p * 100) + '%'; $('#pt').textContent = `영상 올리는 중… ${Math.round(p * 100)}%`; });
+        $('#pt').textContent = '영상 올리기 완료'; video_path = path; video_url = null;
+      }
+      const row = { id: x.id, name, purpose: $('#pu').value.trim(), posture: $('#po').value.trim(), steps: lines('#st'), cautions: lines('#ca'), reps: $('#re').value.trim(), sets: $('#se').value.trim(), hold_sec: $('#ho').value.trim(), per_week: $('#pw').value.trim(), source: $('#so').value.trim(),
+        categories: $$('[data-cat]').filter(c => c.checked).map(c => c.dataset.cat), sort: parseInt($('#so2').value, 10) || 100, published: $('#pub').checked, video_path, video_url, updated_at: new Date().toISOString() };
+      await Api.call('/rest/v1/exercise_content?on_conflict=id', { method: 'POST', body: row, headers: { Prefer: 'resolution=merge-duplicates,return=minimal' } });
+      if (oldPath && oldPath !== video_path) await Api.removeFiles(BUCKET, [oldPath]).catch(() => {}); // 바뀐 영상의 옛 파일 정리
+      toast('저장했습니다. 사용자 앱에 바로 반영됩니다.'); location.hash = '#/content';
+    } catch (e) { toast(notReady(e) ? 'supabase/content.sql을 먼저 실행해 주세요.' : e.message, true); btn.disabled = false; }
+  };
+  const del = $('#del'); if (del) del.onclick = async () => {
+    if (!confirm(`‘${x.name}’ 운동과 영상을 삭제할까요? 사용자 앱에서도 사라집니다.`)) return;
+    try { await Api.call(`/rest/v1/exercise_content?id=eq.${x.id}`, { method: 'DELETE' }); if (x.video_path) await Api.removeFiles(BUCKET, [x.video_path]).catch(() => {}); toast('삭제했습니다.'); location.hash = '#/content'; }
+    catch (e) { toast(e.message, true); }
+  };
+}
 
 route('export', '데이터 내보내기', async (v) => {
   await loadAll(true);

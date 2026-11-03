@@ -213,6 +213,7 @@ route('/r/models', '모델 버전 및 성능', async (v) => {
 // ───── 운동 콘텐츠 관리 ─────
 route('/r/content', '운동 콘텐츠 관리', async (v, p) => {
   const exs = await DB.all('exercises'); const x = p.q.edit === 'new' ? { id: uid(), name: '', purpose: '', posture: '', steps: [], cautions: [], reps: '', sets: '', holdSec: '', perWeek: '', source: '', reviewed: false, videoBlobId: null, videoUrl: '', createdAt: Date.now(), _new: true } : exs.find(e => e.id === p.q.edit);
+  if (x && x.server) { toast('관리자 화면에서 올린 운동은 관리자 화면에서 고칠 수 있습니다.', true); return go('#/r/content'); }
   const map = S.settings.mapping;
   if (!x) {
     v.innerHTML = `<h2>운동 콘텐츠 관리</h2>
@@ -220,7 +221,8 @@ route('/r/content', '운동 콘텐츠 관리', async (v, p) => {
       <div class="scroll-x"><table class="t"><tr><th>운동</th>${C.CATEGORIES.map(c => `<th>${c.label.replace(' 의심', '')}</th>`).join('')}</tr>
       ${exs.map(e => `<tr><td>${esc(e.name)}</td>${C.CATEGORIES.map(c => `<td><input type="checkbox" aria-label="${esc(e.name)} ${c.label}" data-map="${c.key}" data-ex="${e.id}" ${(map[c.key] || []).includes(e.id) ? 'checked' : ''}></td>`).join('')}</tr>`).join('')}</table></div>
       <button class="btn primary block" id="saveMap">연결 저장</button></div>
-      <div class="card">${exs.map(e => `<a class="list-item" href="#/r/content?edit=${e.id}"><span class="grow"><b>${esc(e.name)}</b><br><span class="tiny">${e.videoBlobId || e.videoUrl ? '영상 있음' : '영상 등록 필요'} · ${hasPrescription(e) ? '처방 입력됨' : '처방 미입력'} · ${e.reviewed ? '검토 완료' : '검토 전'}</span></span>›</a>`).join('')}</div>
+      <div class="note info small">관리자 화면(…/admin/ › 운동 영상)에서 올린 운동은 모든 사용자에게 자동으로 보이며, 여기서는 고칠 수 없습니다(☁ 표시).</div>
+      <div class="card">${exs.map(e => `<a class="list-item" href="#/r/content?edit=${e.id}"><span class="grow"><b>${e.server ? '☁ ' : ''}${esc(e.name)}</b><br><span class="tiny">${e.videoBlobId || e.videoUrl ? '영상 있음' : '영상 등록 필요'} · ${hasPrescription(e) ? '처방 입력됨' : '처방 미입력'} · ${e.reviewed ? '검토 완료' : '검토 전'}</span></span>›</a>`).join('')}</div>
       <a class="btn block" href="#/r/content?edit=new">새 운동 추가</a>`;
     $('#saveMap', v).onclick = async () => { const m = { normal: [], mild: [], moderate: [], severe: [] }; $$('[data-map]', v).forEach(c => { if (c.checked) m[c.dataset.map].push(c.dataset.ex); }); S.settings.mapping = m; if (await saveSettings()) toast('연결을 저장했습니다.'); };
     return;

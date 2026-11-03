@@ -43,7 +43,10 @@ async function videoInfo(x) {
 }
 function fmtDur(sec) { if (!isFinite(sec) || sec <= 0) return ''; const m = Math.floor(sec / 60), s2 = Math.round(sec % 60); return `${m}:${pad2(s2)}`; }
 route('/exercises', '족궁재활영상', async (v) => {
-  const exs = await DB.all('exercises');
+  if (typeof Account !== 'undefined') await Promise.race([Account.syncContent(true), new Promise(r => setTimeout(r, 2500))]);
+  const all = await DB.all('exercises'), hasSrv = all.some(x => x.server);
+  // 관리자가 서버에 운동을 올렸으면 그것을 보여 준다(기기에만 있는 초안은 연구자가 영상을 넣은 것만 함께 표시)
+  const exs = (hasSrv ? all.filter(x => x.server || x.videoBlobId || (x.videoUrl && !x.draft)) : all).sort((a, b) => (a.server ? a.order : 1e3) - (b.server ? b.order : 1e3));
   const exams = (await DB.all('exams')).filter(e => !e.isTest && e.category).sort((a, b) => b.createdAt - a.createdAt);
   const cats = [...new Set(exams.slice(0, 4).map(e => e.category.key))];
   const rec = exs.filter(x => cats.some(k => (S.settings.mapping[k] || []).includes(x.id)));
@@ -61,6 +64,7 @@ route('/exercises', '족궁재활영상', async (v) => {
   for (const x of exs) {
     const src = await videoInfo(x); if (!src) continue;
     const box = $(`[data-vid="${x.id}"]`, v); if (!box) continue;
+    const yt = C.youtubeId(src); if (yt) { const im = document.createElement('img'); im.src = `https://i.ytimg.com/vi/${yt}/hqdefault.jpg`; im.alt = ''; im.loading = 'lazy'; im.style.cssText = 'width:100%;height:100%;object-fit:cover'; box.prepend(im); continue; }
     const vid = document.createElement('video'); vid.muted = true; vid.playsInline = true; vid.preload = 'metadata'; vid.src = src + (x.videoBlobId ? '' : '#t=0.5');
     vid.addEventListener('loadedmetadata', () => { const d = $('.dur', box); d.textContent = fmtDur(vid.duration); d.classList.toggle('hide', !d.textContent); });
     box.prepend(vid);

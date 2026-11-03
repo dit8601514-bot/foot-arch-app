@@ -395,6 +395,7 @@ async function examById(id) { return (S.lastResult && S.lastResult.id === id) ? 
 route('/result/:id', '측정 결과', async (v, p) => {
   const e = await examById(p.id); if (!e) { v.innerHTML = '<div class="note bad">결과를 찾을 수 없습니다.</div>'; return; }
   const c = e.comparison, cat = e.category;
+  if (cat && typeof Account !== 'undefined') await Promise.race([Account.syncContent(), new Promise(r => setTimeout(r, 2000))]);
   const exs = cat ? (await DB.all('exercises')).filter(x => (S.settings.mapping[cat.key] || []).includes(x.id)) : [];
   const valOrPx = (m) => m.heightMm != null ? mm(m.heightMm) : px(m.heightPx);
   const preV = c.preMm != null ? mm(c.preMm) : valOrPx(e.pre.measure), postV = c.postMm != null ? mm(c.postMm) : valOrPx(e.post.measure);
@@ -488,6 +489,7 @@ async function deleteExam(e, localOnly) {
 // ───── 운동 목록 · 상세 ─────
 function hasPrescription(x) { return [x.reps, x.sets, x.holdSec, x.perWeek].some(v => v !== '' && v != null); }
 route('/exercise/:id', '운동', async (v, p) => {
+  if (String(p.id).startsWith('srv-') && typeof Account !== 'undefined') await Promise.race([Account.syncContent(true), new Promise(r => setTimeout(r, 2000))]);
   const x = await DB.get('exercises', p.id); if (!x) { v.innerHTML = '<div class="note bad">운동을 찾을 수 없습니다.</div>'; return; }
   let src = null;
   if (x.videoBlobId) { const b = await DB.get('blobs', x.videoBlobId).catch(() => null); if (b) src = URL.createObjectURL(b.blob); }
@@ -495,8 +497,9 @@ route('/exercise/:id', '운동', async (v, p) => {
   const pv = (val, unit) => val === '' || val == null ? '<span class="badge b-warn">연구 프로토콜 값 미입력</span>' : esc(val) + (unit ? ' ' + unit : '');
   v.innerHTML = `<h2>${esc(x.name)}</h2>
     ${x.reviewed ? '' : '<div class="note warn small">이 콘텐츠는 초안이며 아직 연구자 검토를 거치지 않았습니다.</div>'}
-    ${src ? `<video class="ex" id="vid" src="${esc(src)}" controls playsinline preload="metadata"></video><div class="grid2" style="margin-top:6px"><button class="btn" id="play">재생</button><button class="btn" id="replay">처음부터 다시 보기</button></div><p class="tiny" id="watch">시청 시간 0초</p>`
-      : '<div class="placeholder"><b>영상 등록 필요</b><br><span class="small">관리자가 아직 이 운동의 영상을 등록하지 않았습니다.</span></div>'}
+    ${src && C.youtubeId(src) ? `<div class="ex yt"><iframe src="https://www.youtube-nocookie.com/embed/${C.youtubeId(src)}?playsinline=1&rel=0" title="${esc(x.name)} 영상" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; fullscreen" allowfullscreen></iframe></div><div class="tiny" id="watch"></div>`
+      : src ? `<video class="ex" id="vid" src="${esc(src)}" controls playsinline preload="metadata"></video><div class="grid2" style="margin-top:6px"><button class="btn" id="play">재생</button><button class="btn" id="replay">처음부터 다시 보기</button></div><p class="tiny" id="watch">시청 시간 0초</p>`
+      : '<div class="placeholder"><b>영상 등록 필요</b><br><span class="small">관리자가 아직 이 운동의 영상을 등록하지 않았습니다. 관리자 화면 › 운동 영상에서 올릴 수 있습니다.</span></div>'}
     <div class="card"><dl class="kv">
       <dt>반복 횟수</dt><dd>${pv(x.reps, '회')}</dd><dt>세트 수</dt><dd>${pv(x.sets, '세트')}</dd>
       <dt>유지 시간</dt><dd>${pv(x.holdSec, '초')}</dd><dt>주당 빈도</dt><dd>${pv(x.perWeek, '회/주')}</dd>

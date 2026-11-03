@@ -919,6 +919,20 @@
   }
 
 
+  // ═══════════════ 운동(중재) 콘텐츠 ═══════════════
+  // 기본 운동 초안(이름·일반 설명) — 사용자 앱 첫 실행과 관리자 앱 '기본 운동 불러오기'에서 같이 쓴다
+  const EXERCISE_DRAFTS = [
+    { name: '짧은 발 운동(Short Foot Exercise)', purpose: '발바닥 내재근을 활성화하여 내측 종아치 지지를 돕는 운동', posture: '의자에 앉아 발바닥 전체를 바닥에 붙이고 발가락은 편안하게 둔다.', steps: ['발가락을 구부리지 않은 채 엄지발가락 뿌리(제1중족골두)를 발꿈치 쪽으로 끌어당기듯 힘을 준다.', '아치가 살짝 높아지는 것을 확인하고 그 상태를 유지한다.', '천천히 힘을 풀고 처음 자세로 돌아온다.'], cautions: ['발가락을 말아 쥐지 않는다.', '통증이 생기면 즉시 중단한다.'] },
+    { name: '수건 당기기(Towel Curl)', purpose: '발가락 굽힘근 사용을 연습하는 운동', posture: '의자에 앉아 발 아래 수건을 펼쳐 둔다.', steps: ['발꿈치를 바닥에 고정한다.', '발가락으로 수건을 움켜쥐어 몸쪽으로 끌어당긴다.', '수건을 다시 펴고 반복한다.'], cautions: ['미끄러운 바닥에서는 시행하지 않는다.', '발가락 경련이 생기면 쉬었다가 진행한다.'] },
+    { name: '발꿈치 들기(Heel Raise)', purpose: '종아리 근육과 발목 주변 근육을 강화하는 운동', posture: '벽이나 의자를 잡고 양발을 골반 너비로 벌려 선다.', steps: ['체중을 엄지발가락 쪽에 고르게 싣고 발꿈치를 천천히 들어 올린다.', '꼭대기에서 잠시 멈춘다.', '천천히 발꿈치를 내린다.'], cautions: ['균형이 불안하면 반드시 지지물을 잡는다.', '발목이 바깥으로 꺾이지 않게 한다.'] }
+  ];
+  const EXERCISE_CATEGORIES = [['normal', '정상 범위'], ['mild', '경증'], ['moderate', '중등도'], ['severe', '중증']];
+  // 유튜브 주소 → 영상 ID(youtu.be / watch?v= / shorts / embed). 아니면 null
+  function youtubeId(url) {
+    const m = String(url || '').match(/(?:youtu\.be\/|youtube(?:-nocookie)?\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/|live\/))([\w-]{11})/);
+    return m ? m[1] : null;
+  }
+
   // ═══════════════ AI 오차 보정 모델: 앱 NDT → 임상 NDT(자로 잰 실제 값) 추정 ═══════════════
   /**
    * 학습 자료: 같은 사람·같은 발을 앱과 임상 NDT(전문가가 자로 측정)로 함께 잰 짝.
@@ -1630,6 +1644,6 @@
     rgbToHsv, detectStickers, labelLandmarks, signedDistanceToLine, distanceToLine, projectionT,
     measureImage, comparePrePost, classify, roundMm, errorMetrics,
     splitByParticipant, trainCalibration, applyCalibration, fitMethod, validateConversion,
-    motionBetween, framingCheck, laplacianVariance, archAngle, cropImage, detectInRoi, labelsConsistent, combineDetections, shapeDelta, AI_FEATURES, errorFeatures, trainErrorModel, applyErrorModel, fitRidge, createLandmarkKalman, chromaMap, ALIGN, alignmentCheck, LOAD, loadEvidence, shapeOf, FOOT_MODEL, GUIDE_LAYOUT, guideGeometry, guideCheck, fitFootModel, snapOutline, densify, segmentFoot, resampleClosed, personalCare, measurementWeight, CARE, detectSoleLine, heightAboveSole
+    motionBetween, framingCheck, laplacianVariance, archAngle, cropImage, detectInRoi, labelsConsistent, combineDetections, shapeDelta, AI_FEATURES, errorFeatures, trainErrorModel, applyErrorModel, fitRidge, createLandmarkKalman, chromaMap, ALIGN, alignmentCheck, LOAD, loadEvidence, shapeOf, FOOT_MODEL, GUIDE_LAYOUT, guideGeometry, guideCheck, fitFootModel, snapOutline, densify, segmentFoot, EXERCISE_DRAFTS, EXERCISE_CATEGORIES, youtubeId, resampleClosed, personalCare, measurementWeight, CARE, detectSoleLine, heightAboveSole
   };
 });

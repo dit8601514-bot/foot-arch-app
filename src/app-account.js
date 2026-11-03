@@ -121,8 +121,39 @@ const Account = (() => {
       return m;
     } catch (e) { return aiModel(); } // 오프라인: 마지막으로 받은 모델 사용
   }
+  // ───── 운동(중재) 영상: 관리자가 서버에 올린 콘텐츠를 이 기기에 반영 ─────
+  const videoPublicUrl = path => path ? cfg().supabaseUrl + '/storage/v1/object/public/exercise-videos/' + path.split('/').map(encodeURIComponent).join('/') : '';
+  let contentAt = 0;
+  async function syncContent(force) {
+    if (!configured()) return { ok: false, reason: 'offline' };
+    if (!force && Date.now() - contentAt < 20000) return { ok: true, cached: true };
+    let rows;
+    try { rows = await call('/rest/v1/exercise_content?select=*&published=eq.true&order=sort.asc,created_at.asc', { auth: !!user() }); }
+    catch (e) { return { ok: false, reason: e.message }; } // 오프라인이면 마지막으로 받은 콘텐츠를 그대로 쓴다
+    contentAt = Date.now();
+    rows = (rows || []).filter(r => r.published !== false).sort((a, b) => (a.sort - b.sort) || String(a.created_at).localeCompare(String(b.created_at)));
+    const local = await DB.all('exercises'), ids = new Set();
+    for (const [i, r] of rows.entries()) {
+      const id = 'srv-' + r.id; ids.add(id);
+      const prev = local.find(x => x.id === id) || {};
+      await save('exercises', Object.assign({}, prev, {
+        id, server: true, serverId: r.id, order: i, name: r.name, purpose: r.purpose || '', posture: r.posture || '',
+        steps: Array.isArray(r.steps) ? r.steps : [], cautions: Array.isArray(r.cautions) ? r.cautions : [],
+        reps: r.reps || '', sets: r.sets || '', holdSec: r.hold_sec || '', perWeek: r.per_week || '', source: r.source || '',
+        categories: r.categories || [], videoUrl: r.video_path ? videoPublicUrl(r.video_path) : (r.video_url || ''), videoBlobId: null,
+        reviewed: true, draft: false, createdAt: prev.createdAt || Date.parse(r.created_at) || Date.now(), updatedAt: Date.parse(r.updated_at) || Date.now()
+      }));
+    }
+    // 서버에서 지워졌거나 비공개로 바뀐 운동은 기기에서도 뺀다
+    for (const x of local) if (x.server && !ids.has(x.id)) await DB.del('exercises', x.id);
+    // 분류 연결: 관리자가 정한 분류를 그대로 반영(기기에서 만든 운동의 연결은 유지)
+    const map = S.settings.mapping || {};
+    for (const [k] of C.EXERCISE_CATEGORIES) map[k] = (map[k] || []).filter(id => !String(id).startsWith('srv-')).concat(rows.filter(r => (r.categories || []).includes(k)).map(r => 'srv-' + r.id));
+    S.settings.mapping = map; S.settings.serverContent = rows.length > 0; await saveSettings();
+    return { ok: true, n: rows.length };
+  }
   return {
-    aiModel, fetchAiModel,
+    aiModel, fetchAiModel, syncContent, videoPublicUrl,
     configured, user, signUp, signIn, signOut, sync, syncSoon, deleteAccount, pendingCount, cfg, removeRemote,
     isGuest: () => ls.get(GUEST) === '1', setGuest: v2 => v2 ? ls.set(GUEST, '1') : ls.del(GUEST),
     get loggedIn() { return !!user(); }

@@ -4,7 +4,8 @@
 const http = require('http'), crypto = require('crypto');
 function createMock(anonKey) {
   const users = new Map(), tokens = new Map(), refresh = new Map(), admins = new Set();
-  const tables = { exams: new Map(), exercise_logs: new Map(), profiles: new Map(), reference_ndt: new Map(), calibration_models: new Map() };
+  const tables = { exams: new Map(), exercise_logs: new Map(), profiles: new Map(), reference_ndt: new Map(), calibration_models: new Map(), exercise_content: new Map() };
+  const files = new Map(); // 저장소(Storage): 'bucket/path' → { type, buf }
   const KEY = { reference_ndt: 'exam_id' };
   const issue = u => { const at = 'at_' + crypto.randomUUID(), rt = 'rt_' + crypto.randomUUID(); tokens.set(at, u.id); refresh.set(rt, u.id); return { access_token: at, refresh_token: rt, expires_in: 3600, expires_at: Math.floor(Date.now() / 1000) + 3600, token_type: 'bearer', user: { id: u.id, email: u.email, user_metadata: u.meta } }; };
   const log = [];
@@ -16,17 +17,21 @@ function createMock(anonKey) {
     if (t === 'exams' || t === 'exercise_logs') return r.user_id === uid || (isAdmin(uid) && researchOk(r.user_id));
     if (t === 'reference_ndt') return r.user_id === uid || (isAdmin(uid) && researchOk(r.user_id));
     if (t === 'calibration_models') return r.active || isAdmin(uid);
+    if (t === 'exercise_content') return r.published !== false || isAdmin(uid);
     return false;
   };
   // PostgREST 필터: col=eq.v / col=not.is.null (select·order·limit·on_conflict는 무시)
   const filters = url => [...url.searchParams.entries()].filter(([k]) => !['select', 'order', 'limit', 'on_conflict'].includes(k));
   const match = (r, fs) => fs.every(([k, v]) => v === 'not.is.null' ? r[k] != null : v.startsWith('eq.') ? String(r[k]) === decodeURIComponent(v.slice(3)) : true);
   const srv = http.createServer((req, res) => {
-    const H = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'apikey, authorization, content-type, prefer', 'Access-Control-Allow-Methods': 'GET,POST,PATCH,DELETE,OPTIONS', 'Content-Type': 'application/json' };
+    const H = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'apikey, authorization, content-type, prefer, x-upsert, cache-control', 'Access-Control-Allow-Methods': 'GET,POST,PATCH,DELETE,OPTIONS', 'Content-Type': 'application/json' };
     const send = (code, obj) => { res.writeHead(code, H); res.end(obj === undefined ? '' : JSON.stringify(obj)); };
     if (req.method === 'OPTIONS') return send(204);
-    let body = ''; req.on('data', c => body += c); req.on('end', () => {
-      const url = new URL(req.url, 'http://x'), j = body ? JSON.parse(body) : null;
+    const chunks = []; req.on('data', c => chunks.push(c)); req.on('end', () => {
+      const url = new URL(req.url, 'http://x'), raw = Buffer.concat(chunks), isStore = url.pathname.startsWith('/storage/v1/object/') && req.method === 'POST', body = isStore ? '' : raw.toString('utf8'), j = body ? JSON.parse(body) : null;
+      // 공개 저장소 읽기(공개 버킷은 키 없이도 읽힘)
+      const pub = url.pathname.match(/^\/storage\/v1\/object\/public\/([\w-]+)\/(.+)$/);
+      if (pub && req.method === 'GET') { const f = files.get(pub[1] + '/' + decodeURIComponent(pub[2])); if (!f) return send(404, { message: 'Object not found' }); res.writeHead(200, { 'Access-Control-Allow-Origin': '*', 'Content-Type': f.type, 'Content-Length': f.buf.length, 'Accept-Ranges': 'none' }); return res.end(f.buf); }
       log.push(req.method + ' ' + url.pathname + url.search);
       if (req.headers.apikey !== anonKey) return send(401, { message: 'Invalid API key' });
       const bearer = (req.headers.authorization || '').replace(/^Bearer /, ''), uid = tokens.get(bearer) || null;
@@ -43,9 +48,17 @@ function createMock(anonKey) {
         const id = refresh.get(j.refresh_token); if (!id || !users.has(id)) return send(400, { error: 'invalid_grant' }); refresh.delete(j.refresh_token); return send(200, issue(users.get(id)));
       }
       if (url.pathname === '/auth/v1/logout') { tokens.delete(bearer); return send(204); }
+      // 저장소 올리기·지우기: 관리자만(content.sql 정책)
+      const so = url.pathname.match(/^\/storage\/v1\/object\/([\w-]+)(?:\/(.+))?$/);
+      if (so && !url.pathname.includes('/public/')) {
+        if (!isAdmin(uid)) return send(403, { message: 'new row violates row-level security policy', statusCode: '403' });
+        if (req.method === 'POST' && so[2]) { if (raw.length > 50 * 1048576) return send(413, { message: 'The object exceeded the maximum allowed size' }); files.set(so[1] + '/' + decodeURIComponent(so[2]), { type: req.headers['content-type'] || 'application/octet-stream', buf: raw }); return send(200, { Key: so[1] + '/' + so[2] }); }
+        if (req.method === 'DELETE') { for (const pth of (j && j.prefixes) || []) files.delete(so[1] + '/' + pth); return send(200, []); }
+        return send(405, { message: 'method' });
+      }
       const tm = url.pathname.match(/^\/rest\/v1\/(\w+)$/);
-      // 활성 모델 읽기는 로그인 없이도 가능(공개 키)
-      if (!uid && !(tm && tm[1] === 'calibration_models' && req.method === 'GET')) return send(401, { message: 'JWT expired or invalid' });
+      // 활성 모델·공개 운동 읽기는 로그인 없이도 가능(공개 키)
+      if (!uid && !(tm && (tm[1] === 'calibration_models' || tm[1] === 'exercise_content') && req.method === 'GET')) return send(401, { message: 'JWT expired or invalid' });
       // ── RPC ──
       const rp = url.pathname.match(/^\/rest\/v1\/rpc\/(\w+)$/);
       if (rp) {
@@ -66,6 +79,7 @@ function createMock(anonKey) {
           const row = Object.assign({}, row0), ex = t.get(row[key]);
           if (tn === 'exams' || tn === 'exercise_logs') { if (ex && ex.user_id !== uid) return send(403, { message: 'new row violates row-level security policy' }); row.user_id = uid; }
           else if (tn === 'reference_ndt') { const e = tables.exams.get(row.exam_id); if (!isAdmin(uid) || !researchOk(row.user_id) || !e || e.user_id !== row.user_id) return send(403, { message: 'new row violates row-level security policy' }); row.created_by = uid; }
+          else if (tn === 'exercise_content') { if (!isAdmin(uid)) return send(403, { message: 'new row violates row-level security policy' }); row.created_at = (ex && ex.created_at) || new Date().toISOString(); }
           else if (tn === 'calibration_models') { if (!isAdmin(uid)) return send(403, { message: 'new row violates row-level security policy' }); row.created_by = uid; row.created_at = row.created_at || new Date().toISOString(); }
           else return send(403, { message: 'new row violates row-level security policy' });
           t.set(row[key], Object.assign({}, ex || {}, row));
@@ -73,6 +87,7 @@ function createMock(anonKey) {
         return send(201);
       }
       if (req.method === 'DELETE') {
+        if (tn === 'exercise_content') { if (!isAdmin(uid)) return send(403, { message: 'permission denied' }); for (const [k, r] of t) if (match(r, fs)) t.delete(k); return send(204); }
         if (tn !== 'exams' && tn !== 'exercise_logs') return send(403, { message: 'permission denied' });
         for (const [k, r] of t) if (r.user_id === uid && match(r, fs)) t.delete(k);
         return send(204);
@@ -82,6 +97,6 @@ function createMock(anonKey) {
   });
   // 시험용: 관리자 지정(실제 서버에서는 SQL Editor에서만 가능)
   const makeAdmin = username => { const u = [...users.values()].find(x => x.meta.username === username); if (u) admins.add(u.id); return !!u; };
-  return { srv, users, tables, log, admins, makeAdmin };
+  return { srv, users, tables, log, admins, makeAdmin, files };
 }
 module.exports = { createMock };
