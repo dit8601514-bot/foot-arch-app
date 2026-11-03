@@ -1,7 +1,7 @@
 'use strict';
 /* ═════════════ 기본: 저장소 · 상태 · 유틸 · 라우터 ═════════════ */
 const C = window.FootCore;
-const APP_VERSION = '2.0.0';
+const APP_VERSION = '2.1.0';
 const STORES = ['settings', 'exams', 'exercises', 'logs', 'errors', 'models', 'blobs', 'validations'];
 
 const DB = (() => {
@@ -312,11 +312,16 @@ const Detector = (() => {
 })();
 
 /* ═════════════ 이미지 · 오버레이 ═════════════ */
-function imageDataFromSource(src, maxSide) {
+// rot: 0 | 90 | 270 — 화면이 세로로 고정된 채 휴대폰을 가로로 눕혔을 때, 영상을 실제(가로) 방향으로 돌려서 분석한다.
+//   90: 원본 (x,y) → (H−y, x) (시계 방향), 270: 원본 (x,y) → (y, W−x) (반시계 방향)
+function imageDataFromSource(src, maxSide, rot) {
   const sw = src.videoWidth || src.naturalWidth || src.width, sh = src.videoHeight || src.naturalHeight || src.height;
   const k = Math.min(1, (maxSide || 1920) / Math.max(sw, sh));
-  const cv = document.createElement('canvas'); cv.width = Math.round(sw * k); cv.height = Math.round(sh * k);
-  const g = cv.getContext('2d', { willReadFrequently: true }); g.drawImage(src, 0, 0, cv.width, cv.height);
+  const w = Math.round(sw * k), h = Math.round(sh * k), turn = rot === 90 || rot === 270;
+  const cv = document.createElement('canvas'); cv.width = turn ? h : w; cv.height = turn ? w : h;
+  const g = cv.getContext('2d', { willReadFrequently: true });
+  if (rot === 90) { g.translate(h, 0); g.rotate(Math.PI / 2); } else if (rot === 180) { g.translate(w, h); g.rotate(Math.PI); } else if (rot === 270) { g.translate(0, w); g.rotate(-Math.PI / 2); }
+  g.drawImage(src, 0, 0, w, h); g.setTransform(1, 0, 0, 1, 0, 0);
   return { canvas: cv, img: g.getImageData(0, 0, cv.width, cv.height) };
 }
 // 검출 결과를 실제 이미지 위에 표시 (임의 위치 표시 없음 — 검출 좌표만 사용)

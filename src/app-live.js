@@ -2,44 +2,118 @@
 /* ═════════════ 실시간 촬영 공통 모듈: 음성 안내 · 트래킹 루프 · 연속 촬영 ═════════════ */
 
 // 음성 안내 (Web Speech API). iOS/Safari는 사용자가 버튼을 누른 순간에 한 번 말해야 이후에도 말할 수 있다.
+// 알아듣기 쉽게: 기기에서 가장 자연스러운 한국어 목소리를 고르고, 조금 천천히, 문장마다 잠깐 쉬어 말한다.
+// 안내 시작 전에 짧은 알림음을 내어 주의를 끈다. 화면 자막은 쓰지 않는다.
 const Voice = (() => {
-  let enabled = true, unlocked = false, ctx = null, voice = null;
+  let enabled = true, unlocked = false, ctx = null, voice = null, gen = 0;
+  const RATE = 0.88, PAUSE_MS = 350;
   const ok = () => 'speechSynthesis' in window && 'SpeechSynthesisUtterance' in window;
+  function score(v) {
+    let s = 0;
+    if (/ko[-_]KR/i.test(v.lang)) s += 10; else if (/^ko/i.test(v.lang)) s += 8; else return -1;
+    if (/premium|enhanced|향상|neural|natural|고품질/i.test(v.name)) s += 5;
+    if (/google/i.test(v.name)) s += 4;
+    if (/yuna|유나|sora|heami|sunhi|injoon|jimin/i.test(v.name)) s += 2;
+    if (/compact|eloquence|grandma|grandpa|rocko|shelley|sandy|flo|reed/i.test(v.name)) s -= 6; // 기계음이 강한 목소리
+    return s;
+  }
   function pickVoice() {
     if (!ok()) return null;
-    const vs = speechSynthesis.getVoices();
-    return vs.find(v => /ko[-_]KR/i.test(v.lang)) || vs.find(v => /^ko/i.test(v.lang)) || null;
+    const vs = speechSynthesis.getVoices().map(v => [score(v), v]).filter(x => x[0] >= 0).sort((a, b) => b[0] - a[0]);
+    return vs.length ? vs[0][1] : null;
   }
   if (ok()) { voice = pickVoice(); speechSynthesis.onvoiceschanged = () => { voice = pickVoice(); }; }
-  function say(text, opts) {
-    const o = Object.assign({ interrupt: true }, opts);
-    showCaption(text);
-    if (!enabled || !ok()) return Promise.resolve(false);
+  // 화면용 문구를 듣기 좋은 말로: 괄호 속 보충 설명·기호·약어를 풀어 쓴다
+  function speakable(t) {
+    return String(t).replace(/\([^)]*\)/g, '').replace(/\bP2\b/g, '가운데 스티커').replace(/\bP1\b/g, '엄지발가락 쪽 스티커').replace(/\bP3\b/g, '뒤꿈치 스티커')
+      .replace(/°/g, '도').replace(/%/g, '퍼센트').replace(/[–~]/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+  const sentences = t => speakable(t).split(/(?<=[.!?])\s+/).map(x => x.trim()).filter(Boolean);
+  function speakOne(text, my) {
     return new Promise(res => {
-      try {
-        if (o.interrupt) speechSynthesis.cancel();
-        const u = new SpeechSynthesisUtterance(text); u.lang = 'ko-KR'; if (voice) u.voice = voice; u.rate = 1.0;
-        const t = setTimeout(() => res(true), Math.min(9000, 1200 + text.length * 160)); // onend가 오지 않는 기기 대비
-        u.onend = () => { clearTimeout(t); res(true); }; u.onerror = () => { clearTimeout(t); res(false); };
-        speechSynthesis.speak(u);
-      } catch (e) { res(false); }
+      if (my !== gen) return res(false);
+      const u = new SpeechSynthesisUtterance(text); u.lang = 'ko-KR'; if (voice) u.voice = voice; u.rate = RATE; u.pitch = 1; u.volume = 1;
+      const t = setTimeout(() => res(true), Math.min(9000, 1400 + text.length * 190)); // onend가 오지 않는 기기 대비
+      u.onend = () => { clearTimeout(t); res(true); }; u.onerror = () => { clearTimeout(t); res(false); };
+      try { speechSynthesis.speak(u); } catch (e) { clearTimeout(t); res(false); }
     });
   }
-  function beep(freq, ms) {
-    try {
-      ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
-      const o = ctx.createOscillator(), g = ctx.createGain(); o.frequency.value = freq || 880; g.gain.value = 0.15;
-      o.connect(g); g.connect(ctx.destination); o.start(); o.stop(ctx.currentTime + (ms || 150) / 1000);
-    } catch (e) { /* 소리 미지원 */ }
+  async function say(text, opts) {
+    const o = Object.assign({ interrupt: true, chime: true }, opts);
+    if (!enabled || !ok()) return false;
+    if (o.interrupt) { gen++; try { speechSynthesis.cancel(); } catch (e) {} }
+    else if (speechSynthesis.speaking) return false; // 다른 안내를 말하는 중이면 보조 안내는 건너뛴다(겹침 방지)
+    const my = gen;
+    if (o.chime) { chime(); await wait(260); }
+    const parts = sentences(text);
+    for (let i = 0; i < parts.length; i++) {
+      if (my !== gen) return false;
+      await speakOne(parts[i], my);
+      if (i < parts.length - 1) await wait(PAUSE_MS);
+    }
+    return my === gen;
   }
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  function tone(freq, ms, at, gain) {
+    ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = ctx.createOscillator(), g = ctx.createGain(), t0 = ctx.currentTime + (at || 0), d = (ms || 150) / 1000;
+    o.type = 'sine'; o.frequency.value = freq || 880;
+    g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(gain || 0.15, t0 + 0.015); g.gain.exponentialRampToValueAtTime(0.0001, t0 + d);
+    o.connect(g); g.connect(ctx.destination); o.start(t0); o.stop(t0 + d + 0.02);
+  }
+  function beep(freq, ms) { try { tone(freq, ms); } catch (e) { /* 소리 미지원 */ } }
+  function chime() { try { tone(784, 120, 0, 0.12); tone(1175, 160, 0.11, 0.12); } catch (e) {} }
   function unlock() { unlocked = true; beep(660, 60); if (ok()) { try { const u = new SpeechSynthesisUtterance(' '); u.lang = 'ko-KR'; u.volume = 0; speechSynthesis.speak(u); } catch (e) {} } }
-  let capTimer = null;
-  function showCaption(text) {
-    const el = document.getElementById('voiceCap'); if (!el) return;
-    el.textContent = '🔊 ' + text; el.classList.remove('hide'); clearTimeout(capTimer); capTimer = setTimeout(() => el.classList.add('hide'), 6000);
-  }
-  return { say, beep, unlock, get supported() { return ok(); }, get hasKorean() { return !!voice; }, get enabled() { return enabled; }, set enabled(v) { enabled = !!v; if (!v && ok()) speechSynthesis.cancel(); }, get unlocked() { return unlocked; } };
+  return { say, beep, unlock, speakable, get supported() { return ok(); }, get hasKorean() { return !!voice; }, get voiceName() { return voice ? voice.name : ''; }, get enabled() { return enabled; }, set enabled(v) { enabled = !!v; if (!v && ok()) { gen++; speechSynthesis.cancel(); } }, get unlocked() { return unlocked; } };
 })();
+
+// 휴대폰 방향: 화면이 세로로 고정된 채 휴대폰을 가로로 눕히면 카메라 영상이 세로로 들어온다.
+// 중력 센서로 처음 방향을 추정하고, 스티커 배치(발배뼈 스티커가 위쪽)로 확정한다.
+const Orient = (() => {
+  let gx = 0, gy = 0, have = false, listening = false;
+  const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  function listen() {
+    if (listening || !('DeviceMotionEvent' in window)) return; listening = true;
+    window.addEventListener('devicemotion', e => { const a = e.accelerationIncludingGravity; if (a && a.x != null) { gx = gx * 0.7 + a.x * 0.3; gy = gy * 0.7 + a.y * 0.3; have = true; } });
+  }
+  // iOS는 버튼을 누른 순간에 권한을 요청해야 한다
+  function request() {
+    try {
+      if (window.DeviceMotionEvent && typeof DeviceMotionEvent.requestPermission === 'function') DeviceMotionEvent.requestPermission().then(r => { if (r === 'granted') listen(); }).catch(() => {});
+      else listen();
+    } catch (e) { /* 센서 없음 */ }
+  }
+  if (!(window.DeviceMotionEvent && typeof DeviceMotionEvent.requestPermission === 'function')) listen();
+  // 원본 영상(세로 화면 기준)에서 실제 위쪽이 어느 방향인지 → 필요한 회전(0/90/180/270)
+  function guess(portraitFrame) {
+    if (!have || Math.hypot(gx, gy) < 4) return portraitFrame ? 270 : 0;
+    const x = ios ? -gx : gx, y = ios ? -gy : gy; // Android 기준: 세로로 세우면 y≈+9.8
+    if (Math.abs(x) > Math.abs(y)) return x > 0 ? 270 : 90;
+    return y > 0 ? 0 : 180;
+  }
+  return { request, guess, get available() { return have; } };
+})();
+// 회전된 분석 좌표 → 화면에 표시된 원본 영상 좌표로 그리기 위한 캔버스 변환
+function setRotatedTransform(g, rot, ox, oy, k, rawW, rawH) {
+  if (rot === 90) g.transform(0, -1, 1, 0, ox, oy + k * rawH);
+  else if (rot === 180) g.transform(-1, 0, 0, -1, ox + k * rawW, oy + k * rawH);
+  else if (rot === 270) g.transform(0, 1, -1, 0, ox + k * rawW, oy);
+  else g.translate(ox, oy);
+}
+// 스티커 세 개의 배치로 방향 판정: 양 끝(P1·P3) 축이 수평이고 가운데(P2)가 축보다 위에 있어야 한다.
+function orientVote(det) {
+  const pts = det.landmarks ? [det.landmarks.P1, det.landmarks.P2, det.landmarks.P3] : det.stickers && det.stickers.length === 3 ? det.stickers.map(c => ({ x: c.cx, y: c.cy })) : null;
+  if (!pts) return null;
+  let bi = 0, bj = 1, bd = -1;
+  for (let i = 0; i < 3; i++) for (let j = i + 1; j < 3; j++) { const d = Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y); if (d > bd) { bd = d; bi = i; bj = j; } }
+  let a = pts[bi], b = pts[bj]; const m = pts[3 - bi - bj];
+  if (b.x < a.x) [a, b] = [b, a];
+  const dx = b.x - a.x, dy = b.y - a.y;
+  if (Math.abs(dy) > Math.abs(dx)) return 'turn';
+  const off = (dx * (m.y - a.y) - dy * (m.x - a.x)) / bd; // +: 가운데 스티커가 축보다 아래
+  const dia = (det.quality && det.quality.diameterPx) || bd * 0.06;
+  return off > 0.5 * dia ? 'flip' : 'ok';
+}
 
 // 화면 가이드(점선) — 판정에 쓰는 C.GUIDE와 같은 영역을 그린다
 // 표준 발 가이드(안쪽 면 실루엣 · 바닥선 · 스티커 목표 영역)를 영상 위에 그린다. 판정(C.guideCheck)과 같은 기하를 쓴다.
@@ -118,9 +192,25 @@ function createTracker(opts) {
     st.smooth = st.kf.positions() || (det.landmarks ? { P1: det.landmarks.P1, P2: det.landmarks.P2, P3: det.landmarks.P3 } : null);
     return { c, ready, motion, speedDia, guide: al };
   }
+  // 영상 회전(0/90/180/270): 처음엔 중력 센서로 추정, 이후 스티커 배치로 보정. 촬영이 시작되면 고정.
+  function autoRotation() { return Orient.guess(video.videoHeight > video.videoWidth); }
+  function orientUpdate(det) {
+    if (st.rotLock || st.rotManual) return;
+    const v = orientVote(det);
+    if (v === 'turn' || v === 'flip') st.rotVotes = st.rotVotes && st.rotVotes.v === v ? { v, n: st.rotVotes.n + 1 } : { v, n: 1 };
+    else if (v === 'ok') { st.rotVotes = null; st.rotConfirmed = true; }
+    if (st.rotVotes && st.rotVotes.n >= 3) {
+      st.rot = (st.rot + (st.rotVotes.v === 'flip' ? 180 : 90)) % 360; st.rotVotes = null; st.rotConfirmed = false; resetHistory();
+    } else if (!st.rotConfirmed && !(det.stickers && det.stickers.length)) {
+      const g = autoRotation(); if (g !== st.rot) { st.rot = g; resetHistory(); }
+    }
+  }
   async function tick() {
-    const { img } = imageDataFromSource(video, 640);
-    const IW = img.width, IH = img.height;
+    if (st.rot == null) st.rot = autoRotation();
+    const rot = st.rot;
+    const { img } = imageDataFromSource(video, 640, rot);
+    const IW = img.width, IH = img.height, turned = rot === 90 || rot === 270, rawW = turned ? IH : IW, rawH = turned ? IW : IH;
+
     const thumb = sceneThumb(img); // 워커로 넘기기 전에 계산(버퍼가 비워짐)
     let sceneMotion = 0;
     if (st.thumb && st.thumb.length === thumb.length) { let d = 0; for (let i = 0; i < thumb.length; i++) d += Math.abs(thumb[i] - st.thumb[i]); sceneMotion = d / thumb.length; }
@@ -130,15 +220,20 @@ function createTracker(opts) {
     const roiPrev = pred && st.dia ? { ok: true, landmarks: pred, quality: { diameterPx: st.dia } } : st.lastOk;
     const det = await Detector.run(img, { toeDirection: getToe(), colorModel: st.colorModel, prior: pred }, roiPrev);
     if (st.paused || !st.stream) return;
+    if (rot !== st.rot) return; // 처리 중에 방향이 바뀜
     const now = performance.now(); st.fpsT.push(now); st.fpsT = st.fpsT.filter(t => now - t < 1000);
     st.liveW = IW;
     const a = assess(det, now, pred);
     const wr = wrap.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
     overlay.width = wr.width * dpr; overlay.height = wr.height * dpr; const g = overlay.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const k = Math.min(wr.width / IW, wr.height / IH), ox = (wr.width - IW * k) / 2, oy = (wr.height - IH * k) / 2;
-    drawGuide(g, ox, oy, k, IW, IH, getToe(), { ready: a.ready, seen: !!det.landmarks, inP3: a.guide.inP3, inP1: a.guide.inP1, inP2: a.guide.inP2 }, det.landmarks && !a.c.frame ? (a.c.frameMsg || '').replace(/ 주십시오| 주세요|십시오/g, '') : '', det.sole);
-    drawOverlay(g, { stickers: det.stickers, rejected: det.rejected, landmarks: det.landmarks && st.smooth ? Object.assign({}, det.landmarks, st.smooth) : det.landmarks }, k, k, ox, oy);
-    onFrame(Object.assign({ det, fps: st.fpsT.length, roi: !!det.roi, sceneMotion }, a));
+    const k = Math.min(wr.width / rawW, wr.height / rawH), ox = (wr.width - rawW * k) / 2, oy = (wr.height - rawH * k) / 2;
+    const ar = rawW + ' / ' + rawH; if (wrap.style.aspectRatio !== ar) wrap.style.aspectRatio = ar;
+    setRotatedTransform(g, rot, ox, oy, k, rawW, rawH);
+    drawGuide(g, 0, 0, k, IW, IH, getToe(), { ready: a.ready, seen: !!det.landmarks, inP3: a.guide.inP3, inP1: a.guide.inP1, inP2: a.guide.inP2 }, det.landmarks && !a.c.frame ? (a.c.frameMsg || '').replace(/ 주십시오| 주세요|십시오/g, '') : '', det.sole);
+    drawOverlay(g, { stickers: det.stickers, rejected: det.rejected, landmarks: det.landmarks && st.smooth ? Object.assign({}, det.landmarks, st.smooth) : det.landmarks }, k, k, 0, 0);
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    orientUpdate(det);
+    onFrame(Object.assign({ det, fps: st.fpsT.length, roi: !!det.roi, sceneMotion, rotation: rot }, a));
   }
   function loop() {
     if (!st.stream) return;
@@ -164,7 +259,11 @@ function createTracker(opts) {
   function resetHistory() { st.hist = []; st.lastOk = null; st.smooth = null; st.kf.reset(); st.colorModel = null; st.dia = null; }
   // 현재 추적 위치(가로 폭 대비 비율) — 고해상도 연속 촬영에서 후보 대응에 사용
   function priorNorm() { const p = st.kf.positions(); if (!p || !st.liveW) return null; return Object.fromEntries(['P1', 'P2', 'P3'].map(k => [k, { x: p[k].x / st.liveW, y: p[k].y / st.liveW }])); }
-  return { priorNorm, start, stop, resetHistory, pause() { st.paused = true; }, resume() { st.paused = false; resetHistory(); }, flip() { st.facing = st.facing === 'environment' ? 'user' : 'environment'; return start(); }, get deviceCount() { return st.devices.length; }, get running() { return !!st.stream; } };
+  return { priorNorm, start, stop, resetHistory,
+    get rotation() { return st.rot || 0; },
+    lockRotation(v) { st.rotLock = !!v; },
+    rotate() { st.rotManual = true; st.rot = ((st.rot || 0) + 90) % 360; resetHistory(); return st.rot; },
+    autoRotate() { st.rotManual = false; st.rotConfirmed = false; st.rot = null; resetHistory(); }, pause() { st.paused = true; }, resume() { st.paused = false; resetHistory(); }, flip() { st.facing = st.facing === 'environment' ? 'user' : 'environment'; return start(); }, get deviceCount() { return st.devices.length; }, get running() { return !!st.stream; } };
 }
 
 /**
@@ -172,11 +271,11 @@ function createTracker(opts) {
  * 반환: { canvas, det, meas, combined }
  */
 const BURST = 12, MAXSIDE = 1600;
-async function burstCapture(video, toe, priorNorm) {
+async function burstCapture(video, toe, priorNorm, rot) {
   const dets = new Array(BURST).fill(null), jobs = []; let keep = null; const mid = Math.floor(BURST / 2);
   for (let i = 0; i < BURST; i++) {
     if (!video.videoWidth) break;
-    const { canvas, img } = imageDataFromSource(video, MAXSIDE);
+    const { canvas, img } = imageDataFromSource(video, MAXSIDE, rot || 0);
     if (i === mid) keep = canvas;
     const prior = priorNorm ? Object.fromEntries(['P1', 'P2', 'P3'].map(k => [k, { x: priorNorm[k].x * img.width, y: priorNorm[k].y * img.width }])) : null;
     jobs.push(Detector.run(img, { toeDirection: toe, prior }).then(d => { dets[i] = d; }).catch(() => {}));

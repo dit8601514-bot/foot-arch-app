@@ -24,22 +24,22 @@ async function scenario(tag, video, expectConfirmed, expectMm) {
   await pg.goto(U + '#/self'); await pg.waitForSelector('#feetSeg'); await pg.click('#feetSeg button[data-v="left"]');
   if (tag === 'A') await shot('s02-self-setup');
   const t0 = Date.now(); await pg.click('#go');
-  await pg.waitForSelector('#vid'); await pg.waitForTimeout(4500); if (tag === 'A') await shot('s03-self-align'); if (tag === 'C') await shot('s03-std-align');
+  await pg.waitForSelector('#vid'); await pg.waitForTimeout(4500); if (tag === 'A') await shot('s03-self-align'); if (tag === 'C') await shot('s03-std-align'); if (tag === 'R1') await shot('s03-rot-align');
   // 체중부하 단계 화면(인지 카드) 캡처
   await pg.waitForFunction(() => document.querySelector('#lcMove') && document.querySelector('#lcMove').textContent === '확인', null, { timeout: 45000 }).catch(() => {});
   await pg.waitForTimeout(1500); if (tag === 'A') await shot('s04-self-load'); if (tag === 'C') await shot('s04-std-load');
   const ok = await pg.waitForFunction(() => location.hash.startsWith('#/result/'), null, { timeout: 60000 }).then(() => true).catch(() => false);
   const secs = ((Date.now() - t0) / 1000).toFixed(1);
-  const spoken = await pg.evaluate(() => window.__spoken);
+  const spoken = await pg.evaluate(() => window.__spoken), J = spoken.join(' ');
   log(`[${tag}] 손대지 않고 비체중부하·체중부하 자동 촬영 → 결과`, ok, secs + '초');
   log(`[${tag}] 음성: 정확한 정렬 안내`, spoken.some(s => s.includes('정확히 들어왔습니다')));
-  log(`[${tag}] 음성: "비체중부하 상태를 촬영합니다"`, spoken.includes('비체중부하 상태를 촬영합니다.'));
+  log(`[${tag}] 음성: "앉은 자세를 촬영합니다"`, spoken.includes('앉은 자세를 촬영합니다.'));
   log(`[${tag}] 음성: "체중부하 해주십시오"`, spoken.some(s => s.includes('체중부하 해주십시오')));
   log(`[${tag}] 음성: 일어서는 동작 인지`, spoken.some(s => s.includes('일어서는 동작을 확인했습니다')));
-  if (expectConfirmed) log(`[${tag}] 음성: "체중부하 확인했습니다. 촬영합니다."`, spoken.includes('체중부하 확인했습니다. 촬영합니다.'), spoken.join(' / '));
+  if (expectConfirmed) log(`[${tag}] 음성: "체중부하 확인했습니다. 촬영합니다."`, J.includes('체중부하 확인했습니다. 촬영합니다.'), spoken.join(' / '));
   else {
-    log(`[${tag}] 형태 변화 없음 → 재안내`, spoken.some(s => s.includes('양발에 체중을 고르게 실어 주십시오') && s.includes('변화가 아직 작습니다')));
-    log(`[${tag}] 확인 못 하면 "확인했습니다"라고 말하지 않음`, !spoken.includes('체중부하 확인했습니다. 촬영합니다.') && spoken.includes('현재 자세로 체중부하 상태를 촬영합니다.'), spoken.join(' / '));
+    log(`[${tag}] 형태 변화 없음 → 재안내`, J.includes('변화가 아직 작습니다. 양발에 체중을 똑같이 실어 주십시오'));
+    log(`[${tag}] 확인 못 하면 "확인했습니다"라고 말하지 않음`, !J.includes('체중부하 확인했습니다') && spoken.includes('현재 자세로 체중부하 상태를 촬영합니다.'), spoken.join(' / '));
   }
   log(`[${tag}] 음성: "촬영되었습니다" 2회`, spoken.filter(s => s === '촬영되었습니다.').length === 2);
   if (ok) {
@@ -75,6 +75,9 @@ async function scenario(tag, video, expectConfirmed, expectMm) {
   if (!which || which === 'A') await scenario('A', 'self.y4m', true);
   if (!which || which === 'B') await scenario('B', 'self_nochange.y4m', false);
   if (!which || which === 'C') await scenario('C', 'self_std.y4m', true, 8.0);
+  // 휴대폰을 가로로 눕혔는데 화면은 세로로 고정된 경우(영상이 세로로 들어옴) — 양쪽 방향 모두
+  if (!which || which === 'R1') await scenario('R1', 'self_std_rot90.y4m', true, 8.0);
+  if (!which || which === 'R2') await scenario('R2', 'self_std_rot270.y4m', true, 8.0);
   srv.close();
   fs.writeFileSync(path.join(__dirname, 'e2e-self-results.json'), JSON.stringify(R, null, 1));
   console.log(`\n${R.filter(r => r[1] === 'PASS').length}/${R.length} 통과`);

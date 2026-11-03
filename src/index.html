@@ -86,7 +86,8 @@ ol.steps,ul.list{padding-left:20px;margin:6px 0}ol.steps li,ul.list li{margin:5p
 .stepper .st.on{color:var(--brand)}.stepper .st.on b{background:var(--grad);border-color:transparent;color:#fff;box-shadow:0 4px 10px rgba(26,95,224,.35)}
 .stepper .ln{flex:1;max-width:70px;height:2px;background:var(--brand-l);opacity:.45;margin-top:16px}
 .stepper .ln.on{opacity:1}
-.camwrap{position:relative;background:#0d1b3d;border-radius:var(--radius);overflow:hidden;aspect-ratio:4/3;width:100%;box-shadow:var(--shadow)}
+.camwrap{position:relative;background:#0d1b3d;border-radius:var(--radius);overflow:hidden;aspect-ratio:4/3;width:100%;max-height:72vh;box-shadow:var(--shadow)}
+@media (orientation:landscape){.camwrap{max-height:84vh}}
 .camwrap video,.camwrap canvas,.camwrap img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
 .countdown{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:110px;font-weight:800;color:#fff;text-shadow:0 2px 16px rgba(0,0,0,.6);pointer-events:none}
 .checks{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}
@@ -111,7 +112,6 @@ table.t th{color:var(--ink-2);font-weight:600}
 video.ex{width:100%;border-radius:14px;background:#000}
 .placeholder{border:2px dashed var(--line);border-radius:14px;padding:26px 14px;text-align:center;color:var(--ink-2);background:rgba(255,255,255,.6)}
 .recbadge{font-size:18px;font-weight:700;background:#e53935;color:#fff;padding:6px 12px;border-radius:10px;position:absolute;top:10px;right:10px;text-shadow:none}
-.voicecap{position:absolute;left:8px;right:8px;bottom:8px;background:rgba(13,27,61,.78);color:#fff;font-size:17px;font-weight:700;padding:8px 12px;border-radius:12px;text-align:center;z-index:3;pointer-events:none}
 /* 홈(시안 ①) */
 .hero{margin:-16px -16px 6px;padding:max(18px,env(safe-area-inset-top)) 20px 64px;background:var(--grad);color:#fff;border-radius:0 0 28px 28px;position:relative;overflow:hidden}
 .hero::after{content:"";position:absolute;left:-10%;right:-10%;bottom:-38px;height:80px;background:radial-gradient(60% 100% at 30% 0,rgba(255,255,255,.22),rgba(255,255,255,0) 70%);}

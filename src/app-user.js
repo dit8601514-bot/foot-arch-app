@@ -272,7 +272,7 @@ route('/capture/:phase', '촬영', async (v, p) => {
   async function capture(mode) {
     if (!vid.videoWidth) return toast('카메라 영상이 아직 준비되지 않았습니다.', true);
     busy = true; tracker.pause(); cancelCountdown(); cd.innerHTML = '<span class="recbadge">● 촬영 중</span>'; $('#status', v).textContent = '연속 촬영 중… 움직이지 마세요';
-    const r = await burstCapture(vid, S.exam.toeDirection, tracker.priorNorm());
+    const r = await burstCapture(vid, S.exam.toeDirection, tracker.priorNorm(), tracker.rotation);
     cd.textContent = ''; tracker.stop();
     if (!r.canvas) { toast('카메라 프레임을 가져오지 못했습니다.', true); return start(); }
     showReview(r.canvas, r.det, r.meas, mode);
