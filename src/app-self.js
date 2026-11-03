@@ -334,8 +334,8 @@ const SELF_QUESTIONS = [
 function flexSectionHtml(e) {
   const cat = e.category, c = e.comparison, sr = e.selfReport || {};
   let body;
-  if (!cat) body = '<p class="small muted">mm 값과 분류가 있어야 유연성 평발 양상을 확인할 수 있습니다.</p>';
-  else if (cat.key === 'normal') body = `<p class="small">체중을 실었을 때 아치 하강이 <b>${mm(c.changeMm)}</b>로, 본 연구 기준 <b>정상 범위(5mm 이하)</b>입니다. 체중에 따라 아치가 크게 무너지는 유연성 평발 양상은 보이지 않습니다.</p>`;
+  if (!cat) body = '<p class="small muted">길이 값과 분류가 있어야 유연성 평발 양상을 확인할 수 있습니다.</p>';
+  else if (cat.key === 'normal') body = `<p class="small">체중을 실었을 때 아치 하강이 <b>${mm(c.changeMm)}</b>로, 본 연구 기준 <b>정상 범위(${cmTxt(C.CLASS_MM.normal)} 이하)</b>입니다. 체중에 따라 아치가 크게 무너지는 유연성 평발 양상은 보이지 않습니다.</p>`;
   else body = `<p class="small">앉았을 때(체중 없음) 아치 높이 <b>${mm(c.preMm)}</b> → 섰을 때 <b>${mm(c.postMm)}</b>로 <b>${mm(c.changeMm)}</b> 내려갔습니다. 체중을 빼면 아치가 다시 올라오는 <b>유연성 평발 양상</b>에 해당합니다(본 연구 기준: ${esc(cat.label)}).</p>
       <div class="grid2"><a class="btn primary" href="#/exercises">관리 운동 보기</a><a class="btn" href="#/manage">관리 현황</a></div>`;
   const warn = SELF_QUESTIONS.some(([k]) => sr[k]);
@@ -365,7 +365,7 @@ route('/pair/:a/:b', '양발 검사 결과', async (v, p) => {
   const both = A.category && B.category;
   v.innerHTML = `<h2>양발 검사 결과</h2><p class="tiny">${fmtDate(A.createdAt)} · 음성 안내 자가 검사</p>
     <div class="grid2">${card(A)}${card(B)}</div>
-    <div class="card"><b>요약</b><p class="small">${!both ? 'mm 환산 조건이 충족되지 않아 분류할 수 없습니다.' : flexFeet.length ? `<b>${flexFeet.join('·')}</b>에서 체중을 실을 때 아치가 연구 기준 이상으로 내려가는 유연성 평발 양상이 보입니다.` : '양발 모두 연구 기준 정상 범위입니다.'}
+    <div class="card"><b>요약</b><p class="small">${!both ? '길이 환산 조건이 충족되지 않아 분류할 수 없습니다.' : flexFeet.length ? `<b>${flexFeet.join('·')}</b>에서 체중을 실을 때 아치가 연구 기준 이상으로 내려가는 유연성 평발 양상이 보입니다.` : '양발 모두 연구 기준 정상 범위입니다.'}
       ${both ? ` 좌우 차이 ${mm(Math.abs(A.comparison.changeMm - B.comparison.changeMm))}.` : ''}</p>
       ${flexFeet.length ? '<div class="grid2"><a class="btn primary" href="#/exercises">관리 운동 보기</a><a class="btn" href="#/manage">관리 현황</a></div>' : ''}
       <p class="tiny">각 발의 “자세히 보기”에서 자가 확인 질문에 답할 수 있습니다.</p></div>
@@ -393,13 +393,13 @@ route('/manage', '유연성 평발 관리', async (v) => {
   v.innerHTML = `<h2>유연성 평발 관리</h2>
     <p class="small muted">운동을 하면서 같은 방법(음성 자가 검사)으로 다시 측정해 아치 하강의 변화를 확인합니다.</p>
     ${footCard('left')}${footCard('right')}
-    ${exams.length ? `<div class="card"><b>하강량 추이 (mm)</b><div class="legend"><span><i style="background:var(--series-1)"></i>왼발</span><span><i style="background:var(--series-2)"></i>오른발</span></div><canvas class="chart" id="ch"></canvas><p class="tiny">점선: 연구 분류 경계 5·10·15mm</p></div>` : ''}
+    ${exams.length ? `<div class="card"><b>하강량 추이 (cm)</b><div class="legend"><span><i style="background:var(--series-1)"></i>왼발</span><span><i style="background:var(--series-2)"></i>오른발</span></div><canvas class="chart" id="ch"></canvas><p class="tiny">점선: 연구 분류 경계 5·10·15mm</p></div>` : ''}
     <div class="card"><dl class="kv"><dt>최근 7일 운동</dt><dd>${week}회</dd><dt>누적 운동</dt><dd>${logs.length}회</dd></dl><a class="btn block" href="#/exercises">오늘의 운동</a></div>
     <a class="btn primary block big" href="#/self">다시 측정하기</a>
     <a class="btn block" href="#/history">검사 이력 전체 보기</a>
     <p class="tiny">측정값의 변화가 곧 아치 구조의 개선을 뜻하지는 않습니다. 측정 오차와 촬영 조건을 함께 고려하세요.</p>`;
   if (exams.length) {
-    const ser = ['left', 'right'].map(f => ({ name: FOOT[f], color: f === 'left' ? '#2a78d6' : '#eb6834', points: exams.filter(e => e.foot === f).map(e => ({ x: e.createdAt, y: C.roundMm(e.comparison.changeMm), label: `${fmtDate(e.createdAt)} ${mm(e.comparison.changeMm)}` })) })).filter(s => s.points.length);
-    lineChart($('#ch', v), ser, { yMin: 0, bands: [{ y: 5, label: '5' }, { y: 10, label: '10' }, { y: 15, label: '15' }] });
+    const ser = ['left', 'right'].map(f => ({ name: FOOT[f], color: f === 'left' ? '#2a78d6' : '#eb6834', points: exams.filter(e => e.foot === f).map(e => ({ x: e.createdAt, y: C.roundMm(e.comparison.changeMm) / 10, label: `${fmtDate(e.createdAt)} ${mm(e.comparison.changeMm)}` })) })).filter(s => s.points.length);
+    lineChart($('#ch', v), ser, { yMin: 0, bands: CLASS_BANDS() });
   }
 });

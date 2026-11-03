@@ -1,6 +1,6 @@
 'use strict';
 /* ═════════════ 일반 사용자 화면 ═════════════ */
-// mm 환산: 스티커의 실제 지름(기본 19 mm)을 기준 길이로 쓴다. 보정 템플릿(테스트 시트) 시험을 통과하면 '시트 검증'으로 표시한다.
+// 길이 환산: 스티커의 실제 지름(기본 19 mm)을 기준 길이로 쓴다. 보정 템플릿(테스트 시트) 시험을 통과하면 '시트 검증'으로 표시한다.
 function convSettings() {
   const v = S.settings.validation, D = S.settings.stickerDiameterMm;
   const sheet = !!(v && v.pass && v.diameterMm === D);
@@ -182,7 +182,7 @@ route('/posture', '촬영 자세 안내', async (v) => {
     <div class="card">
       <ol class="steps">
         <li>스마트폰을 바닥 가까이, 발 높이에 <b>고정</b>합니다(거치대·책 더미 등). 손으로 들고 찍지 않는 것이 좋습니다.</li>
-        <li>카메라 렌즈가 발 <b>안쪽 면과 수직</b>이 되도록 놓습니다. 비스듬하면 스티커가 타원으로 보여 mm 환산이 불가합니다.</li>
+        <li>카메라 렌즈가 발 <b>안쪽 면과 수직</b>이 되도록 놓습니다. 비스듬하면 스티커가 타원으로 보여 길이 환산이 불가합니다.</li>
         <li>반대쪽 발은 카메라 시야에서 비켜 둡니다.</li>
         <li>발 전체(발꿈치~엄지발가락)가 화면 가이드 안에 들어오도록 거리를 맞춥니다.</li>
         <li><b>체중부하 전·후 촬영 사이에 카메라를 움직이지 마세요.</b> 거리·각도가 달라지면 결과가 무효 처리됩니다.</li>
@@ -292,9 +292,9 @@ route('/capture/:phase', '촬영', async (v, p) => {
         <dt>스티커 지름</dt><dd>${px(det.quality.diameterPx)}</dd>
         ${det.quality.burst ? `<dt>연속 촬영</dt><dd>${det.quality.burst.used}/${det.quality.burst.total} 프레임 사용 · 높이 SD ${det.quality.burst.heightSdPx.toFixed(2)} px</dd>` : ''}
         <dt>P2–기준선 거리</dt><dd>${px(meas.heightPx)}${meas.heightMm != null ? ' / ' + mm(meas.heightMm) : ''}</dd>
-        <dt>mm 환산 상태</dt><dd>${statusBadge(meas.status)}</dd>
+        <dt>길이 환산 상태</dt><dd>${statusBadge(meas.status)}</dd>
         <dt>바닥선</dt><dd>${meas.floor && meas.floor.ok ? `검출 · P2 높이 ${meas.floor.P2Mm != null ? mm(meas.floor.P2Mm) : px(meas.floor.P2Px)}` : '미확인'}</dd>
-        ${meas.floor && meas.floor.P1Mm != null ? `<dt>P1·P3 부착 높이</dt><dd>${mm(meas.floor.P1Mm, 0)} / ${mm(meas.floor.P3Mm, 0)} <span class="tiny">(표준 20 mm)</span></dd>` : ''}
+        ${meas.floor && meas.floor.P1Mm != null ? `<dt>P1·P3 부착 높이</dt><dd>${mm(meas.floor.P1Mm, 1)} / ${mm(meas.floor.P3Mm, 1)} <span class="tiny">(표준 2.0 cm)</span></dd>` : ''}
       </dl>${meas.status !== '측정 가능' && meas.notes.length ? `<ul class="list tiny">${meas.notes.map(n => `<li>${esc(n)}</li>`).join('')}</ul>` : ''}
       <p class="tiny">빨간 십자가 실제 검출된 스티커 중심, 노란 선이 P1–P3 기준선, 하늘색 점선이 P2에서 기준선까지의 수직거리입니다. 표시된 P1·P2·P3 위치가 실제 스티커와 다르면 다시 촬영하세요.</p></div>` : ''}
       ${det.ok ? '<button class="btn primary block big" id="use">이 사진 사용</button>' : ''}
@@ -344,9 +344,9 @@ async function finalizeExam(ex, log) {
   log(`픽셀 거리: 전 ${px(ex.pre.measure.heightPx)}, 후 ${px(ex.post.measure.heightPx)}`);
   const model = await activeModel();
   const cmp = C.comparePrePost(ex.pre.measure, ex.post.measure, convSettings(), model ? Object.assign({ version: model.version }, model.params) : null);
-  log(`mm 환산 및 전·후 촬영 조건 비교: ${statusBadge(cmp.status)}`);
+  log(`길이 환산 및 전·후 촬영 조건 비교: ${statusBadge(cmp.status)}`);
   const category = cmp.status === '측정 가능' ? C.classify(cmp.changeMm) : null;
-  log(category ? `연구 기준 분류: ${catBadge(category)}` : '연구 기준 분류: mm 값이 없어 분류하지 않음');
+  log(category ? `연구 기준 분류: ${catBadge(category)}` : '연구 기준 분류: 길이 값이 없어 분류하지 않음');
   const sdPenalty = cmp.scaleDiff != null ? 1 - Math.min(1, cmp.scaleDiff / 0.05) * 0.3 : 1;
   // 측정 정밀도(반복 오차): 연속 촬영 프레임끼리의 흔들림으로 하강량의 표준오차(mm)를 계산 — 실제로 잰 값
   const seOf = x => (x && x.quality && x.quality.burst && isFinite(x.quality.burst.seHeightPx)) ? x.quality.burst.seHeightPx : null;
@@ -400,7 +400,7 @@ route('/result/:id', '측정 결과', async (v, p) => {
   const valOrPx = (m) => m.heightMm != null ? mm(m.heightMm) : px(m.heightPx);
   const preV = c.preMm != null ? mm(c.preMm) : valOrPx(e.pre.measure), postV = c.postMm != null ? mm(c.postMm) : valOrPx(e.post.measure);
   const explain = cat ? `체중부하 전·후 P2(발배뼈 부위)와 P1–P3 기준선 사이 거리가 ${mm(c.changeMm)} 변했습니다. 본 연구에서 설정한 기준(${cat.range})에 따라 “${cat.label}”으로 분류됩니다. 이 기준은 본 연구의 분류 기준이며 모든 임상 환경에서 검증된 진단 기준이 아닙니다.`
-    : c.status === '보정 필요' ? `mm 환산 조건이 충족되지 않아 mm 값과 분류를 표시하지 않습니다. 픽셀 변화량(${px(c.changePx)})은 기록되었으며, 카메라 거리·해상도에 따라 달라지므로 다른 검사와 비교할 수 없습니다.`
+    : c.status === '보정 필요' ? `길이 환산 조건이 충족되지 않아 길이 값과 분류를 표시하지 않습니다. 픽셀 변화량(${px(c.changePx)})은 기록되었으며, 카메라 거리·해상도에 따라 달라지므로 다른 검사와 비교할 수 없습니다.`
     : '측정을 완료하지 못했습니다. 아래 원인을 확인하고 다시 검사해 주세요.';
   const ang = c.archAngle, fl = c.floor, deg = x => x == null ? '—' : x.toFixed(1) + '°';
   const metric = (icon, label, sub, val) => `<div class="metric"><span class="mi">${icon}</span><span class="lab">${label}${sub ? `<small>${sub}</small>` : ''}</span><span class="val">${val}</span></div>`;
@@ -424,7 +424,7 @@ route('/result/:id', '측정 결과', async (v, p) => {
       ${metric(ICON.height, '발배뼈 높이(바닥 기준)', '앉음 → 섬 · 표준 NDT 방식', fl ? `${mm(fl.preMm)} → ${mm(fl.postMm)}` : '<span class="tiny">바닥선 미확인</span>')}
       ${fl ? metric(ICON.drop, '바닥 기준 하강', '', mm(fl.dropMm)) : ''}
       ${metric(ICON.angle, '스티커 아치 각도', 'P3–P2–P1 · 앉음 → 섬', ang ? `${deg(ang.pre)} → ${deg(ang.post)}` : '—')}
-      ${e.aiCorrection ? metric(ICON.chart, 'AI 보정 (임상 NDT 추정)', `모델 v${e.aiCorrection.version} · 예상 오차 ±${(e.aiCorrection.piMm || 0).toFixed(1)} mm${e.aiCorrection.category ? ' · ' + e.aiCorrection.category.label : ''}`, mm(e.aiCorrection.mm)) : ''}
+      ${e.aiCorrection ? metric(ICON.chart, 'AI 보정 (임상 NDT 추정)', `모델 v${e.aiCorrection.version} · 예상 오차 ±${cmTxt(e.aiCorrection.piMm || 0)}${e.aiCorrection.category ? ' · ' + e.aiCorrection.category.label : ''}`, mm(e.aiCorrection.mm)) : ''}
       ${metric(ICON.check, '측정 신뢰도', '검출·선명도 기반 휴리스틱', pct(e.measurementConfidence))}
     </div>
     <button class="btn primary block big" id="detailBtn">상세 리포트 보기</button>
@@ -435,8 +435,8 @@ route('/result/:id', '측정 결과', async (v, p) => {
       <dt>이미지 품질</dt><dd>${e.pre.quality.sharp && e.post.quality.sharp ? '양호' : '흐림 있음'} (경계 ${e.pre.quality.edgeWidthPx?.toFixed(1)} / ${e.post.quality.edgeWidthPx?.toFixed(1)} px)</dd>
       <dt>스티커 검출 신뢰도</dt><dd>${pct(e.pre.detectionConfidence)} / ${pct(e.post.detectionConfidence)}</dd>
       <dt>측정 신뢰도(휴리스틱)</dt><dd>${pct(e.measurementConfidence)}</dd>
-      <dt>측정 해상도</dt><dd>${c.mmPerPx ? `1픽셀 = ${c.mmPerPx.toFixed(3)} mm <span class="tiny">(스티커 지름 ${(convSettings().stickerDiameterMm / c.mmPerPx).toFixed(0)} px · 가장자리 0.01픽셀 단위 추정)</span>` : '—'}</dd>
-      <dt>측정 정밀도(반복 오차)</dt><dd>${c.precisionMm != null ? '± ' + c.precisionMm.toFixed(2) + ' mm' + (c.frames ? ` <span class="tiny">(연속 사진 ${c.frames[0]}·${c.frames[1]}장 평균)</span>` : '') : '—'}</dd>
+      <dt>측정 해상도</dt><dd>${c.mmPerPx ? `1픽셀 = ${(c.mmPerPx / 10).toFixed(4)} cm <span class="tiny">(스티커 지름 ${(convSettings().stickerDiameterMm / c.mmPerPx).toFixed(0)} px · 가장자리 0.01픽셀 단위 추정)</span>` : '—'}</dd>
+      <dt>측정 정밀도(반복 오차)</dt><dd>${c.precisionMm != null ? '± ' + (c.precisionMm / 10).toFixed(3) + ' cm' + (c.frames ? ` <span class="tiny">(연속 사진 ${c.frames[0]}·${c.frames[1]}장 평균)</span>` : '') : '—'}</dd>
       <dt>전·후 축척 차이</dt><dd>${c.scaleDiff != null ? (c.scaleDiff * 100).toFixed(1) + '%' : '—'}</dd>
       <dt>촬영 방식</dt><dd>${modeLabel(e.pre.mode)} / ${modeLabel(e.post.mode)}</dd>
       ${e.loadRecognition ? `<dt>체중부하 인지</dt><dd>${loadRecText(e.loadRecognition)}</dd>` : ''}
@@ -551,7 +551,7 @@ route('/history', '검사 이력', async (v, p) => {
   v.innerHTML = `<h2>검사 이력</h2>
     <div class="seg" id="fseg">${[['all', '전체'], ['left', '왼발'], ['right', '오른발']].map(([k, l]) => `<button data-v="${k}" class="${f === k ? 'on' : ''}">${l}</button>`).join('')}</div>
     <div class="card"><b>발 아치 높이 변화량 추이 (mm)</b>
-      ${valid.length ? `<div class="legend"><span><i style="background:var(--series-1)"></i>왼발</span><span><i style="background:var(--series-2)"></i>오른발</span></div><canvas class="chart" id="ch" aria-label="변화량 그래프"></canvas><p class="tiny">mm 환산이 유효한 검사만 표시합니다. 점선은 연구 분류 경계(5·10·15mm)입니다.</p>`
+      ${valid.length ? `<div class="legend"><span><i style="background:var(--series-1)"></i>왼발</span><span><i style="background:var(--series-2)"></i>오른발</span></div><canvas class="chart" id="ch" aria-label="변화량 그래프"></canvas><p class="tiny">길이 환산이 유효한 검사만 표시합니다. 점선은 연구 분류 경계(5·10·15mm)입니다.</p>`
       : '<p class="muted small">mm 값이 확보된 검사가 아직 없어 그래프를 그릴 수 없습니다.</p>'}</div>
     <div class="card"><b>좌우 발 비교(가장 최근 유효 결과)</b>
       <div class="grid2" style="margin-top:8px">${[['left', L], ['right', R]].map(([ft, e]) => `<div><div class="tiny">${FOOT[ft]}</div>${e ? `<div style="font-size:22px;font-weight:800">${mm(e.comparison.changeMm)}</div>${catBadge(e.category)}<div class="tiny">${fmtDate(e.createdAt, false)}</div>` : '<div class="muted small">유효 결과 없음</div>'}</div>`).join('')}</div>
@@ -561,8 +561,8 @@ route('/history', '검사 이력', async (v, p) => {
     <div class="card">${list.length ? list.map(e => `<a class="list-item" href="#/result/${e.id}"><span class="badge b-info">${FOOT[e.foot]}</span><span class="grow small">${fmtDate(e.createdAt)}<br>${e.comparison.changeMm != null ? '<b>' + mm(e.comparison.changeMm) + '</b> ' + catBadge(e.category) : statusBadge(e.comparison.status)}</span>›</a>`).join('') : '<p class="muted">검사 기록이 없습니다.</p>'}</div>`;
   $$('#fseg button', v).forEach(b => b.onclick = () => go('#/history?foot=' + b.dataset.v));
   if (valid.length) {
-    const ser = ['left', 'right'].filter(ft => f === 'all' || f === ft).map(ft => ({ name: FOOT[ft], color: ft === 'left' ? '#2a78d6' : '#eb6834', points: valid.filter(e => e.foot === ft).map(e => ({ x: e.createdAt, y: C.roundMm(e.comparison.changeMm), label: `${fmtDate(e.createdAt)} ${mm(e.comparison.changeMm)}` })) })).filter(s => s.points.length);
-    if (ser.length) lineChart($('#ch', v), ser, { yMin: 0, bands: [{ y: 5, label: '5' }, { y: 10, label: '10' }, { y: 15, label: '15' }] });
+    const ser = ['left', 'right'].filter(ft => f === 'all' || f === ft).map(ft => ({ name: FOOT[ft], color: ft === 'left' ? '#2a78d6' : '#eb6834', points: valid.filter(e => e.foot === ft).map(e => ({ x: e.createdAt, y: C.roundMm(e.comparison.changeMm) / 10, label: `${fmtDate(e.createdAt)} ${mm(e.comparison.changeMm)}` })) })).filter(s => s.points.length);
+    if (ser.length) lineChart($('#ch', v), ser, { yMin: 0, bands: CLASS_BANDS() });
   }
 });
 
@@ -610,7 +610,7 @@ route('/settings', '설정 및 개인정보', async (v) => {
       <p class="tiny">이름·연락처 등 실명 정보를 넣지 마세요. 영문·숫자·-·_ 만 사용할 수 있습니다.</p>
       <label class="f" for="dia">스티커 실제 지름 (mm)</label>
       <input id="dia" type="number" inputmode="decimal" step="0.1" min="3" max="40" value="${esc(String(S.settings.stickerDiameterMm || 19))}">
-      <p class="tiny">mm 값은 이 지름을 기준으로 계산합니다. 자로 잰 실제 지름을 넣으세요(지금 쓰는 스티커: 19 mm).</p>
+      <p class="tiny">길이 값은 이 지름을 기준으로 계산합니다. 자로 잰 실제 지름을 넣으세요(지금 쓰는 스티커: 19 mm).</p>
       <label class="chk"><input type="checkbox" id="photos" ${S.settings.savePhotos ? 'checked' : ''}><span class="small"><b>촬영 사진을 이 기기에 저장</b><br>끄면 사진은 분석 직후 버려지고 스티커 좌표·측정값만 저장됩니다. 연구자 검토(이미지 참조)를 위해서는 켜야 합니다.</span></label>
       <button class="btn primary block" id="saveS">저장</button></div>
     <div class="card"><b>데이터 보관 방식</b>
@@ -618,7 +618,7 @@ route('/settings', '설정 및 개인정보', async (v) => {
       ${est ? `<p class="tiny">사용 중 ${(est.usage / 1048576).toFixed(1)}MB / 허용 ${(est.quota / 1048576).toFixed(0)}MB</p>` : ''}
       <button class="btn block" id="exp">내 데이터 내보내기(JSON)</button>
       <button class="btn danger block" id="wipe">내 검사·운동 기록 모두 삭제</button></div>
-    <div class="card small"><dl class="kv"><dt>앱 버전</dt><dd>${APP_VERSION}</dd><dt>측정 알고리즘</dt><dd>${C.ALGORITHM_VERSION}</dd><dt>스티커 지름 설정</dt><dd>${S.settings.stickerDiameterMm ? S.settings.stickerDiameterMm + ' mm' : '미설정'}</dd><dt>mm 환산</dt><dd>${esc(convBasisText())}</dd></dl></div>
+    <div class="card small"><dl class="kv"><dt>앱 버전</dt><dd>${APP_VERSION}</dd><dt>측정 알고리즘</dt><dd>${C.ALGORITHM_VERSION}</dd><dt>스티커 지름 설정</dt><dd>${S.settings.stickerDiameterMm ? S.settings.stickerDiameterMm + ' mm' : '미설정'}</dd><dt>길이 환산</dt><dd>${esc(convBasisText())}</dd></dl></div>
     <a class="btn ghost block" href="#/r/home">기기 내 연구 도구(오프라인)</a>
     <p class="tiny" style="text-align:center">관리자 화면은 사용자 앱과 분리되어 있습니다: 앱 주소 뒤에 <b>/admin/</b></p>`;
   bindAccountCard(v);
@@ -644,10 +644,10 @@ function careHtml(pc, e) {
   const F = pc.feet[e ? e.foot : pc.plan.focusFoot] || pc.feet.left || pc.feet.right, pl = pc.plan;
   if (!F) return '';
   const s = e ? F.series.find(x => x.id === e.id) : F.series[F.series.length - 1];
-  const sign = x => (x >= 0 ? '+' : '−') + Math.abs(x).toFixed(1) + ' mm';
+  const sign = x => (x >= 0 ? '+' : '−') + (Math.abs(x) / 10).toFixed(2) + ' cm';
   const ACT = { consult: '🩺', exercise: '🏃', adherence: '📅', asym: '⚖️', retake: '📸', reference: '🏥' };
   const rows = [];
-  rows.push(['개인 맞춤 추정', `<b>${mm(F.estimateMm)}</b> <span class="tiny">± ${F.ciMm.toFixed(1)} mm (95%)</span>`]);
+  rows.push(['개인 맞춤 추정', `<b>${mm(F.estimateMm)}</b> <span class="tiny">± ${cmTxt(F.ciMm)} (95%)</span>`]);
   if (s) rows.push(['이번 측정 반영', s.ref ? '실제 잰 값 사용' : `${Math.round(s.w * 100)}%${s.outlier ? ' · <span class="badge b-warn">평소와 다름</span>' : ''}`]);
   if (pc.nRefs) {
     rows.push(['내 오차 보정', `${sign(pc.biasMm)} <span class="tiny">(실측 ${pc.nRefs}회 학습)</span>`]);
@@ -656,10 +656,10 @@ function careHtml(pc, e) {
   }
   if (e && pc.nRefs && !e.reference) rows.unshift(['이번 측정 AI 보정값', `<b>${mm(pc.personalMm(e))}</b> <span class="tiny">(앱 ${mm(e.comparison.changeMm)} → 내 실측 습관으로 보정)</span>`]);
   if (e && e.reference) rows.unshift(['실제 잰 값', `<b>${mm(e.reference.ndtMm)}</b> <span class="tiny">(앱 ${mm(e.comparison.changeMm)} · 차이 ${sign(e.reference.ndtMm - e.comparison.changeMm)})</span>`]);
-  rows.push(['내 측정 흔들림', `± ${pc.sdMm.toFixed(1)} mm <span class="tiny">${pc.nPairs ? `(반복 ${pc.nPairs}쌍 학습)` : '(기본값 · 3일 안에 한 번 더 재면 학습)'}</span>`]);
-  if (F.changeSincePrevMm != null) rows.push(['지난번보다', `${sign(F.changeSincePrevMm)} <span class="tiny">${F.realChange ? '실제 변화로 보입니다' : `측정 흔들림 범위(±${pc.mdcMm.toFixed(1)} mm) 안`}</span>`]);
+  rows.push(['내 측정 흔들림', `± ${cmTxt(pc.sdMm)} <span class="tiny">${pc.nPairs ? `(반복 ${pc.nPairs}쌍 학습)` : '(기본값 · 3일 안에 한 번 더 재면 학습)'}</span>`]);
+  if (F.changeSincePrevMm != null) rows.push(['지난번보다', `${sign(F.changeSincePrevMm)} <span class="tiny">${F.realChange ? '실제 변화로 보입니다' : `측정 흔들림 범위(±${cmTxt(pc.mdcMm)}) 안`}</span>`]);
   if (F.slopePer30 != null) rows.push(['한 달 추세', `${sign(F.slopePer30)} / 30일`]);
-  if (pc.asymMm != null) rows.push(['좌우 차이', `${pc.asymMm.toFixed(1)} mm${pc.asymReal ? ' · 차이 있음' : ''}`]);
+  if (pc.asymMm != null) rows.push(['좌우 차이', `${cmTxt(pc.asymMm)}${pc.asymReal ? ' · 차이 있음' : ''}`]);
   return `<div class="card care-card">
     <div class="row"><span class="badge b-info">AI 1:1 맞춤 케어</span><span class="grow"></span><span class="tiny">내 기록 ${pc.learnedFrom}회 학습</span></div>
     <h3 style="margin:10px 0 4px">${esc(pl.headline)}</h3>
@@ -703,7 +703,7 @@ function refModal(cur) {
     let unit = unit0;
     const toMm = v => v === '' || v == null ? null : num(v) * (unit === 'cm' ? 10 : 1);
     const read = () => ({ pre: toMm($('#rPre', bg).value), post: toMm($('#rPost', bg).value), nd: toMm($('#rNdt', bg).value) });
-    const prev = () => { const { pre, post, nd } = read(); $('#rPrev', bg).textContent = pre != null && post != null ? `= 앉음 ${pre.toFixed(1)} mm · 섬 ${post.toFixed(1)} mm · 하강 ${(pre - post).toFixed(1)} mm` : nd != null ? `= 하강 ${nd.toFixed(1)} mm` : ''; };
+    const prev = () => { const { pre, post, nd } = read(); $('#rPrev', bg).textContent = pre != null && post != null ? `= 앉음 ${cmTxt(pre)} · 섬 ${cmTxt(post)} · 하강 ${cmTxt(pre - post)}` : nd != null ? `= 하강 ${nd.toFixed(1)} mm` : ''; };
     $$('#ru button', bg).forEach(bt => bt.onclick = () => { unit = bt.dataset.u; $$('#ru button', bg).forEach(x => x.classList.toggle('on', x === bt)); prev(); });
     ['#rPre', '#rPost', '#rNdt'].forEach(id => $(id, bg).oninput = prev); prev();
     bg.addEventListener('click', ev => {
@@ -715,7 +715,7 @@ function refModal(cur) {
           if (post > pre + 3) return toast('선 자세 높이가 앉은 자세보다 많이 높습니다. 두 값을 바꿔 넣었는지 확인해 주세요.', true);
           close(); return res({ ndtMm: Math.max(0, pre - post), preMm: pre, postMm: post, unit });
         }
-        if (!(nd >= 0 && nd <= 30)) return toast('값을 넣어 주세요(하강량 0~30 mm).', true);
+        if (!(nd >= 0 && nd <= 30)) return toast('값을 넣어 주세요(하강량 0~3 cm).', true);
         close(); return res({ ndtMm: nd, unit });
       }
       close(); res(a === 'del' ? null : undefined);

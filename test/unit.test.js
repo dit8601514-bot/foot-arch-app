@@ -9,9 +9,10 @@ function near(a, b, tol, m) { if (!(Math.abs(a - b) <= tol)) throw new Error(`${
 function ok(c, m) { if (!c) throw new Error(m || 'assert'); }
 
 // 1. 연구 분류 기준 (필수)
-const must = [[4.8, '정상 범위'], [5.4, '경증 평발 의심'], [9.8, '경증 평발 의심'], [10.0, '중등도 평발 의심'], [14.9, '중등도 평발 의심'], [15.0, '중증 평발 의심']];
+// 연구자 지정 기준(cm): 정상 ≤0.20 · 경증 0.20~0.40 · 중등도 0.40~0.60 · 중증 ≥0.60
+const must = [[1.8, '정상 범위'], [2.4, '경증 평발 의심'], [3.8, '경증 평발 의심'], [4.0, '중등도 평발 의심'], [5.9, '중등도 평발 의심'], [6.0, '중증 평발 의심'], [7.0, '중증 평발 의심']];
 for (const [v, l] of must) t(`분류 ${v}mm → ${l}`, () => eq(C.classify(v).label, l));
-const extra = [[0, '정상 범위'], [5.0, '정상 범위'], [5.04, '정상 범위'], [5.05, '경증 평발 의심'], [9.94, '경증 평발 의심'], [9.95, '중등도 평발 의심'], [14.95, '중증 평발 의심'], [30, '중증 평발 의심']];
+const extra = [[0, '정상 범위'], [2.0, '정상 범위'], [2.04, '정상 범위'], [2.05, '경증 평발 의심'], [3.94, '경증 평발 의심'], [3.95, '중등도 평발 의심'], [5.95, '중증 평발 의심'], [30, '중증 평발 의심']];
 for (const [v, l] of extra) t(`경계 ${v}mm → ${l} (표시값 반올림 후 분류)`, () => eq(C.classify(v).label, l));
 t('음수/NaN 분류 거부', () => { eq(C.classify(-1), null); eq(C.classify(NaN), null); });
 
@@ -102,9 +103,9 @@ t('mm 환산: 스티커 크기 불균일(원근) → 보정 필요', () => {
   const sc = footScene(W, H, 60); const st = sc.stickers.map((s, i) => ({ x: s.x, y: s.y, r: [12, 14, 16][i] }));
   const det = C.detectStickers(makeImage(W, H, { stickers: st })); eq(C.measureImage(det, conv).status, '보정 필요');
 });
-t('전·후 비교: 84px→56px = 10.0mm, 중등도', () => {
+t('전·후 비교: 84px→56px = 10.0mm(1.00 cm), 중증', () => {
   const pre = measured(84, 14), post = measured(56, 14); const r = C.comparePrePost(pre, post, conv);
-  eq(r.status, '측정 가능'); near(r.changeMm, 10, 0.3); ok(['중등도 평발 의심', '경증 평발 의심'].includes(C.classify(r.changeMm).label));
+  eq(r.status, '측정 가능'); near(r.changeMm, 10, 0.3); ok(['중증 평발 의심'].includes(C.classify(r.changeMm).label));
 });
 t('전·후 비교: 촬영 거리 변화(축척 14%) → 재촬영', () => {
   const pre = measured(84, 14), post = measured(64, 16); eq(C.comparePrePost(pre, post, conv).status, '재촬영 필요');
@@ -367,7 +368,7 @@ t('아치 각도: 직각 배치 = 90°, 일직선 = 180°', () => { near(C.archA
     ok(good > 0.8 && bad < 0.4, good.toFixed(2) + ' / ' + bad.toFixed(2));
   });
   t('맞춤 케어: 분류·통증에 따라 관리 계획(운동 강도·다음 검사일)이 달라짐', () => {
-    const n = C.personalCare([mk(0, 'left', 3)]).plan, m = C.personalCare([mk(0, 'left', 12)]).plan, p = C.personalCare([mk(0, 'left', 7)], { selfReport: { pain: true } }).plan;
+    const n = C.personalCare([mk(0, 'left', 1.5)]).plan, m = C.personalCare([mk(0, 'left', 7)]).plan, p = C.personalCare([mk(0, 'left', 3)], { selfReport: { pain: true } }).plan;
     ok(n.level === 'keep' && n.nextTestDays === 28, n.level); ok(m.level === 'intense' && m.nextTestDays === 7 && m.actions.some(a => a.kind === 'consult'), m.level); ok(p.level === 'consult', p.level);
   });
   t('맞춤 케어: 실측 전·후 높이로 자세별 오차를 배워 다음 측정을 보정(사용자 실제 사례)', () => {

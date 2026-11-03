@@ -1,7 +1,7 @@
 'use strict';
 /* ═════════════ 기본: 저장소 · 상태 · 유틸 · 라우터 ═════════════ */
 const C = window.FootCore;
-const APP_VERSION = '2.11.1';
+const APP_VERSION = '2.12.0';
 const STORES = ['settings', 'exams', 'exercises', 'logs', 'errors', 'models', 'blobs', 'validations'];
 
 const DB = (() => {
@@ -71,7 +71,7 @@ async function loadSettings() {
   if (!S.settings.seeded) await seedContent();
 }
 async function saveSettings() { return save('settings', S.settings); }
-// 지난 결과를 새 스티커 지름으로 다시 계산(픽셀 측정값은 그대로, mm 환산만 다시)
+// 지난 결과를 새 스티커 지름으로 다시 계산(픽셀 측정값은 그대로, 길이 환산만 다시)
 async function rescaleExams(fromMm, toMm) {
   let n = 0;
   for (const e of await DB.all('exams')) {
@@ -102,7 +102,10 @@ function $(sel, root) { return (root || document).querySelector(sel); }
 function $$(sel, root) { return [...(root || document).querySelectorAll(sel)]; }
 function fmtDate(ts, withTime) { const d = new Date(ts); const p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}.${p(d.getMonth() + 1)}.${p(d.getDate())}` + (withTime === false ? '' : ` ${p(d.getHours())}:${p(d.getMinutes())}`); }
 // mm 표시: 0.01 mm 단위(연구 분류는 기존대로 0.1 mm 반올림 값으로 판정)
-function mm(v, d) { if (v == null || !isFinite(v)) return '—'; const k = d == null ? 2 : d, f = 10 ** k; return (Math.round((v + (v >= 0 ? 1e-9 : -1e-9)) * f) / f).toFixed(k) + ' mm'; }
+// 길이 표시: 내부 계산은 mm, 화면은 cm(소수 둘째 자리 = 0.1 mm 단위). d = cm 소수 자릿수
+function mm(v, d) { if (v == null || !isFinite(v)) return '—'; const k = d == null ? 2 : d, f = 10 ** k, c = v / 10; return (Math.round((c + (c >= 0 ? 1e-9 : -1e-9)) * f) / f).toFixed(k) + ' cm'; }
+const cmTxt = (v, d) => (v / 10).toFixed(d == null ? 2 : d) + ' cm';
+const CLASS_BANDS = () => [['normal', C.CLASS_MM.normal], ['mild', C.CLASS_MM.mild], ['moderate', C.CLASS_MM.moderate]].map(([, y]) => ({ y: y / 10, label: (y / 10).toFixed(1) }));
 function px(v) { return v == null || !isFinite(v) ? '—' : v.toFixed(1) + ' px'; }
 function pct(v) { return v == null || !isFinite(v) ? '—' : Math.round(v * 100) + '%'; }
 const FOOT = { left: '왼발', right: '오른발' };

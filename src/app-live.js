@@ -248,7 +248,7 @@ function drawTrackHud(g, det, smooth, k, hud) {
     g.strokeStyle = 'rgba(255,216,77,.95)'; g.lineWidth = 2; g.beginPath(); g.moveTo(a1, b1); g.lineTo(a3, b3); g.stroke();
     const t = C.projectionT(P.P2, P.P1, P.P3), fx = P.P1.x + (P.P3.x - P.P1.x) * t, fy = P.P1.y + (P.P3.y - P.P1.y) * t, [ff, fg] = T({ x: fx, y: fy });
     g.strokeStyle = 'rgba(0,229,255,.95)'; g.setLineDash([5, 4]); g.lineWidth = 1.6; g.beginPath(); g.moveTo(a2, b2); g.lineTo(ff, fg); g.stroke(); g.setLineDash([]);
-    if (hud.heightMm != null) chip(g, (a2 + ff) / 2 + 8, (b2 + fg) / 2 - 10, `P2 ${hud.heightMm.toFixed(1)} mm`, 'rgba(0,150,190,.9)', '#fff');
+    if (hud.heightMm != null) chip(g, (a2 + ff) / 2 + 8, (b2 + fg) / 2 - 10, `P2 ${(hud.heightMm / 10).toFixed(2)} cm`, 'rgba(0,150,190,.9)', '#fff');
     const NAME = { P1: 'P1 엄지 뿌리', P2: 'P2 발배뼈', P3: 'P3 뒤꿈치' };
     for (const [n, x, y] of [['P1', a1, b1], ['P2', a2, b2], ['P3', a3, b3]]) {
       // 잠금 조준선: 원 + 네 방향 눈금, 잠기면 초록
