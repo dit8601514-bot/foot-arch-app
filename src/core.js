@@ -950,6 +950,119 @@
       placeErr: pl && pl.length ? mean(pl.map(x => Math.abs(x.mm - 20))) : null
     };
   }
+  // ───────────────────────── AI 1:1 맞춤 케어(개인 학습) ─────────────────────────
+  /**
+   * 한 사람의 검사 기록만으로 '그 사람에게 맞춘' 오차 보정·추적·관리 계획을 만든다.
+   *  ① 측정 품질 가중치: 스티커 검출·선명도·전후 축척 차이·체중부하 인지·각도로 이번 측정을 얼마나 믿을지 정한다
+   *  ② 개인 반복 오차(σ): 같은 발을 가까운 날 다시 잰 값의 차이로 이 사람·이 환경의 측정 흔들림을 학습(사전값과 베이즈 혼합)
+   *  ③ 개인 보정(편향): 병원·전문가가 잰 NDT 값을 입력하면 앱 값과의 차이를 학습해 수축 추정(적을수록 조심스럽게)
+   *  ④ 시간 추적(칼만 평활): 측정마다 흔들려도 '지금 실제 상태'를 오차 범위와 함께 추정
+   *  ⑤ 이상 측정 감지: 평소 상태와 통계적으로 너무 다르면 원인을 짚고 다시 찍기를 권함
+   *  ⑥ 최소 의미 변화(MDC95)로 '진짜 변화'와 '측정 흔들림'을 구분, 추세(Theil–Sen)·좌우 차이
+   *  ⑦ 위 결과와 자가 확인·운동 기록으로 개인 관리 계획(운동·횟수·다음 검사일)을 만든다
+   * exams: 같은 사람의 검사 기록 전체, logs: 운동 기록. 반환: { feet: {left, right}, plan, ... }
+   */
+  const CARE = { priorSd: 1.4, priorN: 4, refSd: 1.0, refTau: 2.5, qDay: 0.04, outlierZ: 2.6, pairDays: 3 };
+  function measurementWeight(e) {
+    const c = e.comparison || {}, conf = isFinite(e.measurementConfidence) ? e.measurementConfidence : 0.6;
+    let w = 0.35 + 0.65 * clamp01((conf - 0.4) / 0.5);
+    const sharp = e.pre && e.post && e.pre.quality && e.post.quality ? (e.pre.quality.sharp && e.post.quality.sharp) : true;
+    if (!sharp) w *= 0.6;
+    if (isFinite(c.scaleDiff)) w *= 1 - 0.5 * clamp01(c.scaleDiff / 0.05);
+    const lr = e.loadRecognition; if (lr && lr.confirmed === false) w *= 0.8;
+    const tilt = e.pre && e.pre.measure && Math.abs(e.pre.measure.axisAngleDeg || 0); if (tilt > 12) w *= 0.8;
+    return clamp01(Math.max(0.1, w));
+  }
+  function measurementIssues(e) {
+    const c = e.comparison || {}, out = [];
+    if (e.measurementConfidence < 0.6) out.push('스티커 검출 신뢰도가 낮았습니다');
+    if (e.pre && e.post && e.pre.quality && e.post.quality && !(e.pre.quality.sharp && e.post.quality.sharp)) out.push('사진이 흐렸습니다(조명을 밝게)');
+    if (isFinite(c.scaleDiff) && c.scaleDiff > 0.025) out.push('앉은 자세와 선 자세 사이에 휴대폰이 조금 움직였습니다');
+    if (e.loadRecognition && e.loadRecognition.confirmed === false) out.push('선 자세에서 체중이 충분히 실리지 않았을 수 있습니다');
+    const tilt = e.pre && e.pre.measure && Math.abs(e.pre.measure.axisAngleDeg || 0); if (tilt > 12) out.push('휴대폰이 기울어져 있었습니다');
+    return out;
+  }
+  function theilSen(pts) {
+    const sl = []; for (let i = 0; i < pts.length; i++) for (let j = i + 1; j < pts.length; j++) if (pts[j].t !== pts[i].t) sl.push((pts[j].y - pts[i].y) / (pts[j].t - pts[i].t));
+    return sl.length ? median(sl) : 0;
+  }
+  function personalCare(exams, opts) {
+    opts = opts || {}; const DAY = 86400000, logs = opts.logs || [], now = opts.now || Date.now();
+    const valid = (exams || []).filter(e => !e.isTest && e.comparison && isFinite(e.comparison.changeMm)).sort((a, b) => a.createdAt - b.createdAt);
+    // 앱 측정값(전역 AI 보정이 있으면 그 값) — 개인 학습의 출발점
+    const base = e => (e.aiCorrection && isFinite(e.aiCorrection.mm) ? Math.max(0, e.aiCorrection.mm) : e.comparison.changeMm);
+    // ③ 개인 보정: 전문가 측정값이 있는 검사들의 잔차를 수축 평균(두 발 공통 — 같은 사람·같은 부착 습관)
+    const refs = valid.filter(e => e.reference && isFinite(e.reference.ndtMm));
+    const res = refs.map(e => e.reference.ndtMm - base(e));
+    const kShr = (CARE.refSd * CARE.refSd) / (CARE.refTau * CARE.refTau);
+    const bias = res.length ? res.reduce((x, y) => x + y, 0) / (res.length + kShr) : 0;
+    const biasSe = res.length ? Math.sqrt(CARE.refSd * CARE.refSd / (res.length + kShr)) : null;
+    // ② 개인 반복 오차: 같은 발, pairDays 안의 연속 측정 차이(품질 가중)
+    const diffs = [];
+    for (const f of ['left', 'right']) { const a = valid.filter(e => e.foot === f); for (let i = 1; i < a.length; i++) if (a[i].createdAt - a[i - 1].createdAt <= CARE.pairDays * DAY) diffs.push(base(a[i]) - base(a[i - 1])); }
+    // 이상치에 강하게: 차이의 중앙 절대값(MAD)으로 σ 추정(한 번 크게 틀린 측정이 '흔들림'을 부풀리지 않게)
+    const nPair = diffs.length, sdObs = nPair ? Math.max(0.15, 1.4826 * median(diffs.map(Math.abs)) / Math.SQRT2) : null;
+    const sd = Math.sqrt(((sdObs != null ? nPair * sdObs * sdObs : 0) + CARE.priorN * CARE.priorSd * CARE.priorSd) / (nPair + CARE.priorN));
+    const mdc = 1.96 * Math.SQRT2 * sd;
+    const feet = {};
+    for (const f of ['left', 'right']) {
+      const a = valid.filter(e => e.foot === f); if (!a.length) { feet[f] = null; continue; }
+      // ④ 칼만 평활(국소 수준 모형): 상태 = 실제 하강량, 측정 분산 = σ²/가중치
+      let x = null, P = null, tPrev = null; const series = [];
+      for (const e of a) {
+        // 전문가 값이 있는 검사는 그 값을 정밀 측정으로 쓴다(그날의 '정답')
+        const hasRef = e.reference && isFinite(e.reference.ndtMm), y = hasRef ? e.reference.ndtMm : base(e) + bias, w = hasRef ? 1 : measurementWeight(e), R = hasRef ? CARE.refSd * CARE.refSd : sd * sd / w;
+        if (x == null) { x = y; P = R + (biasSe ? biasSe * biasSe : 0); }
+        else {
+          const dt = Math.max(0, (e.createdAt - tPrev) / DAY), Pp = P + CARE.qDay * dt * dt + 0.02;
+          const z = (y - x) / Math.sqrt(Pp + R), out = !hasRef && Math.abs(z) > CARE.outlierZ && series.length >= 2;
+          // ⑤ 이상 측정: 칼만 갱신 가중을 크게 낮춤(완전히 버리지는 않음)
+          const Re = out ? R * 9 : R, K = Pp / (Pp + Re);
+          x = x + K * (y - x); P = (1 - K) * Pp;
+          series.push({ id: e.id, t: e.createdAt, raw: base(e), y, w: out ? w / 9 : w, z, outlier: out, ref: !!hasRef, est: x, sdEst: Math.sqrt(P) });
+          tPrev = e.createdAt; continue;
+        }
+        series.push({ id: e.id, t: e.createdAt, raw: base(e), y, w, z: 0, outlier: false, ref: !!hasRef, est: x, sdEst: Math.sqrt(P) }); tPrev = e.createdAt;
+      }
+      const last = series[series.length - 1], first = series[0];
+      const ok = series.filter(s => !s.outlier), span = (last.t - first.t) / DAY;
+      const slope30 = ok.length >= 3 && span >= 14 ? theilSen(ok.map(s => ({ t: s.t / DAY, y: s.y }))) * 30 : null;
+      const ci = 1.96 * Math.sqrt(last.sdEst * last.sdEst + (biasSe ? biasSe * biasSe : 0));
+      const prev = series.length >= 2 ? series[series.length - 2] : null;
+      const change = prev ? last.est - prev.est : null;
+      feet[f] = { n: a.length, estimateMm: Math.max(0, last.est), ciMm: ci, lastRawMm: last.raw, lastPersonalMm: Math.max(0, last.y), lastWeight: last.w, lastOutlier: last.outlier, lastZ: last.z,
+        changeSincePrevMm: change, realChange: change != null && Math.abs(change) >= mdc * 0.7, slopePer30: slope30,
+        baselineMm: first.est, sinceBaselineMm: last.est - first.est, series, category: classify(Math.max(0, last.est)),
+        lastIssues: measurementIssues(a[a.length - 1]), lastExamId: a[a.length - 1].id };
+    }
+    const both = feet.left && feet.right, asym = both ? Math.abs(feet.left.estimateMm - feet.right.estimateMm) : null;
+    const plan = carePlan(feet, { asym, mdc, sd, logs, now, selfReport: opts.selfReport || {}, refs: refs.length });
+    return { feet, sdMm: sd, sdObsMm: sdObs, nPairs: nPair, mdcMm: mdc, biasMm: bias, biasSeMm: biasSe, nRefs: refs.length, asymMm: asym, asymReal: asym != null && asym >= mdc, learnedFrom: valid.length, plan };
+  }
+  // ⑦ 개인 관리 계획(규칙 기반 · 연구 기준 분류 + 개인 추세·자가 확인·운동 기록)
+  function carePlan(feet, o) {
+    const DAY = 86400000, list = ['left', 'right'].filter(f => feet[f]);
+    if (!list.length) return { level: 'start', headline: '첫 검사를 하면 AI가 나에게 맞춘 관리 계획을 만듭니다', actions: [], nextTestDays: null };
+    const worst = list.reduce((a, b) => (feet[b].estimateMm > feet[a].estimateMm ? b : a));
+    const W = feet[worst], est = W.estimateMm, cat = W.category && W.category.key;
+    const recent = (o.logs || []).filter(l => l.completed && o.now - l.date < 7 * DAY), days = new Set(recent.map(l => new Date(l.date).toDateString())).size;
+    const sr = o.selfReport || {}, actions = []; let level, headline, nextTestDays;
+    const worsening = W.slopePer30 != null && W.slopePer30 > 0.5 * o.mdc, improving = W.slopePer30 != null && W.slopePer30 < -0.5 * o.mdc;
+    if (sr.pain) { level = 'consult'; headline = '통증·붓기가 있어 전문가 상담을 먼저 권합니다'; nextTestDays = 14; actions.push({ kind: 'consult', text: '정형외과·재활의학과 등 전문가에게 발 상태를 확인받으세요. 통증이 있을 때는 운동 강도를 낮춥니다.' }); }
+    else if (cat === 'normal') { level = 'keep'; headline = improving ? '좋아지고 있어요 · 지금 관리를 유지하세요' : '정상 범위 · 아치를 지키는 가벼운 관리'; nextTestDays = 28; }
+    else if (cat === 'mild') { level = 'care'; headline = worsening ? '경증 · 최근 하강이 늘고 있어 관리를 강화합니다' : '경증 · 발바닥 근육을 깨우는 운동을 시작하세요'; nextTestDays = worsening ? 7 : 14; }
+    else { level = 'intense'; headline = `${cat === 'severe' ? '중증' : '중등도'} 범위 · 꾸준한 운동과 전문가 확인을 권합니다`; nextTestDays = 7; actions.push({ kind: 'consult', text: '하강량이 큰 편입니다. 이 앱의 결과는 진단이 아니므로 전문가 확인을 함께 받으세요.' }); }
+    const dose = { keep: '주 3회 · 1세트', care: '주 5회 · 2세트', intense: '매일 · 3세트', consult: '통증 없는 범위에서 주 3회' }[level];
+    const ex = level === 'keep' ? ['짧은 발 운동(Short Foot Exercise)'] : level === 'care' ? ['짧은 발 운동(Short Foot Exercise)', '수건 당기기(Towel Curl)'] : ['짧은 발 운동(Short Foot Exercise)', '수건 당기기(Towel Curl)', '발꿈치 들기(Heel Raise)'];
+    actions.push({ kind: 'exercise', text: `${ex.join(' · ')} — ${dose}`, exercises: ex });
+    if (level !== 'keep') actions.push({ kind: 'adherence', text: days >= 3 ? `지난 7일 중 ${days}일 운동했어요. 좋은 흐름입니다.` : `지난 7일 운동 ${days}일 — 하루 10분부터 다시 시작해 보세요.` });
+    if (o.asym != null && o.asym >= o.mdc) actions.push({ kind: 'asym', text: `좌우 차이 ${o.asym.toFixed(1)} mm — ${feet.left.estimateMm > feet.right.estimateMm ? '왼발' : '오른발'}에 운동을 한 세트 더 하세요.` });
+    if (W.lastOutlier) actions.push({ kind: 'retake', text: `이번 측정은 평소 상태와 많이 달라 다시 찍기를 권합니다${W.lastIssues.length ? ' (' + W.lastIssues.join(', ') + ')' : ''}.` });
+    if (!o.refs) actions.push({ kind: 'reference', text: '병원·전문가가 잰 발배뼈 하강 값이 있으면 입력해 주세요. AI가 내 측정 습관에 맞춰 오차를 보정합니다.' });
+    if (sr.restFlat) actions.push({ kind: 'consult', text: '앉아서도 아치가 거의 보이지 않으면 경직성 평발일 수 있어 전문가 확인이 필요합니다.' });
+    return { level, headline, actions, nextTestDays, nextTestAt: o.now + nextTestDays * DAY, focusFoot: worst, estimateMm: est };
+  }
+
   // 작은 선형계 풀이(가우스 소거, 부분 피벗)
   function solveLinear(A, b) {
     const n = b.length, M = A.map((r, i) => r.concat([b[i]]));
@@ -1444,6 +1557,6 @@
     rgbToHsv, detectStickers, labelLandmarks, signedDistanceToLine, distanceToLine, projectionT,
     measureImage, comparePrePost, classify, roundMm, errorMetrics,
     splitByParticipant, trainCalibration, applyCalibration, fitMethod, validateConversion,
-    motionBetween, framingCheck, laplacianVariance, archAngle, cropImage, detectInRoi, labelsConsistent, combineDetections, shapeDelta, AI_FEATURES, errorFeatures, trainErrorModel, applyErrorModel, fitRidge, createLandmarkKalman, chromaMap, ALIGN, alignmentCheck, LOAD, loadEvidence, shapeOf, FOOT_MODEL, GUIDE_LAYOUT, guideGeometry, guideCheck, fitFootModel, snapOutline, densify, segmentFoot, resampleClosed, detectSoleLine, heightAboveSole
+    motionBetween, framingCheck, laplacianVariance, archAngle, cropImage, detectInRoi, labelsConsistent, combineDetections, shapeDelta, AI_FEATURES, errorFeatures, trainErrorModel, applyErrorModel, fitRidge, createLandmarkKalman, chromaMap, ALIGN, alignmentCheck, LOAD, loadEvidence, shapeOf, FOOT_MODEL, GUIDE_LAYOUT, guideGeometry, guideCheck, fitFootModel, snapOutline, densify, segmentFoot, resampleClosed, personalCare, measurementWeight, CARE, detectSoleLine, heightAboveSole
   };
 });

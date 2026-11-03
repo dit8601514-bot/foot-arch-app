@@ -1,7 +1,7 @@
 'use strict';
 /* ═════════════ 기본: 저장소 · 상태 · 유틸 · 라우터 ═════════════ */
 const C = window.FootCore;
-const APP_VERSION = '2.8.0';
+const APP_VERSION = '2.9.0';
 const STORES = ['settings', 'exams', 'exercises', 'logs', 'errors', 'models', 'blobs', 'validations'];
 
 const DB = (() => {
@@ -50,7 +50,7 @@ async function save(store, obj) {
 
 const DEFAULT_SETTINGS = {
   id: 'app', participantId: '', savePhotos: false, privacyAck: false, shutterDelay: 10, postMode: 'timer',
-  stickerDiameterMm: 16, diameterSource: 'spec', validation: null, researcherPinHash: null, // 실제 스티커 지름 16 mm(사용 스티커 규격)
+  stickerDiameterMm: 19, diameterSource: 'spec', validation: null, researcherPinHash: null, // 실제 스티커 지름 19 mm(사용 스티커 실측)
   activeModelId: null, mapping: { normal: [], mild: [], moderate: [], severe: [] }, seeded: false
 };
 const S = { settings: null, exam: null, researcherUnlocked: false, stream: null, loopTimer: null };
@@ -59,12 +59,34 @@ async function loadSettings() {
   let s = null;
   try { s = await DB.get('settings', 'app'); } catch (e) { /* 메모리 폴백 */ }
   S.settings = Object.assign({}, DEFAULT_SETTINGS, s || {});
-  // 이전 버전에서 지름이 비어 있던 기기: 사용 스티커 규격(16 mm)으로 채운다
-  if (!(S.settings.stickerDiameterMm > 0)) { S.settings.stickerDiameterMm = 16; S.settings.diameterSource = 'spec'; }
+  // 이전 버전에서 지름이 비어 있던 기기: 사용 스티커 실측(19 mm)으로 채운다
+  if (!(S.settings.stickerDiameterMm > 0)) { S.settings.stickerDiameterMm = 19; S.settings.diameterSource = 'spec'; }
+  // 스티커 실측 지름 19 mm로 변경(v2.9): 예전 기본값(16 mm)을 쓰던 기기는 19 mm로 바꾸고 지난 결과도 다시 계산한다(직접 입력한 값은 그대로)
+  if (!S.settings.dia19 && S.settings.diameterSource === 'spec' && S.settings.stickerDiameterMm !== 19) {
+    const from = S.settings.stickerDiameterMm; S.settings.stickerDiameterMm = 19; S.settings.dia19 = Date.now();
+    try { await saveSettings(); await rescaleExams(from, 19); } catch (e) { console.warn('dia19', e); }
+  } else if (!S.settings.dia19) { S.settings.dia19 = Date.now(); try { await saveSettings(); } catch (e) { /* */ } }
+  if (typeof window !== 'undefined' && window.FOOTARCH_STICKER_MM > 0) { S.settings.stickerDiameterMm = window.FOOTARCH_STICKER_MM; S.settings.diameterSource = 'user'; } // 시험용
   S.settings.mapping = Object.assign({ normal: [], mild: [], moderate: [], severe: [] }, S.settings.mapping);
   if (!S.settings.seeded) await seedContent();
 }
 async function saveSettings() { return save('settings', S.settings); }
+// 지난 결과를 새 스티커 지름으로 다시 계산(픽셀 측정값은 그대로, mm 환산만 다시)
+async function rescaleExams(fromMm, toMm) {
+  let n = 0;
+  for (const e of await DB.all('exams')) {
+    if (!e.pre || !e.post || !e.pre.measure || !e.post.measure) continue;
+    const cv = e.conversion || {}; if (cv.stickerDiameterMm !== fromMm) continue;
+    const conv = Object.assign({}, cv, { stickerDiameterMm: toMm }), k = toMm / fromMm;
+    const scaleMm = o => { if (!o || typeof o !== 'object') return; for (const key of Object.keys(o)) { const v = o[key]; if (typeof v === 'number' && (/Mm$/.test(key) || key === 'mmPerPx') && key !== 'stickerDiameterMm') o[key] = v * k; else if (v && typeof v === 'object' && !Array.isArray(v)) scaleMm(v); else if (Array.isArray(v)) v.forEach(x => { if (x && typeof x === 'object' && typeof x.mm === 'number') x.mm *= k; }); } };
+    scaleMm(e.pre.measure); scaleMm(e.post.measure);
+    const cmp = C.comparePrePost(e.pre.measure, e.post.measure, conv, null);
+    e.comparison = Object.assign({}, e.comparison, cmp); e.category = cmp.status === '측정 가능' ? C.classify(cmp.changeMm) : null;
+    e.conversion = conv; e.rescaled = { fromMm, toMm, at: Date.now() }; delete e.aiCorrection; e.updatedAt = Date.now(); e._syncedAt = null;
+    if (await save('exams', e)) n++;
+  }
+  return n;
+}
 
 // 초기 운동 콘텐츠: 이름·일반 설명만 초안으로 제공, 처방 수치·영상은 비워둔다(연구 프로토콜 입력 필요)
 async function seedContent() {

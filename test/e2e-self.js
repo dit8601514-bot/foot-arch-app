@@ -14,7 +14,7 @@ async function scenario(tag, video, expectConfirmed, expectMm, opt) {
   expectMm = expectMm == null ? 7.14 : expectMm;
   const b = await chromium.launch({ args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--use-file-for-fake-video-capture=' + path.join(__dirname, 'img', video)] });
   const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, permissions: ['camera'] });
-  await ctx.addInitScript(d => { window.FOOTARCH_SHUTTER_DELAY = d.delay; window.FOOTARCH_POST_MODE = d.postMode; window.__workers = []; const OW = window.Worker; window.Worker = function (u, o) { const w = new OW(u, o); window.__workers.push(w); return w; }; window.__spoken = []; const sy = window.speechSynthesis; if (sy) { const orig = sy.speak.bind(sy); sy.speak = u => { if (u.text.trim()) window.__spoken.push(u.text); try { orig(u); } catch (e) {} }; } }, { delay: opt.delay == null ? 0 : opt.delay, postMode: opt.postMode || 'ai' });
+  await ctx.addInitScript(d => { window.FOOTARCH_SHUTTER_DELAY = d.delay; window.FOOTARCH_POST_MODE = d.postMode; window.FOOTARCH_STICKER_MM = 16; /* 합성 영상은 16 mm 스티커로 만들어짐 */ window.__workers = []; const OW = window.Worker; window.Worker = function (u, o) { const w = new OW(u, o); window.__workers.push(w); return w; }; window.__spoken = []; const sy = window.speechSynthesis; if (sy) { const orig = sy.speak.bind(sy); sy.speak = u => { if (u.text.trim()) window.__spoken.push(u.text); try { orig(u); } catch (e) {} }; } }, { delay: opt.delay == null ? 0 : opt.delay, postMode: opt.postMode || 'ai' });
   const pg = await ctx.newPage(); const errors = [];
   pg.on('pageerror', e => errors.push(e.message)); pg.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
   const shot = n => pg.screenshot({ path: path.join(__dirname, 'shots', n + '.png'), fullPage: true });
@@ -73,6 +73,10 @@ async function scenario(tag, video, expectConfirmed, expectMm, opt) {
       if (!timerMode) log(`[${tag}] 결과: 체중부하 인지 기록(일어섬·아치 하강)`, main.includes('일어섬 확인') && main.includes('아치 하강 확인'));
       else log(`[${tag}] 결과: 아치 하강 확인 기록`, main.includes('아치 하강 확인'));
       log(`[${tag}] 유연성 평발 양상 안내`, main.includes('유연성 평발 양상'));
+      { await pg.waitForSelector('.care-card', { timeout: 5000 }).catch(() => {}); const ct = await pg.textContent('#careBox').catch(() => '');
+        log(`[${tag}] AI 1:1 맞춤 케어: 개인 추정·관리 계획·전문가 값 입력`, ct.includes('AI 1:1 맞춤 케어') && ct.includes('개인 맞춤 추정') && ct.includes('나만의 관리 계획') && ct.includes('전문가 측정값'), ct.slice(0, 120));
+        await pg.click('#refBtn'); await pg.fill('#refIn', '9.5'); await pg.click('[data-a="ok"]'); await pg.waitForTimeout(500);
+        const ct2 = await pg.textContent('#careBox'); log(`[${tag}] 전문가 값 입력 → 내 오차 보정 학습`, ct2.includes('내 오차 보정') && ct2.includes('전문가 값 1회 학습'), ct2.slice(0, 160)); }
       await pg.check('[data-sq="restFlat"]'); await pg.waitForTimeout(300);
       log(`[${tag}] 자가 확인 질문 → 전문가 상담 안내`, await pg.isVisible('text=전문가 상담을 권합니다'));
       await pg.reload(); await pg.waitForSelector('#flex'); log(`[${tag}] 자가 확인 응답 저장 유지`, await pg.isChecked('[data-sq="restFlat"]'));

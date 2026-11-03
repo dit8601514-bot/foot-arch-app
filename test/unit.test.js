@@ -342,6 +342,38 @@ t('바닥 기준 하강: 전·후 차이 계산 + 분류 기준을 바닥 방식
 });
 
 t('아치 각도: 직각 배치 = 90°, 일직선 = 180°', () => { near(C.archAngle({ x: 10, y: 0 }, { x: 0, y: 0 }, { x: 0, y: 10 }), 90, 1e-9); near(C.archAngle({ x: 10, y: 0 }, { x: 0, y: 0 }, { x: -10, y: 0 }), 180, 1e-9); });
+// ── AI 1:1 맞춤 케어 ──
+{
+  const DAY = 86400000, t0 = Date.UTC(2026, 0, 1);
+  const mk = (i, f, v, o) => Object.assign({ id: 'c' + i + f, foot: f, createdAt: t0 + i * DAY, comparison: { changeMm: v, scaleDiff: 0.005 }, measurementConfidence: 0.85, pre: { quality: { sharp: true }, measure: { axisAngleDeg: 2 } }, post: { quality: { sharp: true } } }, o || {});
+  t('맞춤 케어: 반복 측정으로 내 측정 흔들림(σ)을 학습', () => {
+    // 실제 6 mm, 매일 ±0.5 mm 정도 흔들림 → σ가 기본값(1.4)보다 작아져야 함
+    const ex = [6.2, 5.7, 6.4, 5.9, 6.1, 5.8, 6.3, 6.0, 5.9, 6.2].map((v, i) => mk(i, 'left', v));
+    const r = C.personalCare(ex); ok(r.nPairs === 9 && r.sdMm < 1.0 && r.sdMm > 0.2, 'σ=' + r.sdMm.toFixed(2));
+    near(r.feet.left.estimateMm, 6.05, 0.5, '개인 추정');
+  });
+  t('맞춤 케어: 전문가 값으로 내 편향을 수축 학습(적으면 조심스럽게)', () => {
+    const ex = [mk(0, 'left', 5, { reference: { ndtMm: 7 } })];
+    const one = C.personalCare(ex).biasMm; ok(one > 1.0 && one < 2.0, '1회: ' + one.toFixed(2));
+    const many = C.personalCare([0, 1, 2, 3, 4].map(i => mk(i * 10, 'left', 5, { reference: { ndtMm: 7 } }))).biasMm; ok(many > one && many < 2.0, '5회: ' + many.toFixed(2));
+  });
+  t('맞춤 케어: 평소와 크게 다른 측정은 이상치로 표시하고 적게 반영', () => {
+    const ex = [6, 6.3, 5.8, 6.1, 13].map((v, i) => mk(i, 'left', v));
+    const r = C.personalCare(ex), F = r.feet.left; ok(F.lastOutlier && F.estimateMm < 8, JSON.stringify({ est: F.estimateMm, z: F.lastZ }));
+    ok(r.plan.actions.some(a => a.kind === 'retake'), '다시 찍기 권고');
+  });
+  t('맞춤 케어: 품질 낮은 측정(흐림·휴대폰 움직임)은 가중치가 낮음', () => {
+    const good = C.measurementWeight(mk(0, 'left', 6)), bad = C.measurementWeight(mk(0, 'left', 6, { measurementConfidence: 0.5, comparison: { changeMm: 6, scaleDiff: 0.04 }, pre: { quality: { sharp: false }, measure: {} }, post: { quality: { sharp: true } } }));
+    ok(good > 0.8 && bad < 0.4, good.toFixed(2) + ' / ' + bad.toFixed(2));
+  });
+  t('맞춤 케어: 분류·통증에 따라 관리 계획(운동 강도·다음 검사일)이 달라짐', () => {
+    const n = C.personalCare([mk(0, 'left', 3)]).plan, m = C.personalCare([mk(0, 'left', 12)]).plan, p = C.personalCare([mk(0, 'left', 7)], { selfReport: { pain: true } }).plan;
+    ok(n.level === 'keep' && n.nextTestDays === 28, n.level); ok(m.level === 'intense' && m.nextTestDays === 7 && m.actions.some(a => a.kind === 'consult'), m.level); ok(p.level === 'consult', p.level);
+  });
+  t('맞춤 케어: 좌우 차이가 측정 흔들림보다 크면 약한 발에 운동 추가', () => {
+    const r = C.personalCare([mk(0, 'left', 11), mk(0, 'right', 3)]); ok(r.asymReal && r.plan.actions.some(a => a.kind === 'asym' && a.text.includes('왼발')), JSON.stringify(r.plan.actions));
+  });
+}
 t('아치 각도: 체중부하로 P2가 내려가면 각도 증가', () => {
   const conv = { stickerDiameterMm: 10, validated: true };
   const a = C.measureImage(C.detectStickers(makeImage(W, H, { stickers: footScene(W, H, 84).stickers })), conv), b = C.measureImage(C.detectStickers(makeImage(W, H, { stickers: footScene(W, H, 56).stickers })), conv);

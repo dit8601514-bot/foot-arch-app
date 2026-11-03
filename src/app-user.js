@@ -1,6 +1,6 @@
 'use strict';
 /* ═════════════ 일반 사용자 화면 ═════════════ */
-// mm 환산: 스티커의 실제 지름(기본 16 mm)을 기준 길이로 쓴다. 보정 템플릿(테스트 시트) 시험을 통과하면 '시트 검증'으로 표시한다.
+// mm 환산: 스티커의 실제 지름(기본 19 mm)을 기준 길이로 쓴다. 보정 템플릿(테스트 시트) 시험을 통과하면 '시트 검증'으로 표시한다.
 function convSettings() {
   const v = S.settings.validation, D = S.settings.stickerDiameterMm;
   const sheet = !!(v && v.pass && v.diameterMm === D);
@@ -33,11 +33,13 @@ route('/home', 'AI Footarch', async (v) => {
       <div class="tiny" style="font-weight:700">${FOOT[f]}</div>
       ${e ? `<div style="font-size:20px;font-weight:800;margin:2px 0">${e.comparison.changeMm != null ? mm(e.comparison.changeMm) : statusBadge(e.comparison.status)}</div><div>${catBadge(e.category)}</div><div class="tiny" style="margin-top:4px">${fmtDate(e.createdAt)}</div>` : '<div class="muted small" style="margin-top:4px">기록 없음 · 측정하기 ›</div>'}
     </a>`; }).join('')}</div>
+    <div id="homeCare"></div>
     ${mgmt ? `<a class="mini" style="margin-top:10px" href="#/manage"><div class="row"><b class="grow small">유연성 평발 관리 중</b><span class="badge b-warn">${esc(mgmt)}</span></div></a>` : ''}
     ${!isStandalone() && location.protocol === 'https:' ? `<div class="mini small" style="margin-top:10px"><b>홈 화면에 앱으로 추가</b><div class="tiny">${installEvt ? '<button class="btn sm primary" id="install" style="margin-top:6px">앱 설치</button>' : /iPhone|iPad/.test(navigator.userAgent) ? 'Safari 아래쪽 공유 버튼 → “홈 화면에 추가”' : '브라우저 메뉴 → “앱 설치” 또는 “홈 화면에 추가”'}</div></div>` : ''}
     <div class="links"><a href="#/stickers-info">스티커 부착 위치</a><a href="#/guide?foot=left">단계별 검사</a></div>
     <p class="tiny" style="text-align:center;margin:4px 8px 0">개인 건강관리용 참고 정보이며 진단이 아닙니다.</p>`;
   $$('[data-foot]', v).forEach(b => b.onclick = () => go('#/guide?foot=' + b.dataset.foot));
+  try { const pc = C.personalCare(exams, { logs: await DB.all('logs') }), pl = pc.plan; if (pc.learnedFrom) $('#homeCare', v).innerHTML = `<a class="mini care-mini" style="margin-top:10px" href="#/care"><div class="row"><span class="badge b-info">AI 1:1 케어</span><span class="grow"></span><span class="tiny">${pl.nextTestAt ? '다음 검사 ' + fmtDate(pl.nextTestAt, false) : ''}</span></div><b class="small" style="display:block;margin-top:6px">${esc(pl.headline)}</b><div class="tiny">내 기록 ${pc.learnedFrom}회로 학습 · 측정 흔들림 ±${pc.sdMm.toFixed(1)} mm</div></a>`; } catch (er) { console.warn(er); }
   if ($('#install', v)) $('#install', v).onclick = async () => { installEvt.prompt(); await installEvt.userChoice.catch(() => {}); installEvt = null; render(); };
 }, { bare: true });
 
@@ -406,6 +408,7 @@ route('/result/:id', '측정 결과', async (v, p) => {
         ${c.changeMm == null && c.changePx != null ? `<div class="tiny">픽셀 변화량 ${px(c.changePx)} (mm 아님)</div>` : ''}
       </div>
     </div>
+    <div id="careBox"></div>
     ${c.flags && c.flags.length ? `<div class="note warn">${c.flags.map(esc).join('<br>')}</div>` : ''}
     ${c.notes && c.notes.length ? `<div class="note ${c.status === '측정 가능' ? 'info' : 'warn'}"><ul class="list">${c.notes.map(n => `<li>${esc(n)}</li>`).join('')}</ul></div>` : ''}
     <h3>분석 결과</h3>
@@ -443,12 +446,13 @@ route('/result/:id', '측정 결과', async (v, p) => {
     <div id="imgs"></div>
     <h3>운동 중재</h3>
     ${cat ? (exs.length ? exs.map(x => `<a class="list-item card" style="margin:6px 0" href="#/exercise/${x.id}?exam=${e.id}"><span class="grow"><b>${esc(x.name)}</b><br><span class="tiny">${x.videoBlobId || x.videoUrl ? '영상 있음' : '영상 등록 필요'}</span></span>›</a>`).join('')
-      : `<div class="note warn small">“${esc(cat.label)}” 분류에 연결된 운동이 아직 지정되지 않았습니다. 관리자가 운동 콘텐츠 관리 화면에서 지정해야 합니다.</div><a class="btn block" href="#/exercises">전체 운동 목록 보기</a>`)
+      : `<div class="note info small">위 <b>AI 1:1 맞춤 케어</b>의 관리 계획에 나에게 맞춘 운동과 횟수가 있습니다.</div><a class="btn block" href="#/exercises">전체 운동 목록 보기</a>`)
       : '<p class="small muted">유효한 분류 결과가 있을 때 맞춤 운동이 연결됩니다.</p>'}
     <p class="tiny">${esc(DISCLAIMER)}</p>
     <div class="grid2"><button class="btn primary" id="other">${FOOT[e.foot === 'left' ? 'right' : 'left']} 검사</button><a class="btn" href="#/history">검사 이력</a></div>
     <button class="btn ghost block" id="del">이 결과 삭제</button>`;
   bindFlexSection(v, e);
+  await renderCare($('#careBox', v), e);
   $('#detailBtn', v).onclick = () => { const d = $('#detail', v); d.classList.toggle('hide'); $('#detailBtn', v).textContent = d.classList.contains('hide') ? '상세 리포트 보기' : '상세 리포트 접기'; };
   $('#other', v).onclick = () => go(e.method === 'voice' ? '#/self?feet=' + (e.foot === 'left' ? 'right' : 'left') : '#/guide?foot=' + (e.foot === 'left' ? 'right' : 'left'));
   $('#del', v).onclick = async () => { if (await confirmModal('이 검사 결과를 삭제할까요? 되돌릴 수 없습니다.', '삭제', true)) { await deleteExam(e); toast('삭제했습니다.'); go('#/history'); } };
@@ -594,8 +598,8 @@ route('/settings', '설정 및 개인정보', async (v) => {
       <input id="pid" value="${esc(S.settings.participantId)}" placeholder="예: P001" maxlength="20" autocomplete="off">
       <p class="tiny">이름·연락처 등 실명 정보를 넣지 마세요. 영문·숫자·-·_ 만 사용할 수 있습니다.</p>
       <label class="f" for="dia">스티커 실제 지름 (mm)</label>
-      <input id="dia" type="number" inputmode="decimal" step="0.1" min="3" max="40" value="${esc(String(S.settings.stickerDiameterMm || 16))}">
-      <p class="tiny">mm 값은 이 지름을 기준으로 계산합니다. 자로 잰 실제 지름을 넣으세요(지금 쓰는 스티커: 16 mm).</p>
+      <input id="dia" type="number" inputmode="decimal" step="0.1" min="3" max="40" value="${esc(String(S.settings.stickerDiameterMm || 19))}">
+      <p class="tiny">mm 값은 이 지름을 기준으로 계산합니다. 자로 잰 실제 지름을 넣으세요(지금 쓰는 스티커: 19 mm).</p>
       <label class="chk"><input type="checkbox" id="photos" ${S.settings.savePhotos ? 'checked' : ''}><span class="small"><b>촬영 사진을 이 기기에 저장</b><br>끄면 사진은 분석 직후 버려지고 스티커 좌표·측정값만 저장됩니다. 연구자 검토(이미지 참조)를 위해서는 켜야 합니다.</span></label>
       <button class="btn primary block" id="saveS">저장</button></div>
     <div class="card"><b>데이터 보관 방식</b>
@@ -622,4 +626,73 @@ route('/settings', '설정 및 개인정보', async (v) => {
     for (const e of await DB.all('exams')) await deleteExam(e, true);
     await DB.clear('logs'); S.lastResult = null; toast(Account.loggedIn ? '이 기기의 기록을 삭제했습니다(서버 기록은 회원 탈퇴 시 삭제).' : '삭제했습니다.'); render();
   };
+});
+
+// ───── AI 1:1 맞춤 케어 ─────
+function careHtml(pc, e) {
+  const F = pc.feet[e ? e.foot : pc.plan.focusFoot] || pc.feet.left || pc.feet.right, pl = pc.plan;
+  if (!F) return '';
+  const s = e ? F.series.find(x => x.id === e.id) : F.series[F.series.length - 1];
+  const sign = x => (x >= 0 ? '+' : '−') + Math.abs(x).toFixed(1) + ' mm';
+  const ACT = { consult: '🩺', exercise: '🏃', adherence: '📅', asym: '⚖️', retake: '📸', reference: '🏥' };
+  const rows = [];
+  rows.push(['개인 맞춤 추정', `<b>${mm(F.estimateMm)}</b> <span class="tiny">± ${F.ciMm.toFixed(1)} mm (95%)</span>`]);
+  if (s) rows.push(['이번 측정 반영', s.ref ? '전문가 측정값 사용' : `${Math.round(s.w * 100)}%${s.outlier ? ' · <span class="badge b-warn">평소와 다름</span>' : ''}`]);
+  if (pc.nRefs) rows.push(['내 오차 보정', `${sign(pc.biasMm)} <span class="tiny">(전문가 값 ${pc.nRefs}회 학습)</span>`]);
+  rows.push(['내 측정 흔들림', `± ${pc.sdMm.toFixed(1)} mm <span class="tiny">${pc.nPairs ? `(반복 ${pc.nPairs}쌍 학습)` : '(기본값 · 3일 안에 한 번 더 재면 학습)'}</span>`]);
+  if (F.changeSincePrevMm != null) rows.push(['지난번보다', `${sign(F.changeSincePrevMm)} <span class="tiny">${F.realChange ? '실제 변화로 보입니다' : `측정 흔들림 범위(±${pc.mdcMm.toFixed(1)} mm) 안`}</span>`]);
+  if (F.slopePer30 != null) rows.push(['한 달 추세', `${sign(F.slopePer30)} / 30일`]);
+  if (pc.asymMm != null) rows.push(['좌우 차이', `${pc.asymMm.toFixed(1)} mm${pc.asymReal ? ' · 차이 있음' : ''}`]);
+  return `<div class="card care-card">
+    <div class="row"><span class="badge b-info">AI 1:1 맞춤 케어</span><span class="grow"></span><span class="tiny">내 기록 ${pc.learnedFrom}회 학습</span></div>
+    <h3 style="margin:10px 0 4px">${esc(pl.headline)}</h3>
+    ${s && s.outlier ? `<div class="note warn small">이번 측정은 내 평소 상태와 통계적으로 많이 달라(차이 ${Math.abs(s.z).toFixed(1)}σ) 개인 추정에 적게 반영했습니다.${F.lastIssues.length ? '<br>원인 후보: ' + F.lastIssues.map(esc).join(' · ') : ''}</div>` : ''}
+    <dl class="kv" style="margin-top:6px">${rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>
+    <div class="sec-title" style="margin-top:10px">나만의 관리 계획</div>
+    <ul class="care-acts">${pl.actions.map(a => `<li><span>${ACT[a.kind] || '•'}</span><span>${esc(a.text)}${a.kind === 'exercise' ? ' <a href="#/exercises">운동 보기 ›</a>' : ''}</span></li>`).join('')}
+      ${pl.nextTestAt ? `<li><span>⏰</span><span>다음 검사: <b>${fmtDate(pl.nextTestAt, false)}</b> (${pl.nextTestDays}일 뒤) · 같은 시간대·같은 장소에서 재면 더 정확합니다</span></li>` : ''}</ul>
+    ${e ? `<button class="btn block" id="refBtn">${e.reference ? `전문가 측정값 수정 (현재 ${mm(e.reference.ndtMm)})` : '병원·전문가 측정값 입력 → 내 오차 학습'}</button>` : ''}
+    <p class="tiny" style="margin-top:8px">AI 맞춤 추정은 내 기록에서 통계적으로 계산한 참고값입니다. 진단이 아니며, 분류는 앱 측정값 기준으로 따로 표시합니다.</p>
+  </div>`;
+}
+async function renderCare(box, e) {
+  if (!box) return;
+  try {
+    const exams = (await DB.all('exams')).filter(x => !x.isTest), logs = await DB.all('logs');
+    const pc = C.personalCare(exams, { logs, selfReport: e && e.selfReport });
+    box.innerHTML = careHtml(pc, e);
+    const b = $('#refBtn', box); if (b) b.onclick = async () => {
+      const val = await refModal(e.reference ? e.reference.ndtMm : null); if (val === undefined) return;
+      if (val === null) delete e.reference; else e.reference = { ndtMm: val, source: 'user', at: Date.now() };
+      e.updatedAt = Date.now(); e._syncedAt = null; await save('exams', e); if (typeof Account !== 'undefined') Account.syncSoon();
+      toast(val === null ? '전문가 값을 지웠습니다.' : 'AI가 내 오차를 다시 학습했습니다.'); renderCare(box, e);
+    };
+  } catch (er) { console.warn('care', er); box.innerHTML = ''; }
+}
+function refModal(cur) {
+  return new Promise(res => {
+    const bg = document.createElement('div'); bg.className = 'modal-bg';
+    bg.innerHTML = `<div class="modal" role="dialog" aria-modal="true"><b>전문가 측정값</b><p class="small">병원·물리치료실 등에서 같은 날(또는 가까운 날) 잰 <b>발배뼈 하강(NDT)</b> 값을 mm로 입력하세요. AI가 앱 측정값과의 차이를 배워 다음부터 나에게 맞춰 보정합니다.</p>
+      <input id="refIn" type="number" inputmode="decimal" step="0.1" min="0" max="30" value="${cur != null ? cur : ''}" placeholder="예: 7.5" style="width:100%">
+      <div class="grid2" style="margin-top:12px"><button class="btn" data-a="no">취소</button><button class="btn primary" data-a="ok">저장</button></div>${cur != null ? '<button class="btn ghost block" data-a="del" style="margin-top:6px">값 지우기</button>' : ''}</div>`;
+    bg.addEventListener('click', ev => {
+      const a = ev.target.dataset.a; if (!a && ev.target !== bg) return;
+      if (a === 'ok') { const v = num($('#refIn', bg).value); if (!(v >= 0 && v <= 30)) return toast('0~30 mm 사이 숫자로 입력해 주세요.', true); bg.remove(); return res(v); }
+      bg.remove(); res(a === 'del' ? null : undefined);
+    });
+    document.body.appendChild(bg); setTimeout(() => $('#refIn', bg).focus(), 50);
+  });
+}
+route('/care', 'AI 1:1 맞춤 케어', async (v) => {
+  const exams = (await DB.all('exams')).filter(x => !x.isTest), logs = await DB.all('logs');
+  const pc = C.personalCare(exams, { logs });
+  if (!pc.learnedFrom) { v.innerHTML = '<div class="card"><b>아직 기록이 없습니다</b><p class="small">첫 검사를 하면 AI가 나에게 맞춘 관리 계획을 만듭니다.</p><a class="btn primary block" href="#/self">측정하기</a></div>'; return; }
+  v.innerHTML = `<h2>AI 1:1 맞춤 케어</h2>${['left', 'right'].filter(f => pc.feet[f]).map(f => `<div class="sec-title">${FOOT[f]}</div><div class="care-foot" data-f="${f}"></div>`).join('')}
+    <div class="card small"><b>AI가 나에게 맞추는 방법</b><ul class="list">
+      <li>측정할 때마다 사진 품질(스티커 인식·선명도·휴대폰 움직임·체중부하)을 보고 얼마나 믿을지 정합니다.</li>
+      <li>가까운 날 다시 잰 값의 차이로 <b>내 측정 흔들림</b>을 배우고, 그보다 큰 변화만 “실제 변화”로 봅니다.</li>
+      <li>전문가 측정값을 입력하면 <b>내 앱 측정값과의 차이</b>를 배워 보정합니다(값이 적을수록 조심스럽게).</li>
+      <li>평소와 너무 다른 측정은 원인을 알려 주고 다시 찍기를 권합니다.</li></ul></div>
+    <p class="tiny">${esc(DISCLAIMER)}</p>`;
+  for (const el of $$('.care-foot', v)) { const f = el.dataset.f, last = exams.filter(x => x.foot === f).sort((a, b) => b.createdAt - a.createdAt)[0]; await renderCare(el, last); }
 });

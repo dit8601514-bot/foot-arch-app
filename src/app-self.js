@@ -42,7 +42,7 @@ route('/self', '측정하기', async (v, p) => {
       <div class="optrow"><span>음성 안내</span><label class="chk" style="margin:0"><input type="checkbox" id="voiceOn" ${Voice.enabled ? 'checked' : ''}><span class="small">켜기</span></label></div>
     </div>
     <details class="card"><summary>촬영 방법 보기</summary><ol class="steps small" style="margin-top:10px">
-      <li>발 안쪽에 지름 ${esc(String(S.settings.stickerDiameterMm || 16))} mm 파란 스티커 3개를 붙입니다. <a href="#/stickers-info">부착 위치 보기</a></li>
+      <li>발 안쪽에 지름 ${esc(String(S.settings.stickerDiameterMm || 19))} mm 파란 스티커 3개를 붙입니다. <a href="#/stickers-info">부착 위치 보기</a></li>
       <li>의자에 앉아 두 발을 바닥에 편하게 둡니다.</li>
       <li>휴대폰을 <b>가로로 세워 두 발 사이 바닥</b>에 두고, <b>뒷면 카메라</b>가 검사할 발 안쪽을 향하게 합니다. 거리는 정해져 있지 않습니다. <b>가까이 두어도 되고</b>, 스티커 3개가 화면 안에 선명하게 보이기만 하면 됩니다.</li>
       <li><b>촬영 버튼</b>을 누릅니다. “10초 뒤에 시작합니다” 안내와 함께 10초 타이머가 돌아가는 동안 휴대폰을 놓고 의자에 앉습니다.</li>
@@ -52,7 +52,7 @@ route('/self', '측정하기', async (v, p) => {
       <li><b>AI 자동 인지</b>를 고르면 타이머 대신 앱이 일어서는 동작과 발 모양 변화를 확인한 뒤 “체중부하 확인했습니다. 촬영합니다”라고 말하고 찍습니다.</li>
       <li>검사 중에는 <b>휴대폰을 움직이지 마세요.</b></li>
     </ol></details>
-    <div class="links"><a href="#/guide">단계별 검사(직접 촬영)</a><a href="#/settings">스티커 지름 ${esc(String(S.settings.stickerDiameterMm || 16))} mm</a></div>
+    <div class="links"><a href="#/guide">단계별 검사(직접 촬영)</a><a href="#/settings">스티커 지름 ${esc(String(S.settings.stickerDiameterMm || 19))} mm</a></div>
     <p class="tiny" style="text-align:center">${esc(DISCLAIMER)}</p>`;
   let dly = dly0;
   let pm = S.settings.postMode || 'timer';
