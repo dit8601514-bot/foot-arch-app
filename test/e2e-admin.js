@@ -107,7 +107,7 @@ function synthExam(id, foot) {
   const ai = await pu.evaluate(async () => { const a = (await DB.all('exams')).filter(e => !e.id.startsWith('ex-')); return a[0] && a[0].aiCorrection; });
   log('[사용자 앱] 측정 결과에 "AI 보정 (임상 NDT 추정)" 표시', okRes && main.includes('AI 보정 (임상 NDT 추정)') && main.includes('모델 v1') && ai && isFinite(ai.mm), ai ? `${ai.mm.toFixed(2)} mm ±${ai.piMm.toFixed(2)}` : 'none');
   const own = await pu.evaluate(async () => { const a = (await DB.all('exams')).filter(e => !e.id.startsWith('ex-')); return a[0] && { mm: a[0].comparison.changeMm, cat: a[0].category && a[0].category.label }; });
-  log('[사용자 앱] 앱 측정값·분류는 바뀌지 않고 AI 보정은 별도 값으로 표시', own && main.includes(own.mm.toFixed(1) + ' mm') && main.includes(own.cat) && Math.abs(ai.mm - own.mm) > 0.05, own && `앱 ${own.mm.toFixed(2)} mm(${own.cat}) / AI ${ai && ai.mm.toFixed(2)} mm`);
+  log('[사용자 앱] 앱 측정값·분류는 바뀌지 않고 AI 보정은 별도 값으로 표시', own && main.includes(own.mm.toFixed(2) + ' mm') && main.includes(own.cat) && Math.abs(ai.mm - own.mm) > 0.05, own && `앱 ${own.mm.toFixed(2)} mm(${own.cat}) / AI ${ai && ai.mm.toFixed(2)} mm`);
   // 배포 중지 → 사용자 앱에서 모델 없음
   await pa.goto(U + 'admin/#/ai'); await pa.waitForSelector('#deact'); await pa.click('#deact'); await pa.waitForTimeout(600);
   const after = await pu.evaluate(() => Account.fetchAiModel());

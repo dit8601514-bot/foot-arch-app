@@ -1,7 +1,7 @@
 'use strict';
 /* ═════════════ 기본: 저장소 · 상태 · 유틸 · 라우터 ═════════════ */
 const C = window.FootCore;
-const APP_VERSION = '2.11.0';
+const APP_VERSION = '2.11.1';
 const STORES = ['settings', 'exams', 'exercises', 'logs', 'errors', 'models', 'blobs', 'validations'];
 
 const DB = (() => {
@@ -101,7 +101,8 @@ function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ 
 function $(sel, root) { return (root || document).querySelector(sel); }
 function $$(sel, root) { return [...(root || document).querySelectorAll(sel)]; }
 function fmtDate(ts, withTime) { const d = new Date(ts); const p = n => String(n).padStart(2, '0'); return `${d.getFullYear()}.${p(d.getMonth() + 1)}.${p(d.getDate())}` + (withTime === false ? '' : ` ${p(d.getHours())}:${p(d.getMinutes())}`); }
-function mm(v, d) { return v == null || !isFinite(v) ? '—' : C.roundMm(v).toFixed(d == null ? 1 : d) + ' mm'; }
+// mm 표시: 0.01 mm 단위(연구 분류는 기존대로 0.1 mm 반올림 값으로 판정)
+function mm(v, d) { if (v == null || !isFinite(v)) return '—'; const k = d == null ? 2 : d, f = 10 ** k; return (Math.round((v + (v >= 0 ? 1e-9 : -1e-9)) * f) / f).toFixed(k) + ' mm'; }
 function px(v) { return v == null || !isFinite(v) ? '—' : v.toFixed(1) + ' px'; }
 function pct(v) { return v == null || !isFinite(v) ? '—' : Math.round(v * 100) + '%'; }
 const FOOT = { left: '왼발', right: '오른발' };

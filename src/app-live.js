@@ -437,7 +437,7 @@ function createTracker(opts) {
  * 연속 촬영: 12프레임을 찍어 흐린·튀는 프레임을 버리고 좌표를 평균한다(카메라는 끄지 않음).
  * 반환: { canvas, det, meas, combined }
  */
-const BURST = 16, MAXSIDE = 1600; // 16장 연속 → 흔들린 장면 제외 후 가중 평균(반복 오차 ↓)
+const BURST = 16, MAXSIDE = 1920; // 촬영 사진은 카메라 해상도 그대로(1920) 분석 → 1픽셀당 mm가 작아져 더 세밀하게 // 16장 연속 → 흔들린 장면 제외 후 가중 평균(반복 오차 ↓)
 async function burstCapture(video, toe, priorNorm, rot) {
   const dets = new Array(BURST).fill(null), jobs = []; let keep = null; const mid = Math.floor(BURST / 2);
   for (let i = 0; i < BURST; i++) {
