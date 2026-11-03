@@ -2,7 +2,7 @@
 // node test/e2e-track.js  (test/img/track.y4m 필요)
 const { chromium } = require('playwright'); const http = require('http'); const fs = require('fs'); const path = require('path');
 const root = path.join(__dirname, '..');
-const srv = http.createServer((q, s) => { let u = decodeURIComponent(q.url.split('?')[0]); if (u.endsWith('/')) u += 'index.html'; const f = path.join(root, 'dist', u); if (!fs.existsSync(f)) { s.writeHead(404); return s.end(); } s.writeHead(200, { 'content-type': u.endsWith('.html') ? 'text/html; charset=utf-8' : 'application/octet-stream' }); s.end(fs.readFileSync(f)); }).listen(8768);
+const srv = http.createServer((q, s) => { let u = decodeURIComponent(q.url.split('?')[0]); if (u.endsWith('/')) u += 'index.html'; if (u === '/config.js') { s.writeHead(200, { 'content-type': 'text/javascript' }); return s.end('window.FOOTARCH_CONFIG={supabaseUrl:"",supabaseAnonKey:""};'); } const f = path.join(root, 'dist', u); if (!fs.existsSync(f)) { s.writeHead(404); return s.end(); } s.writeHead(200, { 'content-type': u.endsWith('.html') ? 'text/html; charset=utf-8' : 'application/octet-stream' }); s.end(fs.readFileSync(f)); }).listen(8768);
 const R = []; const log = (n, ok, d) => { R.push([n, ok ? 'PASS' : 'FAIL', d || '']); console.log(ok ? 'PASS' : 'FAIL', n, d || ''); };
 (async () => {
   const b = await chromium.launch({ args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--use-file-for-fake-video-capture=' + path.join(__dirname, 'img/track.y4m')] });

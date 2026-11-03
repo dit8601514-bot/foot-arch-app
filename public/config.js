@@ -4,7 +4,7 @@
 // Secret key(sb_secret_…)나 service_role 키는 절대 넣지 마세요.
 // 비워 두면 로그인 없이 이 기기에만 저장하는 모드로 동작합니다.
 window.FOOTARCH_CONFIG = Object.assign({
-  supabaseUrl: '',
-  supabaseAnonKey: '',
+  supabaseUrl: 'https://imlitphuusgjunnpudca.supabase.co',
+  supabaseAnonKey: 'sb_publishable_0fSd4SmFRyM1uZbUoEs_SQ_s3eIsqZ6',
   emailDomain: 'users.footarch.app'
 }, window.FOOTARCH_CONFIG || {});

@@ -6,7 +6,7 @@ const core = r('core.js'), app = r('app-base.js') + '\n' + r('app-live.js') + '\
 let html = r('index.html')
   .replace('<!--CORE-->', () => '<script id="core-script">\n' + safe(core) + '\n</script>')
   .replace('<!--APP-->', () => '<script>\n' + safe(app) + '\n</script>');
-const build = crypto.createHash('sha1').update(html).digest('hex').slice(0, 10);
+const build = crypto.createHash('sha1').update(html).update(fs.readFileSync(path.join(__dirname, 'public', 'config.js'))).update(fs.readFileSync(path.join(__dirname, 'public', 'sw.js'))).digest('hex').slice(0, 10); // 설정·캐시 규칙이 바뀌어도 새 버전으로 인식
 html = html.replace('__BUILD__', build);
 const out = path.join(__dirname, 'dist');
 fs.rmSync(out, { recursive: true, force: true }); fs.mkdirSync(path.join(out, 'icons'), { recursive: true });
