@@ -393,7 +393,7 @@ route('/manage', '유연성 평발 관리', async (v) => {
   v.innerHTML = `<h2>유연성 평발 관리</h2>
     <p class="small muted">운동을 하면서 같은 방법(음성 자가 검사)으로 다시 측정해 아치 하강의 변화를 확인합니다.</p>
     ${footCard('left')}${footCard('right')}
-    ${exams.length ? `<div class="card"><b>하강량 추이 (cm)</b><div class="legend"><span><i style="background:var(--series-1)"></i>왼발</span><span><i style="background:var(--series-2)"></i>오른발</span></div><canvas class="chart" id="ch"></canvas><p class="tiny">점선: 연구 분류 경계 5·10·15mm</p></div>` : ''}
+    ${exams.length ? `<div class="card"><b>하강량 추이 (cm)</b><div class="legend"><span><i style="background:var(--series-1)"></i>왼발</span><span><i style="background:var(--series-2)"></i>오른발</span></div><canvas class="chart" id="ch"></canvas><p class="tiny">점선: 연구 분류 경계 0.2·0.4·0.6 cm</p></div>` : ''}
     <div class="card"><dl class="kv"><dt>최근 7일 운동</dt><dd>${week}회</dd><dt>누적 운동</dt><dd>${logs.length}회</dd></dl><a class="btn block" href="#/exercises">오늘의 운동</a></div>
     <a class="btn primary block big" href="#/self">다시 측정하기</a>
     <a class="btn block" href="#/history">검사 이력 전체 보기</a>
