@@ -9,7 +9,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  const ALGORITHM_VERSION = 'ALG-2.2.0';
+  const ALGORITHM_VERSION = 'ALG-2.3.0';
 
   // 기본 검출 파라미터 (휴리스틱 값 — 실제 사진으로 검증 후 연구자가 조정해야 함)
   const DEFAULT_DETECT = {
@@ -645,7 +645,9 @@
       if (hs.n < 6 || hueDist(hs.hue, refHue) > p.hueTol || hs.sat < 0.45) { d.reject = ['스티커 색이 아님']; rejected.push(d); continue; }
       const f = d.fit;
       d.cx = f.cx; d.cy = f.cy; d.major = 2 * f.a; d.minor = 2 * f.b; d.axisRatio = f.b / f.a; d.diameterPx = 2 * f.a;
-      d.score = round(clamp01((d.axisRatio - 0.6) / 0.3) * 0.35 + clamp01(1 - f.rms / Math.max(0.6, 0.08 * f.a)) * 0.35 + clamp01(f.coverage / 0.95) * 0.15 + clamp01(f.contrast / 0.6) * 0.15, 3);
+      // 점수: 원형(발 곡면의 약한 타원은 정상) · 가장자리 피팅 잔차 · 가장자리 덮임 · 대비 · 스티커 색 일치
+      const hueOk = clamp01(1 - hueDist(d.hue || 0, (model && model.hue) || p.stickerHue) / p.hueTol);
+      d.score = round(clamp01((d.axisRatio - 0.66) / 0.2) * 0.25 + clamp01(1 - f.rms / Math.max(0.6, 0.08 * f.a)) * 0.35 + clamp01(f.coverage / 0.95) * 0.15 + clamp01(f.contrast / 0.6) * 0.1 + (0.5 + 0.5 * hueOk) * 0.15, 3);
       candidates.push(d);
     }
     const result = { ok: false, reasons: [], stickers: candidates, rejected, landmarks: null, quality: {}, confidence: 0, imageSize: [W, H], algorithm: ALGORITHM_VERSION, thresholds: { strong, weak, bgMed: st.med, bgMad: st.mad } };
@@ -677,7 +679,7 @@
     result.quality = { edgeWidthPx: edgePx, edgeLimitPx: sharpLimit, sharp, diameterPx: med, sizeCv: cv(dias), minAxisRatio: Math.min(...set.map(c => c.axisRatio)), fitRmsPx: Math.max(...set.map(c => c.fit.rms)), minCoverage: Math.min(...set.map(c => c.fit.coverage)) };
     result.colorModel = { inner: median(set.map(c => c.fit.contrast + st.med)), hue: circMeanHue(set.map(c => c.hue)) };
     if (!sharp) result.reasons.push({ code: 'BLUR', msg: '이미지가 흐립니다. 카메라를 고정하고 초점을 맞춘 뒤 다시 촬영해 주세요.' });
-    const detConf = Math.min(...set.map(c => c.score)) * clamp01(1 - cv(dias) / 0.5);
+    const detConf = Math.min(...set.map(c => c.score)) * clamp01(1 - Math.max(0, cv(dias) - 0.04) / 0.25); // 원근으로 생기는 5% 안팎의 크기 차이는 정상
     const sharpConf = edgePx == null ? 0 : clamp01(1.5 - edgePx / sharpLimit);
     result.landmarks = lm;
     result.detectionConfidence = round(detConf, 3);
@@ -1369,7 +1371,12 @@
       }
       stats[key] = found / o.cols;
     }
-    if (stats.P3 < o.minFrac || stats.P1 < o.minFrac) return { ok: false, reason: '발바닥 경계를 충분히 찾지 못함(바닥과 피부색이 비슷하거나 그림자)', stats };
+    let method = 'edge';
+    if (stats.P3 < o.minFrac || stats.P1 < o.minFrac) {
+      const m2 = o.noModel ? null : detectSoleLineModel(img, det, o);
+      if (!m2 || !m2.pts || m2.stats.P3 < 0.45 || m2.stats.P1 < 0.45) return { ok: false, reason: '발바닥 경계를 충분히 찾지 못함(바닥과 피부색이 비슷하거나 그림자)', stats, stats2: m2 && m2.stats };
+      pts.length = 0; m2.pts.forEach(p => pts.push(p)); method = 'model'; Object.assign(stats, m2.stats);
+    }
     // 견고한 직선 피팅(y = m x + c, Tukey 가중 반복)
     let m = 0, c = median(pts.map(p => p.y)), w = pts.map(() => 1);
     for (let it = 0; it < 10; it++) {
@@ -1386,7 +1393,7 @@
     const axisDeg = Math.atan2(L.P1.y - L.P3.y, L.P1.x - L.P3.x) * 180 / Math.PI;
     const axisFix = Math.abs(axisDeg) > 90 ? axisDeg - Math.sign(axisDeg) * 180 : axisDeg;
     const xa = Math.min(L.P1.x, L.P3.x), xb = Math.max(L.P1.x, L.P3.x);
-    const out = { a: { x: xa, y: m * xa + c }, b: { x: xb, y: m * xb + c }, slope: m, intercept: c, angleDeg, rms, n: inl.length, stats };
+    const out = { a: { x: xa, y: m * xa + c }, b: { x: xb, y: m * xb + c }, slope: m, intercept: c, angleDeg, rms, n: inl.length, stats, method };
     if (rms > o.maxRmsPx) return Object.assign(out, { ok: false, reason: `경계가 고르지 않음(잔차 ${rms.toFixed(2)}px)` });
     // 바닥선 자체의 기울기(휴대폰 롤)만 본다. 스티커 축과 비교하지 않는 이유: 부착 높이가 다르면 축이 기울어지는 것이 정상이며 그것을 점검해야 하므로.
     if (Math.abs(angleDeg) > o.maxAbsAngleDeg) return Object.assign(out, { ok: false, reason: `바닥선이 ${Math.abs(angleDeg).toFixed(1)}° 기울어짐(휴대폰 수평 확인)` });
@@ -1394,6 +1401,69 @@
     const below = ['P1', 'P3'].every(k => L[k].y < m * L[k].x + c - R);
     if (!below) return Object.assign(out, { ok: false, reason: '바닥선이 스티커보다 위에서 잡힘' });
     return Object.assign(out, { ok: true });
+  }
+  /**
+   * 바닥선 2차 방법(실제 바닥용): 그 자리에서 피부색(스티커 둘레)과 바닥색(발바닥 아래)을 배워, 열마다
+   * '위는 피부·아래는 바닥'이 가장 잘 갈리는 위치(계단 맞춤)를 찾고 색 기울기로 서브픽셀 보정한다.
+   * 카펫·나무 바닥처럼 피부와 색이 비슷하거나 결이 있는 바닥에서 1차 방법이 실패할 때 쓴다.
+   */
+  function detectSoleLineModel(img, det, o) {
+    const { data, width: W, height: H } = img, L = det.landmarks, dia = det.quality.diameterPx, R = dia / 2;
+    const feat = i => { const r = data[i], g = data[i + 1], b = data[i + 2], t = r + g + b + 1, mx = Math.max(r, g, b), mn = Math.min(r, g, b); return [r / t, g / t, mx ? (mx - mn) / mx * 0.35 : 0, Math.log(t) * 0.08]; };
+    const gauss = arr => {
+      if (arr.length < 20) return null; const d = 4, m = new Array(d).fill(0);
+      for (const f of arr) for (let k = 0; k < d; k++) m[k] += f[k] / arr.length;
+      const S = []; for (let a = 0; a < d; a++) { S.push(new Array(d).fill(0)); S[a][a] = 4e-5; }
+      for (const f of arr) for (let a = 0; a < d; a++) for (let b = 0; b < d; b++) S[a][b] += (f[a] - m[a]) * (f[b] - m[b]) / arr.length;
+      // 역행렬(가우스-조르당)
+      const A = S.map((r, i) => r.concat(new Array(d).fill(0).map((_, j) => (i === j ? 1 : 0))));
+      for (let c = 0; c < d; c++) { let p = c; for (let r = c + 1; r < d; r++) if (Math.abs(A[r][c]) > Math.abs(A[p][c])) p = r; if (Math.abs(A[p][c]) < 1e-14) return null; [A[c], A[p]] = [A[p], A[c]]; const v = A[c][c]; for (let k = 0; k < 2 * d; k++) A[c][k] /= v; for (let r = 0; r < d; r++) if (r !== c) { const f = A[r][c]; for (let k = 0; k < 2 * d; k++) A[r][k] -= f * A[c][k]; } }
+      return { m, I: A.map(r => r.slice(d)) };
+    };
+    const md = (G, f) => { let s2 = 0; for (let a = 0; a < 4; a++) { let t = 0; for (let b = 0; b < 4; b++) t += G.I[a][b] * (f[b] - G.m[b]); s2 += (f[a] - G.m[a]) * t; } return s2; };
+    const at = (x, y) => (Math.round(y) * W + Math.round(x)) * 4, inside = (x, y) => x >= 1 && y >= 1 && x < W - 1 && y < H - 1;
+    const blue = i => data[i + 2] > Math.max(data[i], data[i + 1]) + 25;
+    // 피부 표본: 스티커 둘레(0.75~1.3 지름) — 발 안쪽 면이 확실한 곳
+    const sk = [];
+    for (const P of [L.P1, L.P2, L.P3]) for (let a = 0; a < 48; a++) for (const rr of [0.8, 0.95, 1.1, 1.25]) {
+      const x = P.x + Math.cos(a / 48 * 2 * Math.PI) * rr * dia, y = P.y + Math.sin(a / 48 * 2 * Math.PI) * rr * dia; if (!inside(x, y)) continue; const i = at(x, y); if (!blue(i)) sk.push(feat(i));
+    }
+    // 바닥 표본: 기준선(P1–P3)보다 2.4~4 지름 아래(발바닥은 약 1.25 지름 아래)
+    const k13 = (L.P1.y - L.P3.y) / ((L.P1.x - L.P3.x) || 1e-6), base = x => L.P3.y + k13 * (x - L.P3.x);
+    const fl = [], xa = Math.min(L.P1.x, L.P3.x) - dia, xb = Math.max(L.P1.x, L.P3.x) + dia;
+    for (let x = xa; x <= xb; x += Math.max(1, dia / 8)) for (let t = 1.8; t <= 2.8; t += 0.1) { const y = base(x) + t * dia; if (inside(x, y)) fl.push(feat(at(x, y))); }
+    const GS = gauss(sk), GF = gauss(fl); if (!GS || !GF) return { ok: false, reason: '바닥이 화면에 충분히 보이지 않음' };
+    const lum = (x, y) => { const i = at(x, y); return 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]; };
+    const tex = (x, y) => { let t = 0, n = 0; for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) { const X = x + dx, Y = y + dy; if (!inside(X, Y) || !inside(X + 1, Y + 1)) continue; const l = lum(X, Y); t += Math.abs(l - lum(X + 1, Y)) + Math.abs(l - lum(X, Y + 1)); n++; } return n ? t / n : 0; };
+    const tS = [], tF = [];
+    for (const P of [L.P1, L.P2, L.P3]) for (let a = 0; a < 16; a++) { const x = Math.round(P.x + Math.cos(a / 16 * 2 * Math.PI) * 1.1 * dia), y = Math.round(P.y + Math.sin(a / 16 * 2 * Math.PI) * 1.1 * dia); if (inside(x, y) && !blue(at(x, y))) tS.push(tex(x, y)); }
+    for (let x = xa; x <= xb; x += Math.max(2, dia / 4)) for (const t of [1.9, 2.2, 2.5]) { const y = Math.round(base(x) + t * dia), xx = Math.round(x); if (inside(xx, y)) tF.push(tex(xx, y)); }
+    const mS = median(tS.length ? tS : [0]), mF = median(tF.length ? tF : [0]), tThr = (mS + mF) / 2, tSpan = Math.max(1, (mF - mS) / 2), tW = mF > 1.8 * mS + 2 ? 12 : 0; // 바닥 결이 뚜렷할 때만 결을 쓴다
+    if (o.debug) o.debug.push(['tex', +mS.toFixed(1), +mF.toFixed(1)]);
+    const toward = Math.sign(L.P1.x - L.P3.x) || 1, pts = [], stats = {};
+    for (const [key, P, c0, c1] of [['P3', L.P3, -0.6, 1.6], ['P1', L.P1, -1.4, 0.9]]) {
+      let found = 0;
+      for (let k = 0; k < o.cols; k++) {
+        const x = Math.round(P.x + toward * dia * (c0 + (c1 - c0) * k / (o.cols - 1))); if (x < 2 || x >= W - 2) continue;
+        let y0 = Math.round(P.y + R * 1.04 + 1); while (y0 < H - 3 && blue(at(x, y0))) y0++; const y1 = Math.min(H - 3, Math.round(P.y + 2.6 * dia)); if (y1 - y0 < 8) continue;
+        // 각 행의 '바닥다움'(3열 평균): + 이면 바닥, - 이면 피부
+        // 바닥다움 = 결(질감) + 색: 피부는 매끈하고(결 작음) 카펫·나무 바닥은 결이 있다
+        const v = []; for (let y = y0; y <= y1; y++) { let e = 0; for (let dx = -1; dx <= 1; dx++) { const f = feat(at(x + dx, y)); e += Math.max(-25, Math.min(25, md(GS, f) - md(GF, f))) * (tW ? 0.3 : 1); } v.push(e / 3 + (tW ? tW * Math.max(-1.5, Math.min(1.5, (tex(x, y) - tThr) / tSpan)) : 0)); }
+        // 계단 맞춤: 위(피부)는 음수, 아래(바닥)는 양수가 되도록 경계 b를 고른다
+        const pre = [0]; for (const e of v) pre.push(pre[pre.length - 1] + e);
+        let best = -Infinity, bi = -1; const tot = pre[v.length];
+        for (let b = 0; b <= v.length - 3; b++) { const sc = -(pre[b]) + (tot - pre[b]); if (sc > best) { best = sc; bi = b; } }
+        if (bi < 0) continue;
+        const up = bi ? pre[bi] / bi : -2, dn = (tot - pre[bi]) / (v.length - bi);
+        if (!(up < -1 && dn > 1)) continue; // 위는 피부, 아래는 바닥이 분명해야
+        // 서브픽셀: 경계 ±3px에서 위아래 색 차이가 가장 큰 곳
+        const yb = y0 + bi; let gb = -1, yy = yb;
+        for (let y = yb - 3; y <= yb + 3; y++) { if (!inside(x, y - 2) || !inside(x, y + 2)) continue; const a1 = at(x, y - 2), a2 = at(x, y + 1); let g = 0; for (let c = 0; c < 3; c++) g += Math.abs(data[a2 + c] - data[a1 + c]); if (g > gb) { gb = g; yy = y; } }
+        pts.push({ x, y: yy - 0.5, key }); found++;
+      }
+      stats[key] = found / o.cols;
+    }
+    return { pts, stats };
   }
   // 점에서 바닥선까지 수직 거리(px). 바닥선 위쪽(발 쪽)이 양수.
   function heightAboveSole(p, sole) {
@@ -1490,7 +1560,7 @@
     const hk = keep.map(d => distanceToLine(d.landmarks.P2, d.landmarks.P1, d.landmarks.P3));
     out.quality = Object.assign({}, base.quality, {
       diameterPx: wmean(d => d.quality.diameterPx), sizeCv: mean(keep.map(d => d.quality.sizeCv)), minAxisRatio: Math.min(...keep.map(d => d.quality.minAxisRatio)),
-      burst: { total: dets.length, used: keep.length, heightSdPx: keep.length > 1 ? Math.sqrt(hk.reduce((s, v) => s + (v - mean(hk)) ** 2, 0) / (keep.length - 1)) : 0 }
+      burst: (() => { const sdp = keep.length > 1 ? Math.sqrt(hk.reduce((s, v) => s + (v - mean(hk)) ** 2, 0) / (keep.length - 1)) : 0; return { total: dets.length, used: keep.length, heightSdPx: sdp, seHeightPx: sdp / Math.sqrt(keep.length) }; })()
     });
     out.confidence = median(keep.map(d => d.confidence)); out.detectionConfidence = median(keep.map(d => d.detectionConfidence));
     // 바닥선: 검출된 프레임이 절반 이상일 때만, 기준점 축 가운데에서의 높이와 기울기를 중앙값으로 결합

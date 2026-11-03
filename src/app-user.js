@@ -348,10 +348,16 @@ async function finalizeExam(ex, log) {
   const category = cmp.status === '측정 가능' ? C.classify(cmp.changeMm) : null;
   log(category ? `연구 기준 분류: ${catBadge(category)}` : '연구 기준 분류: mm 값이 없어 분류하지 않음');
   const sdPenalty = cmp.scaleDiff != null ? 1 - Math.min(1, cmp.scaleDiff / 0.05) * 0.3 : 1;
+  // 측정 정밀도(반복 오차): 연속 촬영 프레임끼리의 흔들림으로 하강량의 표준오차(mm)를 계산 — 실제로 잰 값
+  const seOf = x => (x && x.quality && x.quality.burst && isFinite(x.quality.burst.seHeightPx)) ? x.quality.burst.seHeightPx : null;
+  const seP = seOf(ex.pre), seQ = seOf(ex.post);
+  if (cmp.mmPerPx && seP != null && seQ != null) { cmp.precisionMm = Math.sqrt(seP * seP + seQ * seQ) * cmp.mmPerPx; cmp.frames = [ex.pre.quality.burst.used, ex.post.quality.burst.used]; }
+  const precFactor = cmp.precisionMm != null ? 1 - Math.min(1, Math.max(0, cmp.precisionMm - 0.15) / 0.85) * 0.35 : 0.9;
+  const floorFactor = cmp.floor ? 1 : 0.95; // 바닥선까지 확인되면 두 방법으로 교차 확인 가능
   const rec = {
     id: ex.id, createdAt: Date.now(), participantId: ex.participantId, foot: ex.foot, toeDirection: ex.toeDirection, method: ex.method || 'stepwise',
     pre: strip(ex.pre), post: strip(ex.post), comparison: cmp, category,
-    measurementConfidence: Math.min(ex.pre.confidence, ex.post.confidence) * sdPenalty,
+    measurementConfidence: Math.min(1, Math.min(ex.pre.confidence, ex.post.confidence) * sdPenalty * precFactor * floorFactor),
     algorithmVersion: C.ALGORITHM_VERSION, appVersion: APP_VERSION, calibrationModel: model ? model.version : null,
     conversion: convSettings(), isTest: false, selfReport: {}, loadRecognition: ex.loadRecognition || null
   };
@@ -428,6 +434,7 @@ route('/result/:id', '측정 결과', async (v, p) => {
       <dt>이미지 품질</dt><dd>${e.pre.quality.sharp && e.post.quality.sharp ? '양호' : '흐림 있음'} (경계 ${e.pre.quality.edgeWidthPx?.toFixed(1)} / ${e.post.quality.edgeWidthPx?.toFixed(1)} px)</dd>
       <dt>스티커 검출 신뢰도</dt><dd>${pct(e.pre.detectionConfidence)} / ${pct(e.post.detectionConfidence)}</dd>
       <dt>측정 신뢰도(휴리스틱)</dt><dd>${pct(e.measurementConfidence)}</dd>
+      <dt>측정 정밀도(반복 오차)</dt><dd>${c.precisionMm != null ? '± ' + c.precisionMm.toFixed(2) + ' mm' + (c.frames ? ` <span class="tiny">(연속 사진 ${c.frames[0]}·${c.frames[1]}장 평균)</span>` : '') : '—'}</dd>
       <dt>전·후 축척 차이</dt><dd>${c.scaleDiff != null ? (c.scaleDiff * 100).toFixed(1) + '%' : '—'}</dd>
       <dt>촬영 방식</dt><dd>${modeLabel(e.pre.mode)} / ${modeLabel(e.post.mode)}</dd>
       ${e.loadRecognition ? `<dt>체중부하 인지</dt><dd>${loadRecText(e.loadRecognition)}</dd>` : ''}

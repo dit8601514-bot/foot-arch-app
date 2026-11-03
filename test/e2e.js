@@ -39,7 +39,7 @@ const R = []; const log = (n, ok, d) => { R.push([n, ok ? 'PASS' : 'FAIL', d || 
   const auto = await pg.waitForSelector('#use', { timeout: 15000 }).then(() => true).catch(() => false);
   log('자동 촬영 완료 및 검출 결과 미리보기', auto); await shot('07-review-pre');
   const preTxt = await pg.textContent('#review'); log('체중부하 전: mm 측정 가능', preTxt.includes('측정 가능'), (preTxt.match(/P2–기준선 거리([^m]*mm[^m]*mm)/) || [])[1]);
-  log('연속 촬영(버스트) 결합 정보 표시', /연속 촬영\s*\d+\/12 프레임 사용/.test(preTxt), (preTxt.match(/연속 촬영[^\n]*\n?[^\n]*/) || [''])[0].replace(/\s+/g, ' '));
+  log('연속 촬영(버스트) 결합 정보 표시', /연속 촬영\s*\d+\/16 프레임 사용/.test(preTxt), (preTxt.match(/연속 촬영[^\n]*\n?[^\n]*/) || [''])[0].replace(/\s+/g, ' '));
   await pg.click('#use');
   // 후: 파일 업로드
   await pg.waitForSelector('#autoSeg'); await pg.click('#autoSeg button[data-v="0"]'); await pg.setInputFiles('#file', path.join(__dirname, 'img/post.png'));

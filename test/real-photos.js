@@ -12,7 +12,11 @@ const C = require('../src/core.js'); const { chromium } = require('playwright');
       n++; const det = C.detectStickers(img, { toeDirection: toe }), g = det.landmarks && C.guideCheck(det, toe);
       const heelRight = det.landmarks && det.landmarks.P3.x > det.landmarks.P1.x; // 사진은 모두 발가락이 왼쪽
       const ok = det.ok && g && g.ok && heelRight && det.quality.minAxisRatio >= 0.78;
-      if (ok) pass++; console.log(ok ? 'PASS' : 'FAIL', f, '선택', toe, det.reasons.map(r => r.code).join(',') || '', g && g.code);
+      if (ok) pass++; console.log(ok ? 'PASS' : 'FAIL', f, '선택', toe, det.reasons.map(r => r.code).join(',') || '', g && g.code, '신뢰도', det.confidence);
+    }
+    // 카펫 바닥: 휴대폰이 바닥보다 조금 높은 사진(A·B)은 바닥선을 찾아야 함(바닥 높이 = 실측 범위)
+    if (/^(A_|B_)/.test(f)) { n++; const det = C.detectStickers(img, { toeDirection: 'right' }), sole = det.sole, h = sole && sole.ok ? C.heightAboveSole(det.landmarks.P2, sole) / det.quality.diameterPx * 19 : null;
+      const ok = !!(sole && sole.ok && h > 20 && h < 50); if (ok) pass++; console.log(ok ? 'PASS' : 'FAIL', f, '카펫 바닥선', sole && (sole.method || sole.reason), h && h.toFixed(1) + ' mm');
     }
   }
   await b.close(); console.log(`${pass}/${n} 통과`); process.exit(pass === n ? 0 : 1);

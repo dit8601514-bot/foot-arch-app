@@ -437,7 +437,7 @@ function createTracker(opts) {
  * 연속 촬영: 12프레임을 찍어 흐린·튀는 프레임을 버리고 좌표를 평균한다(카메라는 끄지 않음).
  * 반환: { canvas, det, meas, combined }
  */
-const BURST = 12, MAXSIDE = 1600;
+const BURST = 16, MAXSIDE = 1600; // 16장 연속 → 흔들린 장면 제외 후 가중 평균(반복 오차 ↓)
 async function burstCapture(video, toe, priorNorm, rot) {
   const dets = new Array(BURST).fill(null), jobs = []; let keep = null; const mid = Math.floor(BURST / 2);
   for (let i = 0; i < BURST; i++) {
@@ -447,7 +447,7 @@ async function burstCapture(video, toe, priorNorm, rot) {
     const prior = priorNorm ? Object.fromEntries(['P1', 'P2', 'P3'].map(k => [k, { x: priorNorm[k].x * img.width, y: priorNorm[k].y * img.width }])) : null;
     jobs.push(Detector.run(img, { toeDirection: toe, prior }).then(d => { dets[i] = d; }).catch(() => {}));
     if (i >= 2) await jobs[i - 2]; // 동시에 처리 중인 프레임을 3개 이하로 제한(메모리)
-    await new Promise(r => setTimeout(r, 70));
+    await new Promise(r => setTimeout(r, 55));
   }
   await Promise.all(jobs);
   if (!keep) return { canvas: null, det: { ok: false, reasons: [{ msg: '카메라 프레임을 가져오지 못했습니다.' }], stickers: [], rejected: [] }, meas: null };
