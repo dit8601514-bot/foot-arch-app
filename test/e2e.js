@@ -14,7 +14,9 @@ const R = []; const log = (n, ok, d) => { R.push([n, ok ? 'PASS' : 'FAIL', d || 
   fs.mkdirSync(path.join(__dirname, 'shots'), { recursive: true });
   const U = 'http://localhost:8765/';
   await pg.goto(U + '#/home'); await pg.waitForSelector('text=측정하기'); await shot('01-home');
-  log('홈: 환산 미검증 경고 표시', await pg.isVisible('text=mm 환산이 아직 검증되지 않았습니다'));
+  log('홈: 기본 스티커 지름 16 mm로 mm 환산(미검증 경고 없음)', !(await pg.isVisible('text=mm 환산이 아직 검증되지 않았습니다')));
+  await pg.goto(U + '#/settings'); await pg.waitForSelector('#dia');
+  log('설정: 스티커 지름 16 mm 기본값·환산 기준 표시', (await pg.inputValue('#dia')) === '16' && (await pg.textContent('main')).includes('스티커 지름 16 mm 기준'));
   // 연구자: PIN 설정 → 지름 → 템플릿 검증
   await pg.goto(U + '#/r/calib'); await pg.fill('#p1', '1234'); await pg.fill('#p2', '1234'); await pg.click('#go');
   await pg.waitForSelector('#dia'); await pg.fill('#dia', '10'); await pg.click('#saveD'); await pg.waitForTimeout(400);

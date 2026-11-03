@@ -145,7 +145,7 @@ route('/r/calib', '측정 알고리즘 보정', async (v) => {
     <div class="card small"><b>현재 검출·환산 파라미터 (${C.ALGORITHM_VERSION})</b><pre style="white-space:pre-wrap;font-size:12px">${esc(JSON.stringify({ detect: C.DEFAULT_DETECT, conversion: C.DEFAULT_CONVERSION }, null, 1))}</pre><p class="tiny">이 값들은 초기 휴리스틱이며 실제 사진 자료로 검증·조정이 필요합니다.</p></div>`;
   const paintPm = () => $$('#pmSeg button', v).forEach(b => b.classList.toggle('on', b.dataset.v === (S.settings.primaryMeasure || 'line')));
   $$('#pmSeg button', v).forEach(b => b.onclick = async () => { S.settings.primaryMeasure = b.dataset.v; await saveSettings(); paintPm(); toast('분류 기준 측정값을 바꿨습니다(새 검사부터 적용).'); }); paintPm();
-  $('#saveD', v).onclick = async () => { const d = num($('#dia', v).value); if (!(d > 2 && d < 50)) return toast('지름은 2~50mm 사이 숫자로 입력해 주세요.', true); S.settings.stickerDiameterMm = d; if (await saveSettings()) { toast('저장했습니다.'); render(); } };
+  $('#saveD', v).onclick = async () => { const d = num($('#dia', v).value); if (!(d > 2 && d < 50)) return toast('지름은 2~50mm 사이 숫자로 입력해 주세요.', true); S.settings.stickerDiameterMm = d; S.settings.diameterSource = 'user'; if (await saveSettings()) { toast('저장했습니다.'); render(); } };
   $('#tpl', v).onclick = () => download(`foot-arch-template-${D}mm.svg`, templateSvg(D), 'image/svg+xml');
   $('#vf', v).onchange = e => {
     const file = e.target.files[0]; if (!file) return; const tol = num($('#tol', v).value) || 1.0;

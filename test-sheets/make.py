@@ -37,15 +37,15 @@ def sheet(p2h, title, sub, out, seed):
     d=ImageDraw.Draw(im)
     # 복사뼈 표시(옅게)
     mx,my=px(6.2,7.2); r=0.9*S; d.ellipse([mx-r,my-r,mx+r,my+r],outline=(205,152,122),width=4)
-    # 스티커: 지름 10 mm 파란 원
-    R=0.5*S; pts={'P3':(4.0,2.0),'P2':(10.6,p2h),'P1':(18.5,2.0)}
+    # 스티커: 지름 16 mm 파란 원
+    R=0.8*S; pts={'P3':(4.0,2.0),'P2':(10.6,p2h),'P1':(18.5,2.0)}
     for k,(x,y) in pts.items():
         cx,cy=px(x,y); d.ellipse([cx-R,cy-R,cx+R,cy+R],fill=(28,92,214))
     # 안내 문구·축척 막대(오른쪽 위 벽면)
     tx=int(13.2*S); ty=int(1.0*S)
     d.text((tx,ty),title,fill=(40,40,40),font=font(78,True))
     d.text((tx,ty+int(1.0*S)),sub,fill=(70,70,70),font=font(46))
-    lines=['왼발 안쪽 · 발가락 오른쪽 · 스티커 지름 10 mm','P1·P3: 바닥 위 20 mm   P2: 바닥 위 %d mm'%round(p2h*10),'100% 크기로 인쇄(용지에 맞춤 끄기) — 아래 막대가 100 mm인지 자로 확인']
+    lines=['왼발 안쪽 · 발가락 오른쪽 · 스티커 지름 16 mm','P1·P3: 바닥 위 20 mm   P2: 바닥 위 %d mm'%round(p2h*10),'100% 크기로 인쇄(용지에 맞춤 끄기) — 아래 막대가 100 mm인지 자로 확인']
     for i,l in enumerate(lines): d.text((tx,ty+int((1.9+0.62*i)*S)),l,fill=(80,80,80),font=font(38))
     by=ty+int(4.0*S); d.rectangle([tx,by,tx+10*S,by+0.25*S],fill=(40,40,40))
     for i in range(11): d.line([(tx+i*S,by-0.25*S),(tx+i*S,by)],fill=(40,40,40),width=4)

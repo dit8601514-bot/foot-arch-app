@@ -855,8 +855,49 @@
    * 목표 원 정렬 판정: P3·P1이 각자의 원 안, P2가 발배뼈 범위 안(실제 P1·P3 기준).
    * 반환 { ok, code, msg, inP3, inP1, inP2 } — msg는 무엇을 하면 되는지(방향 포함).
    */
+  // 표준 발 모델을 실제 P3·P1에 맞춰 놓는 닮음 변환(이동·확대·회전). 모델 (x cm, y cm) → 영상 좌표.
+  function fitFootModel(L, toe) {
+    const M = FOOT_MODEL, span = dist(L.P1, L.P3), s = span / (M.P1.x - M.P3.x);
+    const u = { x: (L.P1.x - L.P3.x) / span, y: (L.P1.y - L.P3.y) / span };
+    let nx = u.y, ny = -u.x; if (ny > 0) { nx = -nx; ny = -ny; } // 위쪽(바닥에서 멀어지는 방향)
+    const X = (x, y) => ({ x: L.P3.x + u.x * (x - M.P3.x) * s + nx * (y - M.P3.y) * s, y: L.P3.y + u.y * (x - M.P3.x) * s + ny * (y - M.P3.y) * s });
+    return { scale: s, u, X, outline: M.outline.map(([x, y]) => X(x, y)), heel: X(0.8, 1.2), toeTip: X(21.5, 1.6) /* 측정에 필요한 범위: 뒤꿈치 ~ 앞발 접지부(발가락 끝은 잘려도 됨) */, heelFloor: X(1.5, 0), toeFloor: X(22, 0), angleDeg: Math.atan2(u.y, Math.abs(u.x)) * 180 / Math.PI };
+  }
+  /**
+   * 적응형 가이드(기본): 스티커가 보이면 표준 발 윤곽을 실제 발에 맞춰 놓고
+   * ① 발 전체(뒤꿈치~발끝·발바닥)가 화면 안 ② 크기 적당(P1–P3가 화면 폭의 30~80%) ③ 발 축 수평(±10°) ④ P2가 발배뼈 범위
+   * 를 확인한다. 휴대폰과 발의 거리가 사람마다 달라도 정확히 맞출 수 있게, 고정된 목표 원 대신 실제 발 기준으로 판정.
+   * layout.mode === 'fixed' 이면 예전 방식(고정 목표 원)을 쓴다.
+   */
   function guideCheck(det, toe, layout) {
     if (!det || !det.landmarks) return { ok: false, code: 'NONE', msg: '발 안쪽의 스티커 세 개가 화면에 보이게 해 주십시오' };
+    if (!(layout && layout.mode === 'fixed')) return guideCheckAdaptive(det, toe);
+    return guideCheckFixed(det, toe, layout);
+  }
+  function guideCheckAdaptive(det, toe) {
+    const [W, H] = det.imageSize, L = det.landmarks, F = fitFootModel(L, toe), M = FOOT_MODEL;
+    const span = dist(L.P1, L.P3);
+    const t = projectionT(L.P2, L.P3, L.P1), hl = signedDistanceToLine(L.P2, L.P1, L.P3) / F.scale + M.P3.y;
+    const Z = M.P2zone, inP2 = t >= Z.t[0] && t <= Z.t[1] && hl >= Z.hCm[0] && hl <= Z.hCm[1];
+    const out = { inP3: true, inP1: true, inP2, t, p2HeightCm: hl, fit: F, adaptive: true, spanFrac: span / W };
+    const fail = (code, msg) => Object.assign(out, { ok: false, code, msg });
+    const mx = 0.01 * W, frac = span / W;
+    if (frac < 0.30) return fail('FAR', '휴대폰을 발에 조금 더 가까이 두십시오');
+    if (frac > 0.80) return fail('NEAR', '휴대폰을 발에서 조금 더 멀리 두십시오');
+    if (Math.abs(F.angleDeg) > 10) return fail('TILT', '휴대폰이 기울어져 있습니다. 바닥과 수평이 되게 세워 주십시오');
+    const xs = [F.heel.x, F.toeTip.x], lo = Math.min(...xs), hi = Math.max(...xs);
+    const heelOutLeft = F.heel.x < mx, heelOutRight = F.heel.x > W - mx, toeOutLeft = F.toeTip.x < mx, toeOutRight = F.toeTip.x > W - mx;
+    if ((heelOutLeft || heelOutRight) && (toeOutLeft || toeOutRight)) return fail('NEAR', '발 전체가 보이지 않습니다. 휴대폰을 발에서 조금 더 멀리 두십시오');
+    if (heelOutLeft || heelOutRight) return fail('HEEL_CUT', '뒤꿈치가 화면 밖에 있습니다. 발을 조금 앞으로 옮겨 주십시오');
+    if (toeOutLeft || toeOutRight) return fail('TOE_CUT', '발끝이 화면 밖에 있습니다. 발을 조금 뒤로 옮겨 주십시오');
+    const floorY = Math.max(F.heelFloor.y, F.toeFloor.y);
+    if (floorY > H - 0.01 * H) return fail('TOO_LOW', '발바닥이 화면 아래로 잘립니다. 휴대폰 렌즈를 조금 아래로 향하게 해 주십시오');
+    if (Math.min(L.P2.y, L.P1.y, L.P3.y) < 0.06 * H) return fail('TOO_HIGH', '발이 화면 위쪽에 있습니다. 휴대폰 렌즈를 조금 위로 향하게 해 주십시오');
+    if (!inP2) return fail('P2_ZONE', hl < Z.hCm[0] ? '가운데 스티커가 너무 낮습니다. 발배뼈 결절에 붙였는지 확인해 주십시오' : '가운데 스티커 위치를 확인해 주십시오. 발배뼈 결절에 붙여야 합니다');
+    void lo; void hi;
+    return Object.assign(out, { ok: true, code: 'OK', msg: '발이 가이드에 정확히 들어왔습니다' });
+  }
+  function guideCheckFixed(det, toe, layout) {
     const [W, H] = det.imageSize, g = guideGeometry(W, H, toe, layout), L = det.landmarks;
     const d3 = Math.hypot(L.P3.x - g.P3.x, L.P3.y - g.P3.y), d1 = Math.hypot(L.P1.x - g.P1.x, L.P1.y - g.P1.y);
     const inP3 = d3 <= g.P3.r, inP1 = d1 <= g.P1.r;
@@ -1108,6 +1149,6 @@
     rgbToHsv, detectStickers, labelLandmarks, signedDistanceToLine, distanceToLine, projectionT,
     measureImage, comparePrePost, classify, roundMm, errorMetrics,
     splitByParticipant, trainCalibration, applyCalibration, fitMethod, validateConversion,
-    motionBetween, framingCheck, laplacianVariance, archAngle, cropImage, detectInRoi, labelsConsistent, combineDetections, createLandmarkKalman, chromaMap, ALIGN, alignmentCheck, LOAD, loadEvidence, shapeOf, FOOT_MODEL, GUIDE_LAYOUT, guideGeometry, guideCheck, detectSoleLine, heightAboveSole
+    motionBetween, framingCheck, laplacianVariance, archAngle, cropImage, detectInRoi, labelsConsistent, combineDetections, createLandmarkKalman, chromaMap, ALIGN, alignmentCheck, LOAD, loadEvidence, shapeOf, FOOT_MODEL, GUIDE_LAYOUT, guideGeometry, guideCheck, fitFootModel, detectSoleLine, heightAboveSole
   };
 });

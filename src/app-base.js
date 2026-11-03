@@ -1,7 +1,7 @@
 'use strict';
 /* ═════════════ 기본: 저장소 · 상태 · 유틸 · 라우터 ═════════════ */
 const C = window.FootCore;
-const APP_VERSION = '2.2.0';
+const APP_VERSION = '2.3.0';
 const STORES = ['settings', 'exams', 'exercises', 'logs', 'errors', 'models', 'blobs', 'validations'];
 
 const DB = (() => {
@@ -50,7 +50,7 @@ async function save(store, obj) {
 
 const DEFAULT_SETTINGS = {
   id: 'app', participantId: '', savePhotos: false, privacyAck: false, shutterDelay: 10,
-  stickerDiameterMm: null, validation: null, researcherPinHash: null,
+  stickerDiameterMm: 16, diameterSource: 'spec', validation: null, researcherPinHash: null, // 실제 스티커 지름 16 mm(사용 스티커 규격)
   activeModelId: null, mapping: { normal: [], mild: [], moderate: [], severe: [] }, seeded: false
 };
 const S = { settings: null, exam: null, researcherUnlocked: false, stream: null, loopTimer: null };
@@ -59,6 +59,8 @@ async function loadSettings() {
   let s = null;
   try { s = await DB.get('settings', 'app'); } catch (e) { /* 메모리 폴백 */ }
   S.settings = Object.assign({}, DEFAULT_SETTINGS, s || {});
+  // 이전 버전에서 지름이 비어 있던 기기: 사용 스티커 규격(16 mm)으로 채운다
+  if (!(S.settings.stickerDiameterMm > 0)) { S.settings.stickerDiameterMm = 16; S.settings.diameterSource = 'spec'; }
   S.settings.mapping = Object.assign({ normal: [], mild: [], moderate: [], severe: [] }, S.settings.mapping);
   if (!S.settings.seeded) await seedContent();
 }
@@ -145,7 +147,14 @@ const ICON = (() => {
     calendar: o('<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/>'),
     logout: o('<path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="M10 17l-5-5 5-5M5 12h11"/>'),
     cloud: o('<path d="M7 18h10a4 4 0 0 0 .5-8A6 6 0 0 0 6 9.5 4.3 4.3 0 0 0 7 18z"/>'),
-    mic: o('<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>')
+    mic: o('<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>'),
+    camera: o('<path d="M4 8h3l1.6-2.4A1.5 1.5 0 0 1 9.8 5h4.4a1.5 1.5 0 0 1 1.2.6L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.6"/>'),
+    rotate: o('<path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/>'),
+    stop: o('<rect x="6" y="6" width="12" height="12" rx="2"/>'),
+    vol: o('<path d="M4 10v4h4l5 4V6L8 10z"/><path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/>'),
+    volOff: o('<path d="M4 10v4h4l5 4V6L8 10z"/><path d="M17 9l5 6M22 9l-5 6"/>'),
+    listFill: '<svg viewBox="0 0 24 24"><rect x="2.5" y="4" width="19" height="16" rx="3.5" fill="currentColor"/><path d="M7 9h1.2M10.5 9H17M7 12h1.2M10.5 12H17M7 15h1.2M10.5 15H17" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/></svg>',
+    playFill: '<svg viewBox="0 0 24 24"><rect x="2.5" y="4" width="19" height="16" rx="3.5" fill="currentColor"/><path d="M10 8.6v6.8a.6.6 0 0 0 .9.5l5.4-3.4a.6.6 0 0 0 0-1L10.9 8.1a.6.6 0 0 0-.9.5z" fill="#fff"/></svg>'
   };
 })();
 // 두 발자국(시안의 파란 발 일러스트) — 그라데이션 채움

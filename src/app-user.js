@@ -1,9 +1,12 @@
 'use strict';
 /* ═════════════ 일반 사용자 화면 ═════════════ */
+// mm 환산: 스티커의 실제 지름(기본 16 mm)을 기준 길이로 쓴다. 보정 템플릿(테스트 시트) 시험을 통과하면 '시트 검증'으로 표시한다.
 function convSettings() {
-  const v = S.settings.validation;
-  return { stickerDiameterMm: S.settings.stickerDiameterMm, validated: !!(v && v.pass && v.diameterMm === S.settings.stickerDiameterMm), primaryMeasure: S.settings.primaryMeasure || 'line' };
+  const v = S.settings.validation, D = S.settings.stickerDiameterMm;
+  const sheet = !!(v && v.pass && v.diameterMm === D);
+  return { stickerDiameterMm: D, validated: D > 0 && (sheet || !!S.settings.diameterSource), basis: sheet ? 'sheet' : 'diameter', primaryMeasure: S.settings.primaryMeasure || 'line' };
 }
+function convBasisText() { const c = convSettings(); return `스티커 지름 ${c.stickerDiameterMm} mm 기준${c.basis === 'sheet' ? ' · 테스트 시트 검증 통과' : ''}`; }
 function defaultToe(foot) { return foot === 'left' ? 'right' : 'left'; } // 안쪽 면 촬영 시 자연스러운 발가락 방향
 function stepper(n) { const k = n <= 5 ? 1 : n === 6 ? 2 : 3; const st = (i, l) => `<div class="st ${i <= k ? 'on' : ''}"><b>${i}</b>${l}</div>`; return `<div class="stepper" aria-label="검사 ${k}/3단계">${st(1, '촬영')}<div class="ln ${k > 1 ? 'on' : ''}"></div>${st(2, '분석')}<div class="ln ${k > 2 ? 'on' : ''}"></div>${st(3, '결과')}</div>`; }
 const DISCLAIMER = '개인 건강관리용 앱입니다. 이 결과는 자가 확인과 관리를 위한 참고 정보입니다. 이 애플리케이션만으로 평발을 확정 진단하지 않으며, 본 측정은 연구에서 정의한 기준점 간 거리 변화 방식으로 표준 임상 발배뼈 하강 검사(Navicular Drop Test)와 동일하다고 검증되지 않았습니다. 통증이나 불편이 있으면 전문가와 상담하세요.';
@@ -15,28 +18,23 @@ route('/home', 'AI Footarch', async (v) => {
   const cv = convSettings(), me = typeof Account !== 'undefined' ? Account.user() : null;
   const mgmt = ['left', 'right'].map(f => exams.find(e => e.foot === f && e.category)).filter(e => e && e.category.key !== 'normal').map(e => FOOT[e.foot]).join('·');
   v.innerHTML = `
-    <section class="hero">
+    <section class="home-hero">
       <div class="bar">${logoHtml(false)}<a href="#/settings" aria-label="설정·알림">${ICON.bell}</a></div>
       <h2>${me && me.name ? esc(me.name) + '님, ' : ''}안녕하세요!</h2>
       <p>발 건강 관리를 시작해볼까요? 👣</p>
+      <a class="menu-pill" href="#/self"><span class="mi">${ICON.scan}</span>측정하기<span class="chev">${ICON.chev}</span></a>
+      <a class="menu-pill" href="#/records"><span class="mi">${ICON.listFill}</span>기록보기<span class="chev">${ICON.chev}</span></a>
+      <a class="menu-pill" href="#/exercises"><span class="mi">${ICON.playFill}</span>족궁재활영상<span class="chev">${ICON.chev}</span></a>
     </section>
-    <div class="menu-cards">
-      <a class="menu-card" href="#/self"><span class="mi">${ICON.scan}</span><span>측정하기<span class="sub">음성 안내로 앉은·선 자세 자동 촬영</span></span><span class="chev">${ICON.chev}</span></a>
-      <a class="menu-card" href="#/records"><span class="mi">${ICON.list}</span><span>기록보기<span class="sub">측정 달력과 변화 추이</span></span><span class="chev">${ICON.chev}</span></a>
-      <a class="menu-card" href="#/exercises"><span class="mi">${ICON.playBox}</span><span>족궁재활영상<span class="sub">결과에 맞춘 운동 영상</span></span><span class="chev">${ICON.chev}</span></a>
-    </div>
-    ${!cv.validated ? `<div class="note warn small"><b>mm 환산이 아직 검증되지 않았습니다.</b> 연구자가 스티커 지름 설정과 보정 템플릿 시험을 마치기 전까지는 픽셀 값만 기록되고 분류는 표시되지 않습니다.</div>` : ''}
-    ${mgmt ? `<a class="card" style="display:block;text-decoration:none;color:inherit" href="#/manage"><div class="row"><b class="grow">유연성 평발 관리 중</b><span class="badge b-warn">${esc(mgmt)}</span></div><div class="tiny">운동 기록과 하강량 변화를 확인하세요 ›</div></a>` : ''}
-    <h3>최근 결과</h3>
-    <div class="grid2">${['left', 'right'].map(f => { const e = latest(f); return `<a class="card" style="margin:0;text-decoration:none;color:inherit" href="${e ? '#/result/' + e.id : '#/self?feet=' + f}">
-      <div class="tiny">${FOOT[f]}</div>
-      ${e ? `<div style="font-size:22px;font-weight:800">${e.comparison.changeMm != null ? mm(e.comparison.changeMm) : statusBadge(e.comparison.status)}</div><div>${catBadge(e.category)}</div><div class="tiny">${fmtDate(e.createdAt)}</div>` : '<div class="muted small" style="margin-top:6px">기록 없음 · 측정하기 ›</div>'}
+    <div class="sec-title">최근 결과</div>
+    <div class="grid2">${['left', 'right'].map(f => { const e = latest(f); return `<a class="mini" href="${e ? '#/result/' + e.id : '#/self?feet=' + f}">
+      <div class="tiny" style="font-weight:700">${FOOT[f]}</div>
+      ${e ? `<div style="font-size:20px;font-weight:800;margin:2px 0">${e.comparison.changeMm != null ? mm(e.comparison.changeMm) : statusBadge(e.comparison.status)}</div><div>${catBadge(e.category)}</div><div class="tiny" style="margin-top:4px">${fmtDate(e.createdAt)}</div>` : '<div class="muted small" style="margin-top:4px">기록 없음 · 측정하기 ›</div>'}
     </a>`; }).join('')}</div>
-    <div class="card"><div class="list-item" style="padding-top:0"><span class="grow">스티커 부착 위치·부착 자</span><a class="btn sm" href="#/stickers-info">보기</a></div>
-    <div class="list-item"><span class="grow">단계별 검사(직접 촬영)</span><span class="row" style="gap:6px"><button class="btn sm" data-foot="left">왼발</button><button class="btn sm" data-foot="right">오른발</button></span></div>
-    <div class="list-item" style="padding-bottom:0"><span class="grow">연구자·관리자 모드</span><a class="btn sm" href="#/r/home">열기</a></div></div>
-    ${!isStandalone() && location.protocol === 'https:' ? `<div class="card small"><b>휴대폰 홈 화면에 앱으로 설치</b><p class="tiny">${installEvt ? '아래 버튼을 누르면 설치됩니다.' : /iPhone|iPad/.test(navigator.userAgent) ? 'Safari 아래쪽 공유 버튼 → “홈 화면에 추가”를 누르세요.' : '브라우저 메뉴 → “앱 설치” 또는 “홈 화면에 추가”를 누르세요.'} 설치하면 주소창 없이 열리고, 인터넷이 없어도 열립니다.</p>${installEvt ? '<button class="btn primary block" id="install">앱 설치</button>' : ''}</div>` : ''}
-    <p class="tiny">${esc(DISCLAIMER)}</p>`;
+    ${mgmt ? `<a class="mini" style="margin-top:10px" href="#/manage"><div class="row"><b class="grow small">유연성 평발 관리 중</b><span class="badge b-warn">${esc(mgmt)}</span></div></a>` : ''}
+    ${!isStandalone() && location.protocol === 'https:' ? `<div class="mini small" style="margin-top:10px"><b>홈 화면에 앱으로 추가</b><div class="tiny">${installEvt ? '<button class="btn sm primary" id="install" style="margin-top:6px">앱 설치</button>' : /iPhone|iPad/.test(navigator.userAgent) ? 'Safari 아래쪽 공유 버튼 → “홈 화면에 추가”' : '브라우저 메뉴 → “앱 설치” 또는 “홈 화면에 추가”'}</div></div>` : ''}
+    <div class="links"><a href="#/stickers-info">스티커 부착 위치</a><a href="#/guide?foot=left">단계별 검사</a><a href="#/r/home">연구자 모드</a></div>
+    <p class="tiny" style="text-align:center;margin:4px 8px 0">개인 건강관리용 참고 정보이며 진단이 아닙니다.</p>`;
   $$('[data-foot]', v).forEach(b => b.onclick = () => go('#/guide?foot=' + b.dataset.foot));
   if ($('#install', v)) $('#install', v).onclick = async () => { installEvt.prompt(); await installEvt.userChoice.catch(() => {}); installEvt = null; render(); };
 }, { bare: true });
@@ -387,7 +385,7 @@ route('/result/:id', '측정 결과', async (v, p) => {
   const ang = c.archAngle, fl = c.floor, deg = x => x == null ? '—' : x.toFixed(1) + '°';
   const metric = (icon, label, sub, val) => `<div class="metric"><span class="mi">${icon}</span><span class="lab">${label}${sub ? `<small>${sub}</small>` : ''}</span><span class="val">${val}</span></div>`;
   v.innerHTML = `${stepper(7)}
-    <div class="row"><span class="badge b-info">${FOOT[e.foot]}</span><span class="tiny grow">${fmtDate(e.createdAt)} · ${esc(e.algorithmVersion)}${e.calibrationModel ? ' + ' + esc(e.calibrationModel) : ''}</span>${statusBadge(c.status)}</div>
+    <div class="row"><span class="badge b-info">${FOOT[e.foot]}</span><span class="tiny grow" style="color:rgba(255,255,255,.92);font-weight:600">${fmtDate(e.createdAt)} · ${esc(e.algorithmVersion)}${e.calibrationModel ? ' + ' + esc(e.calibrationModel) : ''}</span>${statusBadge(c.status)}</div>
     <div class="card hero-result">
       <span class="feet">${footprintsSvg('r')}</span>
       <div class="grow">
@@ -583,19 +581,25 @@ route('/settings', '설정 및 개인정보', async (v) => {
     <div class="card"><label class="f" for="pid">연구 참여자 ID (익명)</label>
       <input id="pid" value="${esc(S.settings.participantId)}" placeholder="예: P001" maxlength="20" autocomplete="off">
       <p class="tiny">이름·연락처 등 실명 정보를 넣지 마세요. 영문·숫자·-·_ 만 사용할 수 있습니다.</p>
+      <label class="f" for="dia">스티커 실제 지름 (mm)</label>
+      <input id="dia" type="number" inputmode="decimal" step="0.1" min="3" max="40" value="${esc(String(S.settings.stickerDiameterMm || 16))}">
+      <p class="tiny">mm 값은 이 지름을 기준으로 계산합니다. 자로 잰 실제 지름을 넣으세요(지금 쓰는 스티커: 16 mm).</p>
       <label class="chk"><input type="checkbox" id="photos" ${S.settings.savePhotos ? 'checked' : ''}><span class="small"><b>촬영 사진을 이 기기에 저장</b><br>끄면 사진은 분석 직후 버려지고 스티커 좌표·측정값만 저장됩니다. 연구자 검토(이미지 참조)를 위해서는 켜야 합니다.</span></label>
       <button class="btn primary block" id="saveS">저장</button></div>
     <div class="card"><b>데이터 보관 방식</b>
-      <p class="small">모든 기록은 이 브라우저(IndexedDB)에만 저장됩니다. 서버·클라우드 동기화와 다기기 공유는 <b>구현되어 있지 않습니다</b>. 브라우저 데이터를 지우면 기록도 삭제됩니다.</p>
+      <p class="small">기록은 먼저 이 기기(브라우저)에 저장됩니다. 로그인하면 측정값이 서버와 동기화되고, 사진은 올리지 않습니다. 로그인하지 않으면 브라우저 데이터를 지울 때 기록도 삭제됩니다.</p>
       ${est ? `<p class="tiny">사용 중 ${(est.usage / 1048576).toFixed(1)}MB / 허용 ${(est.quota / 1048576).toFixed(0)}MB</p>` : ''}
       <button class="btn block" id="exp">내 데이터 내보내기(JSON)</button>
       <button class="btn danger block" id="wipe">내 검사·운동 기록 모두 삭제</button></div>
-    <div class="card small"><dl class="kv"><dt>앱 버전</dt><dd>${APP_VERSION}</dd><dt>측정 알고리즘</dt><dd>${C.ALGORITHM_VERSION}</dd><dt>스티커 지름 설정</dt><dd>${S.settings.stickerDiameterMm ? S.settings.stickerDiameterMm + ' mm' : '미설정'}</dd><dt>mm 환산 검증</dt><dd>${convSettings().validated ? '통과' : '미통과'}</dd></dl></div>
+    <div class="card small"><dl class="kv"><dt>앱 버전</dt><dd>${APP_VERSION}</dd><dt>측정 알고리즘</dt><dd>${C.ALGORITHM_VERSION}</dd><dt>스티커 지름 설정</dt><dd>${S.settings.stickerDiameterMm ? S.settings.stickerDiameterMm + ' mm' : '미설정'}</dd><dt>mm 환산</dt><dd>${esc(convBasisText())}</dd></dl></div>
     <a class="btn block" href="#/r/home">연구자·관리자 모드</a>`;
   bindAccountCard(v);
   $('#saveS', v).onclick = async () => {
     const pid = $('#pid', v).value.trim();
     if (pid && !/^[A-Za-z0-9_-]{1,20}$/.test(pid)) return toast('참여자 ID는 영문·숫자·-·_ 20자 이내로 입력해 주세요.', true);
+    const d = parseFloat($('#dia', v).value);
+    if (!(d >= 3 && d <= 40)) return toast('스티커 지름은 3~40 mm 사이로 입력해 주세요.', true);
+    if (d !== S.settings.stickerDiameterMm) { S.settings.stickerDiameterMm = d; S.settings.diameterSource = 'user'; }
     S.settings.participantId = pid; S.settings.savePhotos = $('#photos', v).checked;
     if (await saveSettings()) toast('설정을 저장했습니다.');
   };

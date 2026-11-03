@@ -41,15 +41,15 @@ const Voice = (() => {
       const go = () => { try { if (speechSynthesis.paused) speechSynthesis.resume(); speechSynthesis.speak(u); } catch (e) { clearTimeout(t); res(false); } };
       go();
       // 음성 엔진이 멈춰 말을 시작하지 않으면 한 번 초기화하고 다시 말한다
-      const kick = () => { if (started || my !== gen || tries >= 1) return; tries++; try { speechSynthesis.cancel(); } catch (e) {} setTimeout(go, 120); };
-      setTimeout(kick, 2500);
+      const kick = () => { if (started || my !== gen || tries >= 1 || speechSynthesis.speaking) return; tries++; try { speechSynthesis.cancel(); } catch (e) {} setTimeout(go, 120); };
+      setTimeout(kick, 3000);
     });
   }
   async function say(text, opts) {
     const o = Object.assign({ interrupt: true, chime: true }, opts);
     if (!enabled || !ok()) return false;
     let my;
-    if (o.interrupt) { my = ++gen; try { speechSynthesis.cancel(); } catch (e) {} await wait(80); } // 취소 직후 바로 말하면 무시하는 기기 대비
+    if (o.interrupt) { my = ++gen; if (talking || speechSynthesis.speaking || speechSynthesis.pending) { try { speechSynthesis.cancel(); } catch (e) {} await wait(120); } } // iOS: 말하는 중이 아닐 때 cancel하면 다음 말이 묻히는 문제 회피 // 취소 직후 바로 말하면 무시하는 기기 대비
     else {
       // 보조 안내: 앞 안내가 끝날 때까지 최대 6초 기다렸다가 말한다(버리지 않음). 기기의 speaking 값은 믿지 않고 앱이 직접 추적.
       my = gen; const t0 = Date.now();
@@ -151,35 +151,102 @@ function orientVote(det) {
 
 // 화면 가이드(점선) — 판정에 쓰는 C.GUIDE와 같은 영역을 그린다
 // 표준 발 가이드(안쪽 면 실루엣 · 바닥선 · 스티커 목표 영역)를 영상 위에 그린다. 판정(C.guideCheck)과 같은 기하를 쓴다.
-function drawGuide(g, ox, oy, k, IW, IH, toe, st, hint, sole) {
-  const G = C.guideGeometry(IW, IH, toe), M = C.FOOT_MODEL;
-  const T = p => [ox + p.x * k, oy + p.y * k];
-  const ok = st && st.ready, green = 'rgba(46,204,113,.95)', white = 'rgba(255,255,255,.85)', yellow = 'rgba(255,212,0,.95)';
-  // 발 윤곽
-  g.beginPath(); G.outline.forEach((p, i) => { const [x, y] = T(p); i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.closePath();
-  g.fillStyle = ok ? 'rgba(46,204,113,.10)' : 'rgba(255,255,255,.07)'; g.fill();
-  g.strokeStyle = ok ? green : white; g.lineWidth = 2; g.setLineDash([]); g.stroke();
-  // 안쪽 복사뼈(부착 위치 아님)
-  const [mx, my] = T(G.malleolus); g.setLineDash([3, 3]); g.lineWidth = 1.2; g.strokeStyle = 'rgba(255,255,255,.6)'; g.beginPath(); g.arc(mx, my, G.malleolus.r * k, 0, 7); g.stroke(); g.setLineDash([]);
-  // 표준 바닥선
-  const [fx0, fy] = T({ x: Math.min(G.heelX, G.toeX) - 0.03 * IW, y: G.floorY }), [fx1] = T({ x: Math.max(G.heelX, G.toeX) + 0.03 * IW, y: G.floorY });
-  g.strokeStyle = 'rgba(255,255,255,.7)'; g.setLineDash([10, 6]); g.lineWidth = 1.5; g.beginPath(); g.moveTo(fx0, fy); g.lineTo(fx1, fy); g.stroke(); g.setLineDash([]);
-  // P2(발배뼈) 탐색 영역: 표준 위치 기준 사각형
-  const Z = M.P2zone, cm = (t, h) => T({ x: G.X(M.P3.x + t * (M.P1.x - M.P3.x)), y: G.Y(h) });
-  const q = [cm(Z.t[0], Z.hCm[0]), cm(Z.t[1], Z.hCm[0]), cm(Z.t[1], Z.hCm[1]), cm(Z.t[0], Z.hCm[1])];
-  g.beginPath(); q.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.closePath();
-  g.setLineDash([5, 4]); g.lineWidth = 1.5; g.strokeStyle = st && st.inP2 ? green : 'rgba(255,255,255,.65)'; g.stroke(); g.setLineDash([]);
-  // P3·P1 목표 원
-  const ring = (P, inside, label) => { const [x, y] = T(P); g.lineWidth = inside ? 3 : 2; g.strokeStyle = inside ? green : st && st.seen ? yellow : white; g.beginPath(); g.arc(x, y, P.r * k, 0, 7); g.stroke(); g.font = 'bold 12px system-ui'; g.fillStyle = 'rgba(0,0,0,.55)'; const w2 = g.measureText(label).width + 8; g.fillRect(x - w2 / 2, y + P.r * k + 3, w2, 17); g.fillStyle = '#fff'; g.textAlign = 'center'; g.fillText(label, x, y + P.r * k + 16); g.textAlign = 'start'; };
-  ring(G.P3, st && st.inP3, 'P3 발꿈치'); ring(G.P1, st && st.inP1, 'P1 엄지 뿌리');
-  { const [x, y] = q[3]; g.font = 'bold 12px system-ui'; g.fillStyle = 'rgba(0,0,0,.55)'; g.fillRect(x, y - 18, 62, 16); g.fillStyle = '#fff'; g.fillText('P2 발배뼈', x + 4, y - 6); }
-  // 검출된 실제 바닥선(발바닥 경계)
-  if (sole && sole.ok) { const xa = 0.03 * IW, xb = 0.97 * IW, [ax, ay] = T({ x: xa, y: sole.slope * xa + sole.intercept }), [bx, by] = T({ x: xb, y: sole.slope * xb + sole.intercept }); g.strokeStyle = 'rgba(0,229,255,.95)'; g.lineWidth = 2; g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke(); g.font = '11px system-ui'; g.fillStyle = '#00e5ff'; g.fillText('바닥선 검출', bx - 70, by - 5); }
-  if (hint) {
-    g.font = 'bold 15px system-ui'; const tw = g.measureText(hint).width + 20, W2 = IW * k;
-    g.fillStyle = 'rgba(0,0,0,.65)'; g.fillRect(ox + (W2 - tw) / 2, oy + 8, tw, 26);
-    g.fillStyle = '#ffd400'; g.textAlign = 'center'; g.fillText(hint, ox + W2 / 2, oy + 26); g.textAlign = 'start';
+// 부드러운 곡선 경로(중점 2차 곡선) — 다각형 꼭짓점을 매끈한 발 윤곽으로 그린다
+function smoothPath(g, pts, closed) {
+  const n = pts.length; if (n < 3) return;
+  const mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+  g.beginPath();
+  if (closed) {
+    let m = mid(pts[n - 1], pts[0]); g.moveTo(m[0], m[1]);
+    for (let i = 0; i < n; i++) { const p = pts[i], q = mid(p, pts[(i + 1) % n]); g.quadraticCurveTo(p[0], p[1], q[0], q[1]); }
+    g.closePath();
+  } else {
+    g.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < n - 1; i++) { const q = mid(pts[i], pts[i + 1]); g.quadraticCurveTo(pts[i][0], pts[i][1], q[0], q[1]); }
+    g.lineTo(pts[n - 1][0], pts[n - 1][1]);
   }
+}
+// 표준 발 모델 윤곽(+ 발목 위로 이어지는 다리선)을 화면 좌표로: X(cm, cm) → {x,y}(분석 좌표), T → 화면
+function footPathPts(X, T) {
+  const o = C.FOOT_MODEL.outline; // [4]=(2.8,12.5) [5]=(8.6,12.5) 는 발목 높이
+  const seq = [X(8.95, 19)].concat(o.slice(5).map(([x, y]) => X(x, y)), o.slice(0, 5).map(([x, y]) => X(x, y)), [X(2.5, 19)]);
+  return seq.map(p => T(p));
+}
+function chip(g, x, y, text, bg, fg, align) {
+  g.font = '600 12px -apple-system,system-ui,sans-serif'; const w = g.measureText(text).width + 14, h = 20, r = 10;
+  const x0 = align === 'center' ? x - w / 2 : align === 'right' ? x - w : x;
+  g.fillStyle = bg; g.beginPath(); g.moveTo(x0 + r, y); g.arcTo(x0 + w, y, x0 + w, y + h, r); g.arcTo(x0 + w, y + h, x0, y + h, r); g.arcTo(x0, y + h, x0, y, r); g.arcTo(x0, y, x0 + w, y, r); g.fill();
+  g.fillStyle = fg; g.textBaseline = 'middle'; g.fillText(text, x0 + 7, y + h / 2 + 0.5); g.textBaseline = 'alphabetic';
+}
+// 발 가이드: 스티커가 보이면 표준 발 윤곽을 실제 발에 맞춰(적응형) 그리고, 안 보이면 기본 위치에 목표 윤곽을 보여 준다.
+function drawGuide(g, ox, oy, k, IW, IH, toe, st, hint, sole) {
+  const M = C.FOOT_MODEL, T = p => [ox + p.x * k, oy + p.y * k];
+  const ok = st && st.ready, fit = st && st.fit;
+  const GREEN = 'rgba(52,211,153,.98)', CYAN = 'rgba(125,211,252,.95)', WHITE = 'rgba(255,255,255,.9)';
+  let X;
+  if (fit) X = (x, y) => fit.X(x, y);
+  else { const G = C.guideGeometry(IW, IH, toe); X = (x, y) => ({ x: G.X(x), y: G.Y(y) }); }
+  const pts = footPathPts(X, T);
+  // 윤곽: 채움 + 바깥 은은한 빛 + 선
+  smoothPath(g, pts, true); g.fillStyle = ok ? 'rgba(52,211,153,.13)' : fit ? 'rgba(125,211,252,.10)' : 'rgba(255,255,255,.08)'; g.fill();
+  g.save(); g.shadowColor = ok ? 'rgba(52,211,153,.9)' : 'rgba(0,0,0,.35)'; g.shadowBlur = ok ? 14 : 6;
+  smoothPath(g, pts, false); g.strokeStyle = ok ? GREEN : fit ? CYAN : WHITE; g.lineWidth = ok ? 3.2 : 2.4; g.setLineDash(fit ? [] : [9, 6]); g.lineJoin = 'round'; g.lineCap = 'round'; g.stroke(); g.setLineDash([]);
+  g.restore();
+  // 안쪽 복사뼈(부착 위치 아님)
+  const mal = T(X(M.malleolus.x, M.malleolus.y)), mr = Math.hypot(T(X(M.malleolus.x + 0.9, M.malleolus.y))[0] - mal[0], T(X(M.malleolus.x + 0.9, M.malleolus.y))[1] - mal[1]);
+  g.setLineDash([3, 4]); g.lineWidth = 1.2; g.strokeStyle = 'rgba(255,255,255,.55)'; g.beginPath(); g.arc(mal[0], mal[1], mr, 0, 7); g.stroke(); g.setLineDash([]);
+  // 바닥선(모델 기준)
+  const f0 = T(X(-0.8, 0)), f1 = T(X(M.lengthCm + 0.8, 0));
+  g.strokeStyle = 'rgba(255,255,255,.55)'; g.setLineDash([12, 7]); g.lineWidth = 1.4; g.beginPath(); g.moveTo(f0[0], f0[1]); g.lineTo(f1[0], f1[1]); g.stroke(); g.setLineDash([]);
+  // P2(발배뼈) 범위
+  const Z = M.P2zone, zc = (t, h) => T(X(M.P3.x + t * (M.P1.x - M.P3.x), h));
+  const q = [zc(Z.t[0], Z.hCm[0]), zc(Z.t[1], Z.hCm[0]), zc(Z.t[1], Z.hCm[1]), zc(Z.t[0], Z.hCm[1])];
+  g.beginPath(); q.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.closePath();
+  g.setLineDash([5, 5]); g.lineWidth = 1.4; g.strokeStyle = st && st.inP2 ? GREEN : 'rgba(255,255,255,.55)'; g.stroke(); g.setLineDash([]);
+  // 스티커 목표 위치(P3·P1): 스티커가 안 보일 때만 크게 표시
+  if (!fit) {
+    for (const [P, lab] of [[X(M.P3.x, M.P3.y), 'P3 뒤꿈치'], [X(M.P1.x, M.P1.y), 'P1 엄지 뿌리']]) {
+      const [x, y] = T(P); g.strokeStyle = WHITE; g.lineWidth = 2; g.beginPath(); g.arc(x, y, 0.065 * IW * k, 0, 7); g.stroke();
+      chip(g, x, y + 0.065 * IW * k + 4, lab, 'rgba(13,27,61,.72)', '#fff', 'center');
+    }
+    const [zx, zy] = q[3]; chip(g, zx, zy - 24, 'P2 발배뼈', 'rgba(13,27,61,.72)', '#fff');
+  }
+  // 검출된 실제 바닥선(발바닥 경계)
+  if (sole && sole.ok) { const xa = 0.03 * IW, xb = 0.97 * IW, [ax, ay] = T({ x: xa, y: sole.slope * xa + sole.intercept }), [bx, by] = T({ x: xb, y: sole.slope * xb + sole.intercept }); g.strokeStyle = 'rgba(0,229,255,.9)'; g.lineWidth = 1.6; g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by); g.stroke(); chip(g, bx - 4, by - 24, '바닥선', 'rgba(0,150,190,.85)', '#fff', 'right'); }
+  if (hint) {
+    g.font = '700 15px -apple-system,system-ui,sans-serif'; const W2 = IW * k, tw = Math.min(W2 - 16, g.measureText(hint).width + 28);
+    g.fillStyle = 'rgba(13,27,61,.78)'; const x0 = ox + (W2 - tw) / 2, y0 = oy + 10, h = 32, r = 16;
+    g.beginPath(); g.moveTo(x0 + r, y0); g.arcTo(x0 + tw, y0, x0 + tw, y0 + h, r); g.arcTo(x0 + tw, y0 + h, x0, y0 + h, r); g.arcTo(x0, y0 + h, x0, y0, r); g.arcTo(x0, y0, x0 + tw, y0, r); g.fill();
+    g.fillStyle = '#ffd84d'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(hint, ox + W2 / 2, y0 + h / 2 + 1); g.textAlign = 'start'; g.textBaseline = 'alphabetic';
+  }
+}
+// 전문가용 추적 표시: 스티커마다 잠금 조준선, P1–P3 기준선과 P2 수선, 실시간 P2 높이(mm), 추적 상태 막대
+function drawTrackHud(g, det, smooth, k, hud) {
+  const T = p => [p.x * k, p.y * k], lm = det.landmarks;
+  const locked = hud.locked, col = locked ? '#34d399' : '#7dd3fc';
+  // 후보(라벨 전) 스티커
+  if (!lm) for (const c of det.stickers || []) { const r = (c.major / 2) * k + 6; g.strokeStyle = 'rgba(255,255,255,.75)'; g.lineWidth = 1.5; g.setLineDash([3, 4]); g.beginPath(); g.arc(c.cx * k, c.cy * k, r, 0, 7); g.stroke(); g.setLineDash([]); }
+  for (const c of det.rejected || []) if (c.area > 30) { g.strokeStyle = 'rgba(251,191,36,.9)'; g.setLineDash([4, 3]); g.lineWidth = 1.2; g.strokeRect(c.bbox[0] * k, c.bbox[1] * k, c.bbox[2] * k, c.bbox[3] * k); g.setLineDash([]); }
+  if (lm) {
+    const P = smooth ? Object.assign({}, lm, smooth) : lm, R = ((det.quality && det.quality.diameterPx) || 20) / 2 * k;
+    const [a1, b1] = T(P.P1), [a3, b3] = T(P.P3), [a2, b2] = T(P.P2);
+    g.strokeStyle = 'rgba(255,216,77,.95)'; g.lineWidth = 2; g.beginPath(); g.moveTo(a1, b1); g.lineTo(a3, b3); g.stroke();
+    const t = C.projectionT(P.P2, P.P1, P.P3), fx = P.P1.x + (P.P3.x - P.P1.x) * t, fy = P.P1.y + (P.P3.y - P.P1.y) * t, [ff, fg] = T({ x: fx, y: fy });
+    g.strokeStyle = 'rgba(0,229,255,.95)'; g.setLineDash([5, 4]); g.lineWidth = 1.6; g.beginPath(); g.moveTo(a2, b2); g.lineTo(ff, fg); g.stroke(); g.setLineDash([]);
+    if (hud.heightMm != null) chip(g, (a2 + ff) / 2 + 8, (b2 + fg) / 2 - 10, `P2 ${hud.heightMm.toFixed(1)} mm`, 'rgba(0,150,190,.9)', '#fff');
+    const NAME = { P1: 'P1 엄지 뿌리', P2: 'P2 발배뼈', P3: 'P3 뒤꿈치' };
+    for (const [n, x, y] of [['P1', a1, b1], ['P2', a2, b2], ['P3', a3, b3]]) {
+      // 잠금 조준선: 원 + 네 방향 눈금, 잠기면 초록
+      const r = R + 5; g.strokeStyle = col; g.lineWidth = 2;
+      g.beginPath(); g.arc(x, y, r, 0, 7); g.stroke();
+      g.beginPath(); for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { g.moveTo(x + dx * (r + 2), y + dy * (r + 2)); g.lineTo(x + dx * (r + 9), y + dy * (r + 9)); } g.stroke();
+      g.fillStyle = col; g.beginPath(); g.arc(x, y, 2.2, 0, 7); g.fill();
+      chip(g, x, y - r - 30, NAME[n], locked ? 'rgba(6,95,70,.85)' : 'rgba(13,27,61,.75)', '#fff', 'center');
+    }
+  }
+  // 추적 상태 막대(왼쪽 아래)
+  const txt = `${locked ? '● 추적 고정' : lm ? '◐ 추적 중' : '○ 스티커 찾는 중'}  ·  ${hud.n}/3  ·  ${hud.fps} fps${hud.sigma != null ? `  ·  ±${hud.sigma.toFixed(2)} px` : ''}`;
+  chip(g, 8 / 1, hud.h - 28, txt, 'rgba(13,27,61,.72)', locked ? '#6ee7b7' : '#e2e8f0');
 }
 // 장면 움직임: 축소 회색 영상의 프레임 간 평균 절대 차이(0~255). 일어서는 동작처럼 화면 전체가 바뀌는 것을 잡는다.
 function sceneThumb(img) {
@@ -265,8 +332,11 @@ function createTracker(opts) {
     const k = Math.min(wr.width / rawW, wr.height / rawH), ox = (wr.width - rawW * k) / 2, oy = (wr.height - rawH * k) / 2;
     const ar = rawW + ' / ' + rawH; if (wrap.style.aspectRatio !== ar) wrap.style.aspectRatio = ar;
     setRotatedTransform(g, rot, ox, oy, k, rawW, rawH);
-    drawGuide(g, 0, 0, k, IW, IH, getToe(), { ready: a.ready, seen: !!det.landmarks, inP3: a.guide.inP3, inP1: a.guide.inP1, inP2: a.guide.inP2 }, det.landmarks && !a.c.frame ? (a.c.frameMsg || '').replace(/ 주십시오| 주세요|십시오/g, '') : '', det.sole);
-    drawOverlay(g, { stickers: det.stickers, rejected: det.rejected, landmarks: det.landmarks && st.smooth ? Object.assign({}, det.landmarks, st.smooth) : det.landmarks }, k, k, 0, 0);
+    drawGuide(g, 0, 0, k, IW, IH, getToe(), { ready: a.ready, seen: !!det.landmarks, inP3: a.guide.inP3, inP1: a.guide.inP1, inP2: a.guide.inP2, fit: a.guide.fit }, det.landmarks && !a.c.frame ? (a.c.frameMsg || '').replace(/ 주십시오| 주세요|십시오/g, '') : '', det.sole);
+    { const cs = typeof convSettings === 'function' ? convSettings() : null, dia = det.quality && det.quality.diameterPx, P = st.smooth || (det.landmarks && det.landmarks);
+      const hMm = det.landmarks && P && cs && cs.validated && dia ? C.distanceToLine(P.P2, P.P1, P.P3) * cs.stickerDiameterMm / dia : null;
+      st.lockN = det.ok && st.kf.active ? (st.lockN || 0) + 1 : 0;
+      drawTrackHud(g, det, st.smooth, k, { locked: st.lockN >= 4, heightMm: hMm, n: det.landmarks ? 3 : Math.min(3, (det.stickers || []).length), fps: st.fpsT.length, sigma: det.quality && det.quality.fitRmsPx, h: IH * k }); }
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     orientUpdate(det);
     onFrame(Object.assign({ det, fps: st.fpsT.length, roi: !!det.roi, sceneMotion, rotation: rot }, a));
@@ -284,7 +354,8 @@ function createTracker(opts) {
     stop();
     resetHistory();
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { const e = new Error('이 브라우저(또는 보안 연결이 아닌 주소)에서는 카메라 API를 사용할 수 없습니다. 최신 Chrome·Safari에서 HTTPS 주소로 열거나, “사진 파일 불러오기”를 사용하세요.'); e.name = 'Unsupported'; throw e; }
-    st.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: st.facing, width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
+    const vc = st.deviceId ? { deviceId: { exact: st.deviceId } } : { facingMode: st.facing };
+    st.stream = await navigator.mediaDevices.getUserMedia({ video: Object.assign(vc, { width: { ideal: 1920 }, height: { ideal: 1080 } }), audio: false });
     if (!video.isConnected) { st.stream.getTracks().forEach(t => t.stop()); st.stream = null; const e = new Error('화면이 바뀌어 카메라를 시작하지 않았습니다.'); e.name = 'Stale'; throw e; }
     S.stream = st.stream;
     video.srcObject = st.stream; await video.play().catch(() => {});
@@ -296,7 +367,15 @@ function createTracker(opts) {
   function resetHistory() { st.hist = []; st.lastOk = null; st.smooth = null; st.kf.reset(); st.colorModel = null; st.dia = null; }
   // 현재 추적 위치(가로 폭 대비 비율) — 고해상도 연속 촬영에서 후보 대응에 사용
   function priorNorm() { const p = st.kf.positions(); if (!p || !st.liveW) return null; return Object.fromEntries(['P1', 'P2', 'P3'].map(k => [k, { x: p[k].x / st.liveW, y: p[k].y / st.liveW }])); }
-  return { priorNorm, start, stop, resetHistory,
+  // 후면 카메라 순환(아이폰: 기본 1× → 0.5× 울트라 와이드 → …). 발이 가까워 다 안 보이면 광각을 쓴다.
+  function backCams() { return st.devices.filter(d => !/front|전면|user|facetime/i.test(d.label || '')); }
+  async function nextCamera() {
+    const cams = backCams(); if (cams.length < 2) return null;
+    const curId = st.stream && st.stream.getVideoTracks()[0] && st.stream.getVideoTracks()[0].getSettings ? st.stream.getVideoTracks()[0].getSettings().deviceId : st.deviceId;
+    const i = cams.findIndex(d => d.deviceId === curId), nx = cams[(i + 1) % cams.length];
+    st.deviceId = nx.deviceId; st.rot = null; await start(); return nx.label || '카메라 ' + ((i + 1) % cams.length + 1);
+  }
+  return { priorNorm, start, stop, resetHistory, nextCamera, get backCameraCount() { return backCams().length; },
     get rotation() { return st.rot || 0; },
     lockRotation(v) { st.rotLock = !!v; },
     rotate() { st.rotManual = true; st.rot = ((st.rot || 0) + 90) % 360; resetHistory(); return st.rot; },
@@ -342,5 +421,5 @@ function captureRecord(det, meas, mode, toe) {
   };
 }
 function paintChecksInto(el, c) {
-  el.innerHTML = [['stickers', '스티커 3개'], ['sharp', '선명도'], ['still', '움직임 없음'], ['frame', '가이드 안·각도']].map(([k, l]) => `<div class="${c[k] ? 'ok' : 'no'}">${c[k] ? '✓' : '•'} ${l}${c[k + 'Msg'] ? `<div class="tiny" style="color:inherit">${esc(c[k + 'Msg'])}</div>` : ''}</div>`).join('');
+  el.innerHTML = [['stickers', '스티커 3개'], ['sharp', '선명도'], ['still', '움직임 없음'], ['frame', '가이드']].map(([k, l]) => `<div class="${c[k] ? 'ok' : 'no'}">${c[k] ? '✓' : '•'} ${l}${c[k + 'Msg'] ? `<div class="tiny" style="color:inherit">${esc(c[k + 'Msg'])}</div>` : ''}</div>`).join('');
 }
