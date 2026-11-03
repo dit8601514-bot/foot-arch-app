@@ -14,7 +14,7 @@ async function scenario(tag, video, expectConfirmed, expectMm, opt) {
   expectMm = expectMm == null ? 7.14 : expectMm;
   const b = await chromium.launch({ args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--use-file-for-fake-video-capture=' + path.join(__dirname, 'img', video)] });
   const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, permissions: ['camera'] });
-  await ctx.addInitScript(d => { window.FOOTARCH_SHUTTER_DELAY = d; window.__workers = []; const OW = window.Worker; window.Worker = function (u, o) { const w = new OW(u, o); window.__workers.push(w); return w; }; window.__spoken = []; const sy = window.speechSynthesis; if (sy) { const orig = sy.speak.bind(sy); sy.speak = u => { if (u.text.trim()) window.__spoken.push(u.text); try { orig(u); } catch (e) {} }; } }, opt.delay == null ? 0 : opt.delay);
+  await ctx.addInitScript(d => { window.FOOTARCH_SHUTTER_DELAY = d.delay; window.FOOTARCH_POST_MODE = d.postMode; window.__workers = []; const OW = window.Worker; window.Worker = function (u, o) { const w = new OW(u, o); window.__workers.push(w); return w; }; window.__spoken = []; const sy = window.speechSynthesis; if (sy) { const orig = sy.speak.bind(sy); sy.speak = u => { if (u.text.trim()) window.__spoken.push(u.text); try { orig(u); } catch (e) {} }; } }, { delay: opt.delay == null ? 0 : opt.delay, postMode: opt.postMode || 'ai' });
   const pg = await ctx.newPage(); const errors = [];
   pg.on('pageerror', e => errors.push(e.message)); pg.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
   const shot = n => pg.screenshot({ path: path.join(__dirname, 'shots', n + '.png'), fullPage: true });
@@ -30,8 +30,10 @@ async function scenario(tag, video, expectConfirmed, expectMm, opt) {
     await pg.evaluate(() => window.__workers.forEach(w => w.terminate())); // onerror 없이 종료
   }
   await pg.waitForSelector('#vid'); await pg.waitForTimeout(4500); if (tag === 'A') await shot('s03-self-align'); if (tag === 'C') await shot('s03-std-align'); if (tag === 'R1') await shot('s03-rot-align');
+  let window_cd_seen = false;
+  if (opt.postMode === 'timer') { window_cd_seen = await pg.waitForFunction(() => window.__spoken.includes('촬영되었습니다.') && document.querySelector('.cdbig'), null, { timeout: 45000 }).then(() => true).catch(() => false); if (tag === 'M') await shot('s04-timer-countdown'); }
   // 체중부하 단계 화면(인지 카드) 캡처
-  await pg.waitForFunction(() => document.querySelector('#lcMove') && document.querySelector('#lcMove').textContent === '확인', null, { timeout: 45000 }).catch(() => {});
+  if (opt.postMode !== 'timer') await pg.waitForFunction(() => document.querySelector('#lcMove') && document.querySelector('#lcMove').textContent === '확인', null, { timeout: 45000 }).catch(() => {});
   await pg.waitForTimeout(1500); if (tag === 'A') await shot('s04-self-load'); if (tag === 'C') await shot('s04-std-load');
   const ok = await pg.waitForFunction(() => location.hash.startsWith('#/result/'), null, { timeout: 60000 }).then(() => true).catch(() => false);
   const secs = ((Date.now() - t0) / 1000).toFixed(1);
@@ -40,8 +42,14 @@ async function scenario(tag, video, expectConfirmed, expectMm, opt) {
   if (opt.delay) log(`[${tag}] 시작 타이머 안내(${opt.delay}초)`, J.includes(`${opt.delay}초 뒤에 시작합니다`));
   log(`[${tag}] 음성: 정확한 정렬 안내`, spoken.some(s => s.includes('정확히 들어왔습니다')));
   log(`[${tag}] 음성: "앉은 자세를 촬영합니다"`, spoken.includes('앉은 자세를 촬영합니다.'));
-  log(`[${tag}] 음성: "체중부하 해주십시오"`, spoken.some(s => s.includes('체중부하 해주십시오')));
-  log(`[${tag}] 음성: 일어서는 동작 인지`, spoken.some(s => s.includes('일어서는 동작을 확인했습니다')));
+  const timerMode = opt.postMode === 'timer';
+  if (timerMode) {
+    log(`[${tag}] 음성: "그대로 일어서서… 10초 뒤에 체중부하 사진을 찍습니다"`, J.includes('이제 그대로 일어서서') && J.includes('10초 뒤에 체중부하 사진을 찍습니다'));
+    log(`[${tag}] 선 자세 타이머 표시(10→1)`, !!window_cd_seen);
+  } else {
+    log(`[${tag}] 음성: "체중부하 해주십시오"`, spoken.some(s => s.includes('체중부하 해주십시오')));
+    log(`[${tag}] 음성: 일어서는 동작 인지`, spoken.some(s => s.includes('일어서는 동작을 확인했습니다')));
+  }
   if (expectConfirmed) log(`[${tag}] 음성: "체중부하 확인했습니다. 촬영합니다."`, J.includes('체중부하 확인했습니다. 촬영합니다.'), spoken.join(' / '));
   else {
     log(`[${tag}] 형태 변화 없음 → 재안내`, J.includes('변화가 아직 작습니다. 양발에 체중을 똑같이 실어 주십시오'));
@@ -62,7 +70,8 @@ async function scenario(tag, video, expectConfirmed, expectMm, opt) {
         await pg.goBack(); await pg.goBack(); await pg.goBack(); await pg.waitForSelector('.result-big');
         log(`[${tag}] 결과 화면에 두 측정값(기준선·바닥) 표시`, main.includes('P1–P3 기준선 하강') && main.includes('바닥 기준 발배뼈 높이') && !main.includes('바닥선 미확인'));
       }
-      log(`[${tag}] 결과: 체중부하 인지 기록(일어섬·아치 하강)`, main.includes('일어섬 확인') && main.includes('아치 하강 확인'));
+      if (!timerMode) log(`[${tag}] 결과: 체중부하 인지 기록(일어섬·아치 하강)`, main.includes('일어섬 확인') && main.includes('아치 하강 확인'));
+      else log(`[${tag}] 결과: 아치 하강 확인 기록`, main.includes('아치 하강 확인'));
       log(`[${tag}] 유연성 평발 양상 안내`, main.includes('유연성 평발 양상'));
       await pg.check('[data-sq="restFlat"]'); await pg.waitForTimeout(300);
       log(`[${tag}] 자가 확인 질문 → 전문가 상담 안내`, await pg.isVisible('text=전문가 상담을 권합니다'));
@@ -87,6 +96,9 @@ async function scenario(tag, video, expectConfirmed, expectMm, opt) {
   // 시작 타이머 10초(실사용 기본값): 카운트다운 안내 후 정상 진행
   if (!which || which === 'T') await scenario('T', 'self_std_long.y4m', true, 8.0, { delay: 10 });
   // 휴대폰이 계속 미세하게 흔들림(±5px·±0.4°) — 발은 가만히 있으므로 정상 촬영되어야 함
+  // 기본 방식: 가이드에 맞으면 앉은 자세 → 일어서기 → 10초 타이머 후 선 자세
+  if (!which || which === 'M') await scenario('M', 'self_std.y4m', true, 8.0, { postMode: 'timer' });
+  if (!which || which === 'MR') await scenario('MR', 'self_std_rot90.y4m', true, 8.0, { postMode: 'timer' });
   if (!which || which === 'H') await scenario('H', 'self_std_shake.y4m', true, 8.0);
   if (!which || which === 'K') await scenario('K', 'self_std.y4m', true, 8.0, { killAfterPre: true });
   if (!which || which === 'R1') await scenario('R1', 'self_std_rot90.y4m', true, 8.0);

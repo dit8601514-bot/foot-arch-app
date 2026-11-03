@@ -145,8 +145,13 @@ video.ex{width:100%;border-radius:14px;background:#000}
 .bracket>i::before{left:0;bottom:0;border-right:0;border-top:0;border-radius:0 0 0 8px}
 .bracket>i::after{right:0;bottom:0;border-left:0;border-top:0;border-radius:0 0 8px 0}
 .bracket .camwrap{box-shadow:none}
+.shoot-card .bracket .foot-svg{max-height:150px}
 .shutter{width:74px;height:74px;border-radius:50%;border:0;background:var(--grad);color:#fff;display:inline-flex;align-items:center;justify-content:center;box-shadow:0 0 0 6px rgba(77,141,255,.18),0 10px 22px rgba(26,95,224,.38);cursor:pointer;margin:6px auto 2px}
 .shutter svg{width:32px;height:32px}.shutter:disabled{opacity:.5}
+ol.flow{list-style:none;counter-reset:f;padding:0;margin:4px 0 12px;text-align:left;display:grid;gap:6px}
+ol.flow li{counter-increment:f;display:grid;grid-template-columns:28px 1fr;column-gap:10px;align-items:center;background:var(--surface-2);border-radius:14px;padding:8px 10px}
+ol.flow li::before{content:counter(f);grid-row:span 2;width:26px;height:26px;border-radius:50%;background:var(--grad);color:#fff;font-weight:800;font-size:13px;display:flex;align-items:center;justify-content:center}
+ol.flow b{font-size:14px}ol.flow span{font-size:12px;color:var(--ink-2)}ol.flow em{font-style:normal;font-weight:800;color:var(--brand)}
 .chips{display:flex;gap:6px;justify-content:center;flex-wrap:wrap}
 .chips button{border:1.5px solid var(--line);background:#fff;border-radius:999px;padding:6px 13px;font:inherit;font-size:13px;font-weight:700;color:var(--ink-2)}
 .chips button.on{border-color:var(--brand);background:var(--brand-2);color:var(--brand)}
