@@ -1,7 +1,7 @@
 'use strict';
 /* ═════════════ 기본: 저장소 · 상태 · 유틸 · 라우터 ═════════════ */
 const C = window.FootCore;
-const APP_VERSION = '2.4.0';
+const APP_VERSION = '2.5.0';
 const STORES = ['settings', 'exams', 'exercises', 'logs', 'errors', 'models', 'blobs', 'validations'];
 
 const DB = (() => {
@@ -191,6 +191,7 @@ async function render() {
   if (match.opts.researcher && !S.researcherUnlocked) { location.hash = '#/r/login?next=' + encodeURIComponent(h); return; }
   // 서버가 설정되어 있으면 로그인(또는 '로그인 없이 둘러보기' 선택) 후 이용
   if (typeof Account !== 'undefined' && Account.configured() && !Account.loggedIn && !Account.isGuest() && parts[0] !== 'auth' && parts[0] !== 'r') { location.hash = '#/auth'; return; }
+  document.body.dataset.route = parts[0] === 'self' && parts[1] === 'run' ? 'self-run' : (parts[0] || 'home');
   $('#title').textContent = match.title;
   // 화면마다 새 컨테이너를 쓴다: 늦게 끝난 이전 화면 그리기는 떨어져 나간 컨테이너에만 쓰므로 현재 화면을 덮지 않는다
   const main = $('#view'); main.innerHTML = ''; const view = document.createElement('div'); main.appendChild(view);

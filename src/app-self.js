@@ -89,12 +89,15 @@ route('/stickers-info', '스티커 부착 위치', async (v) => {
 route('/self/run', '측정하기', async (v) => {
   const run = S.selfRun; if (!run) return go('#/self');
   v.innerHTML = `${stepper(1)}
+    <div class="run"><div class="run-cam">
     <div class="row" style="margin-top:-4px"><span class="badge b-info" id="footBadge"></span><span class="grow"></span><span class="badge" id="phaseBadge"></span></div>
     <div class="bracket" style="margin-top:6px"><i></i><div class="camwrap" id="camwrap"><video id="vid" playsinline muted autoplay></video><canvas id="ov"></canvas><div class="countdown" id="cd"></div></div></div>
+    </div><div class="run-side">
     <div class="statusline" id="status" aria-live="polite">카메라 준비 중…</div><div class="tiny" id="hud" style="text-align:center"></div>
     <div class="checks compact" id="checks"></div>
     <div style="text-align:center"><button class="shutter hide" id="postNow" aria-label="지금 선 자세 촬영">${ICON.camera}</button><div class="tiny hide" id="postNowHint">지금 선 자세 촬영(타이머 후)</div></div>
     <div class="iconbar"><button id="mute">${Voice.enabled ? ICON.vol : ICON.volOff}<span>${Voice.enabled ? '음성 켬' : '음성 끔'}</span></button><button id="cam">${ICON.camera}<span>카메라</span></button><button id="rot">${ICON.rotate}<span>방향 자동</span></button><button id="stop">${ICON.stop}<span>중지</span></button></div>
+    </div></div>
     <div class="card small" id="loadCard" style="display:none"><b>체중부하 인지</b><dl class="kv" style="margin-top:6px"><dt>일어서는 동작</dt><dd id="lcMove">대기</dd><dt>선 자세 안정</dt><dd id="lcStable">대기</dd><dt>아치 하강</dt><dd id="lcDrop">—</dd><dt>발 길이 변화</dt><dd id="lcSpan">—</dd></dl></div>
     <div id="camErr"></div>`;
   const vid = $('#vid', v), cd = $('#cd', v);

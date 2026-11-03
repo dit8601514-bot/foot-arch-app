@@ -21,11 +21,13 @@ route('/home', 'AI Footarch', async (v) => {
     <section class="home-hero">
       <div class="bar">${logoHtml(false)}<a href="#/settings" aria-label="설정·알림">${ICON.bell}</a></div>
       <h2>${me && me.name ? esc(me.name) + '님, ' : ''}안녕하세요!</h2>
-      <p>발 건강 관리를 시작해볼까요? 👣</p>
-      <a class="menu-pill" href="#/self"><span class="mi">${ICON.scan}</span>측정하기<span class="chev">${ICON.chev}</span></a>
-      <a class="menu-pill" href="#/records"><span class="mi">${ICON.listFill}</span>기록보기<span class="chev">${ICON.chev}</span></a>
-      <a class="menu-pill" href="#/exercises"><span class="mi">${ICON.playFill}</span>족궁재활영상<span class="chev">${ICON.chev}</span></a>
+      <p>발 건강 관리를 시작해볼까요?</p>
     </section>
+    <nav class="menu-pills" aria-label="주요 메뉴">
+      <a class="menu-pill" href="#/self"><span class="mi">${ICON.scan}</span>측정하기<span class="chev">${ICON.chev}</span></a>
+      <a class="menu-pill" href="#/records"><span class="mi">${ICON.calendar}</span>기록보기<span class="chev">${ICON.chev}</span></a>
+      <a class="menu-pill" href="#/exercises"><span class="mi">${ICON.playBox}</span>족궁재활영상<span class="chev">${ICON.chev}</span></a>
+    </nav>
     <div class="sec-title">최근 결과</div>
     <div class="grid2">${['left', 'right'].map(f => { const e = latest(f); return `<a class="mini" href="${e ? '#/result/' + e.id : '#/self?feet=' + f}">
       <div class="tiny" style="font-weight:700">${FOOT[f]}</div>
