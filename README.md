@@ -1,6 +1,6 @@
-# AI 발 기능 평가 · 평발 운동 중재 앱
+# AI Footarch — AI 발 아치(발배뼈 하강) 분석·운동 관리 앱
 
-v1.5.0 · 측정 알고리즘 ALG-2.1.0 · 용도: 개인 건강관리
+v2.0.0 · 측정 알고리즘 ALG-2.1.0 · 용도: 개인 건강관리
 
 외부 라이브러리 없이 동작하는 모바일 웹앱(PWA)입니다. 흐름은 다음과 같습니다.
 
@@ -24,6 +24,28 @@ v1.5.0 · 측정 알고리즘 ALG-2.1.0 · 용도: 개인 건강관리
   - iPhone Safari: 공유 버튼 → "홈 화면에 추가"를 누릅니다.
   - 설치하면 주소창 없이 열리고, 오프라인에서도 열립니다.
 - 카메라는 HTTPS 주소에서만 켜집니다. 메신저 앱 안의 브라우저에서는 권한이 막힐 수 있습니다.
+
+## v2.0 디자인 개편과 서버 계정
+
+### 화면(시안 기반)
+- **홈:** 파란 그라데이션 머리 영역, 측정하기·기록보기·족궁재활영상 카드
+- **측정:** 1 촬영 → 2 분석 → 3 결과 단계 표시, 원형 진행 분석 화면
+- **결과:** 발배뼈 하강 대표값과 분류 배지, 분석 결과 목록, "상세 리포트 보기"
+  - 분석 결과 목록: P1–P3 기준선 하강, 바닥 기준 발배뼈 높이·하강, 스티커 아치 각도(P3–P2–P1), 측정 신뢰도
+  - 시안의 Y-Balance·과회내 정도는 앱이 측정하지 않는 값이라 넣지 않았습니다.
+- **기록보기:** 측정한 날이 표시되는 달력과 측정 내역
+- **족궁재활영상:** 썸네일·영상 길이가 있는 카드 목록. 등록되지 않은 영상은 "영상 등록 필요"로 표시합니다.
+- **로그인 선택 · 로그인 · 회원가입:** 회원가입은 이름·전화번호·아이디·비밀번호 + 동의 항목
+
+### 서버 계정 (Supabase)
+- 설정 방법: [`supabase/README.md`](supabase/README.md), 스키마와 RLS: [`supabase/schema.sql`](supabase/schema.sql)
+- **오프라인 우선:** 기록은 먼저 기기에 저장되고, 로그인 상태면 저장 직후 서버와 동기화합니다(사진 제외). 다른 기기에서 로그인하면 기록을 내려받습니다.
+- **미설정 시:** `config.js`가 비어 있으면 로그인 없이 기기에만 저장하는 모드로 동작합니다. 로그인 화면에서 "로그인 없이 둘러보기"도 고를 수 있습니다.
+- **테스트:** `node test/e2e-account.js`가 모의 Supabase 서버(`test/mock-supabase.js`)로 다음을 검증합니다(16개).
+  - 가입·검증, 동의 기록
+  - 동기화, 다른 기기에서 내려받기
+  - 사용자 분리, 중복 아이디·잘못된 비밀번호
+  - 로그아웃·탈퇴
 
 ## v1.5 전문가용 표준 발 가이드와 바닥 기준 NDT
 
@@ -182,7 +204,8 @@ BENCH_DIR=holdout node bench/run.js test/legacy/core-1.1.js ALG-1.1   # 기존 �
 
 ```
 node build.js            # src/ + public/ → dist/ (index.html, sw.js, manifest, icons)
-node test/unit.test.js   # 단위 테스트 73개 (CI에서도 실행)
+node test/unit.test.js   # 단위 테스트 75개 (CI에서도 실행)
+node test/e2e-account.js # 서버 계정 E2E 16개 (모의 Supabase)
 node test/e2e.js         # 브라우저 E2E 24개 (Playwright, 가상 카메라 영상 필요)
 node test/e2e-self.js    # 음성 자가 검사·체중부하 인지·바닥 기준 NDT E2E 42개 (3개 시나리오)
 node test/e2e-track.js   # 트래킹 강건성 E2E 6개 (방해물 등장·저조도 전환 가상 영상)
@@ -207,7 +230,11 @@ cd test/img && ffmpeg -loop 1 -t 14 -i pre.png -loop 1 -t 2 -i nostickers.png -l
 
 ```
 src/core.js          측정 핵심 로직 (순수 함수, Node·브라우저·Worker 공용)
-src/app-base.js      저장소(IndexedDB), 라우터, 검출 실행기(Worker), 차트, PWA 등록
+src/app-base.js      저장소(IndexedDB), 라우터, 아이콘, 검출 실행기(Worker), 차트, PWA 등록
+src/app-account.js   서버 계정(Supabase Auth·REST), 로그인·회원가입 화면, 동기화
+src/app-design.js    기록보기 달력, 족궁재활영상, 분석 중 화면
+supabase/            서버 스키마(RLS)와 연결 안내
+public/config.js     서버 주소·공개 키 설정
 src/app-live.js      음성 안내, 실시간 트래킹, 연속 촬영(공용)
 src/app-self.js      음성 자가 검사, 유연성 평발 자가 확인, 관리 현황
 src/app-user.js      사용자 화면 (안내, 촬영·트래킹, 분석, 결과, 운동, 이력)

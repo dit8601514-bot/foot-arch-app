@@ -1,7 +1,7 @@
 'use strict';
 /* ═════════════ 기본: 저장소 · 상태 · 유틸 · 라우터 ═════════════ */
 const C = window.FootCore;
-const APP_VERSION = '1.5.0';
+const APP_VERSION = '2.0.0';
 const STORES = ['settings', 'exams', 'exercises', 'logs', 'errors', 'models', 'blobs', 'validations'];
 
 const DB = (() => {
@@ -120,6 +120,45 @@ async function sha256(text) {
 }
 function num(v) { if (v === '' || v == null) return null; const n = Number(String(v).replace(',', '.')); return isFinite(n) ? n : NaN; }
 
+// ───── 아이콘·일러스트 (인라인 SVG, 외부 리소스 없음) ─────
+const ICON = (() => {
+  const o = (d, extra) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ${extra || ''}>${d}</svg>`;
+  return {
+    scan: o('<path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><circle cx="12" cy="10" r="2.5"/><path d="M8 16.5c.8-1.8 2.2-2.7 4-2.7s3.2.9 4 2.7"/>'),
+    list: o('<rect x="3" y="5" width="18" height="14" rx="3"/><path d="M7 9h1M11 9h6M7 12h1M11 12h6M7 15h1M11 15h6"/>'),
+    play: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13a1 1 0 0 0 1.5.9l10.4-6.5a1 1 0 0 0 0-1.7L9.5 4.6A1 1 0 0 0 8 5.5z"/></svg>',
+    playBox: o('<rect x="3" y="5" width="18" height="14" rx="3"/><path d="M10 9v6l5-3z" fill="currentColor"/>'),
+    bell: o('<path d="M6 8a6 6 0 1 1 12 0c0 7 3 8 3 8H3s3-1 3-8"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/>'),
+    gear: o('<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/>'),
+    chev: o('<path d="M9 5l7 7-7 7"/>'),
+    user: o('<circle cx="12" cy="8" r="4"/><path d="M4 21c1.2-4 4.3-6 8-6s6.8 2 8 6"/>'),
+    userPlus: o('<circle cx="10" cy="8" r="4"/><path d="M2 21c1.2-4 4.3-6 8-6 1.6 0 3 .4 4.2 1.1"/><path d="M19 14v6M16 17h6"/>'),
+    phone: o('<path d="M5 3h3l2 5-2.5 1.5a11 11 0 0 0 7 7L16 14l5 2v3a2 2 0 0 1-2 2A16 16 0 0 1 3 5a2 2 0 0 1 2-2"/>'),
+    idcard: o('<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="11" r="2"/><path d="M6 16c.5-1.3 1.4-2 2.5-2s2 .7 2.5 2M14 10h4M14 13h4"/>'),
+    lock: o('<rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 1 1 8 0v3"/>'),
+    eye: o('<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>'),
+    drop: o('<path d="M4 6h6M7 6v12M4 18h6"/><path d="M14 8c2 1.5 3 3.5 3 6"/><path d="M17 14l-2.5-1.5M17 14l1.5-2.5"/>'),
+    height: o('<path d="M3 20h18"/><path d="M12 4v13M9 7l3-3 3 3M9 14l3 3 3-3"/>'),
+    angle: o('<path d="M4 18h16"/><path d="M4 18 14 6"/><path d="M9 18a5 5 0 0 0-1.6-3.7"/>'),
+    check: o('<path d="M20 6 9 17l-5-5"/>'),
+    chart: o('<path d="M4 19V5M4 19h16"/><path d="M7 15l4-4 3 3 5-6"/>'),
+    calendar: o('<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/>'),
+    logout: o('<path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3"/><path d="M10 17l-5-5 5-5M5 12h11"/>'),
+    cloud: o('<path d="M7 18h10a4 4 0 0 0 .5-8A6 6 0 0 0 6 9.5 4.3 4.3 0 0 0 7 18z"/>'),
+    mic: o('<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>')
+  };
+})();
+// 두 발자국(시안의 파란 발 일러스트) — 그라데이션 채움
+function footprintsSvg(id) {
+  const g = 'fpg' + (id || '');
+  const foot = (tx, flip) => `<g transform="translate(${tx},0) ${flip ? 'scale(-1,1)' : ''}">
+    <path d="M18 34c-6 0-9 8-9 18 0 12 3 22 9 22s9-7 9-15c0-6-3-8-3-13 0-7 3-12-6-12z" fill="url(#${g})"/>
+    <ellipse cx="24" cy="24" rx="4.2" ry="5" fill="url(#${g})"/><ellipse cx="15" cy="21" rx="3.2" ry="3.8" fill="url(#${g})"/>
+    <ellipse cx="8.5" cy="23" rx="2.6" ry="3.2" fill="url(#${g})"/><ellipse cx="3.8" cy="27" rx="2.1" ry="2.6" fill="url(#${g})"/><ellipse cx="1" cy="32" rx="1.8" ry="2.2" fill="url(#${g})"/></g>`;
+  return `<svg viewBox="-8 14 84 64" aria-hidden="true"><defs><linearGradient id="${g}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7fb2ff"/><stop offset="1" stop-color="#2f74ec"/></linearGradient></defs>${foot(6, false)}${foot(62, true)}</svg>`;
+}
+function logoHtml(blue) { return `<span class="logo${blue ? ' blue' : ''}">AI Footarch<svg viewBox="0 0 24 24" fill="currentColor"><ellipse cx="12" cy="15" rx="4.5" ry="7"/><circle cx="17.5" cy="5" r="2"/><circle cx="13" cy="3.2" r="1.6"/><circle cx="9" cy="3.8" r="1.4"/><circle cx="6" cy="6" r="1.2"/></svg></span>`; }
+
 // ───── 라우터 ─────
 const routes = {};
 function route(pattern, title, fn, opts) { routes[pattern] = { title, fn, opts: opts || {} }; }
@@ -141,20 +180,25 @@ async function render() {
   if (!match) { match = routes['/home']; }
   params.q = Object.fromEntries(new URLSearchParams(query || ''));
   if (match.opts.researcher && !S.researcherUnlocked) { location.hash = '#/r/login?next=' + encodeURIComponent(h); return; }
+  // 서버가 설정되어 있으면 로그인(또는 '로그인 없이 둘러보기' 선택) 후 이용
+  if (typeof Account !== 'undefined' && Account.configured() && !Account.loggedIn && !Account.isGuest() && parts[0] !== 'auth' && parts[0] !== 'r') { location.hash = '#/auth'; return; }
   $('#title').textContent = match.title;
   // 화면마다 새 컨테이너를 쓴다: 늦게 끝난 이전 화면 그리기는 떨어져 나간 컨테이너에만 쓰므로 현재 화면을 덮지 않는다
   const main = $('#view'); main.innerHTML = ''; const view = document.createElement('div'); main.appendChild(view);
   view.innerHTML = '<p class="muted">불러오는 중…</p>';
-  const tabOf = { guide: 'self', stickers: 'self', 'stickers-info': 'self', posture: 'self', capture: 'self', analyze: 'self', result: 'self', pair: 'self', exercise: 'exercises', logs: 'exercises', history: 'manage', compare: 'manage' };
+  const tabOf = { guide: 'self', stickers: 'self', 'stickers-info': 'self', posture: 'self', capture: 'self', analyze: 'self', result: 'records', pair: 'records', exercise: 'exercises', logs: 'exercises', history: 'records', compare: 'records', manage: 'records' };
   $$('#tabs a').forEach(a => a.classList.toggle('on', (tabOf[parts[0]] || parts[0]) === a.dataset.tab));
-  $('#tabs').classList.toggle('hide', parts[0] === 'r' || parts[0] === 'capture' || (parts[0] === 'self' && parts[1] === 'run'));
+  const noTabs = parts[0] === 'r' || parts[0] === 'capture' || (parts[0] === 'self' && parts[1] === 'run') || parts[0] === 'auth';
+  $('#tabs').classList.toggle('hide', noTabs);
+  // 홈·로그인은 상단 막대 없이 자체 머리 영역(시안 ①②)을 쓴다
+  $('#topbar').classList.toggle('hide', !!match.opts.bare);
   try { await match.fn(view, params); } catch (e) { if (!view.isConnected) return; console.error(e); view.innerHTML = `<div class="note bad">화면을 표시하는 중 오류가 발생했습니다: ${esc(e.message)}</div><a class="btn block" href="#/home">홈으로</a>`; }
   window.scrollTo(0, 0);
 }
 window.addEventListener('hashchange', render);
 document.addEventListener('DOMContentLoaded', async () => {
   $('#backBtn').onclick = () => history.length > 1 ? history.back() : go('#/home');
-  $('#homeBtn').onclick = () => go('#/home');
+  $('#homeBtn').onclick = () => go('#/settings');
   await DB.ready(); await loadSettings(); S.booted = true;
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
   registerSW();

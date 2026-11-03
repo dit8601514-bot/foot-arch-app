@@ -566,6 +566,8 @@
     const { P1, P2, P3 } = det.landmarks;
     if (dist(P1, P3) < 1) { out.notes.push('P1과 P3 위치가 부적절합니다.'); return out; }
     out.heightPx = distanceToLine(P2, P1, P3);
+    // 스티커 아치 각도: P2(발배뼈)에서 P3(발꿈치)·P1(제1중족골두)로 향하는 두 선이 이루는 각. 아치가 낮아질수록 180°에 가까워진다.
+    out.archAngleDeg = archAngle(P1, P2, P3);
     out.signedHeightPx = det.landmarks.signedDistancePx;
     out.spanPx = det.landmarks.spanPx;
     out.axisAngleDeg = det.landmarks.axisAngleDeg;
@@ -598,6 +600,11 @@
     }
     out.floor = f;
   }
+  function archAngle(P1, P2, P3) {
+    const a = { x: P3.x - P2.x, y: P3.y - P2.y }, b = { x: P1.x - P2.x, y: P1.y - P2.y };
+    const c = (a.x * b.x + a.y * b.y) / (Math.hypot(a.x, a.y) * Math.hypot(b.x, b.y));
+    return Math.acos(Math.max(-1, Math.min(1, c))) * 180 / Math.PI;
+  }
   /** 체중부하 전·후 비교 */
   function comparePrePost(pre, post, conv, calibration) {
     const c = Object.assign({}, DEFAULT_CONVERSION, conv || {});
@@ -605,6 +612,7 @@
     if (!pre || !post) { r.notes.push('체중부하 전·후 측정값이 모두 필요합니다.'); return r; }
     if (pre.heightPx == null || post.heightPx == null) { r.status = '재촬영 필요'; r.notes.push('전·후 중 측정되지 않은 사진이 있습니다.'); return r; }
     r.changePx = Math.abs(pre.heightPx - post.heightPx);
+    if (pre.archAngleDeg != null && post.archAngleDeg != null) r.archAngle = { pre: pre.archAngleDeg, post: post.archAngleDeg, change: post.archAngleDeg - pre.archAngleDeg };
     if (pre.imageSize && post.imageSize && (pre.imageSize[0] !== post.imageSize[0] || pre.imageSize[1] !== post.imageSize[1])) {
       r.status = '재촬영 필요'; r.notes.push('전·후 사진의 해상도가 다릅니다. 같은 카메라 설정으로 촬영해 주세요.'); return r;
     }
@@ -1100,6 +1108,6 @@
     rgbToHsv, detectStickers, labelLandmarks, signedDistanceToLine, distanceToLine, projectionT,
     measureImage, comparePrePost, classify, roundMm, errorMetrics,
     splitByParticipant, trainCalibration, applyCalibration, fitMethod, validateConversion,
-    motionBetween, framingCheck, laplacianVariance, cropImage, detectInRoi, labelsConsistent, combineDetections, createLandmarkKalman, chromaMap, ALIGN, alignmentCheck, LOAD, loadEvidence, shapeOf, FOOT_MODEL, GUIDE_LAYOUT, guideGeometry, guideCheck, detectSoleLine, heightAboveSole
+    motionBetween, framingCheck, laplacianVariance, archAngle, cropImage, detectInRoi, labelsConsistent, combineDetections, createLandmarkKalman, chromaMap, ALIGN, alignmentCheck, LOAD, loadEvidence, shapeOf, FOOT_MODEL, GUIDE_LAYOUT, guideGeometry, guideCheck, detectSoleLine, heightAboveSole
   };
 });

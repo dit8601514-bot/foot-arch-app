@@ -277,6 +277,13 @@ t('바닥 기준 하강: 전·후 차이 계산 + 분류 기준을 바닥 방식
   const r2 = C.comparePrePost(ma, mb, Object.assign({ primaryMeasure: 'floor' }, conv)); eq(r2.primary, 'floor'); near(r2.changeMm, 8, 0.4);
 });
 
+t('아치 각도: 직각 배치 = 90°, 일직선 = 180°', () => { near(C.archAngle({ x: 10, y: 0 }, { x: 0, y: 0 }, { x: 0, y: 10 }), 90, 1e-9); near(C.archAngle({ x: 10, y: 0 }, { x: 0, y: 0 }, { x: -10, y: 0 }), 180, 1e-9); });
+t('아치 각도: 체중부하로 P2가 내려가면 각도 증가', () => {
+  const conv = { stickerDiameterMm: 10, validated: true };
+  const a = C.measureImage(C.detectStickers(makeImage(W, H, { stickers: footScene(W, H, 84).stickers })), conv), b = C.measureImage(C.detectStickers(makeImage(W, H, { stickers: footScene(W, H, 56).stickers })), conv);
+  a.imageSize = b.imageSize = [W, H]; const r = C.comparePrePost(a, b, conv); ok(r.archAngle && r.archAngle.change > 0, JSON.stringify(r.archAngle));
+});
+
 const pass = results.filter(r => r[1] === 'PASS').length;
 for (const r of results) console.log(`${r[1]}  ${r[0]}${r[2] ? '  — ' + r[2] : ''}`);
 console.log(`\n${pass}/${results.length} 통과`);

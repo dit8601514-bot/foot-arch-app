@@ -144,7 +144,10 @@ route('/self/run', '자가 검사 진행', async (v) => {
     cur.loadRecognition = { transitionSeen, live: ev ? { drop: ev.drop, spanGain: ev.spanGain, by: ev.by } : null, final: { drop: fin.drop, spanGain: fin.spanGain, by: fin.by }, confirmed: !!confirmed, at: Date.now() };
     delete cur.pre._shape; delete cur.post._shape;
     $('#status', v).textContent = '분석 중…';
-    const saved = await finalizeExam(cur);
+    const ov2 = document.createElement('div'); ov2.className = 'modal-bg'; ov2.style.alignItems = 'center';
+    ov2.innerHTML = `<div class="modal" style="border-radius:22px;max-width:420px;margin:16px">${analyzingHtml()}</div>`; document.body.appendChild(ov2);
+    let n = 0; const saved = await finalizeExam(cur, t => { const li = document.createElement('li'); li.innerHTML = t; $('#prog', ov2).appendChild(li); setRing(ov2, ++n / 6); });
+    setRing(ov2, 1); await new Promise(r => setTimeout(r, 500)); ov2.remove();
     run.results.push(saved.id);
     if (fi + 1 < run.feet.length) {
       fi++;
@@ -243,7 +246,8 @@ function flexWarnHtml() { return '<div class="note bad small">이런 경우에�
 function bindFlexSection(root, e) {
   $$('[data-sq]', root).forEach(cb => cb.onchange = async () => {
     e.selfReport = Object.assign({}, e.selfReport, { [cb.dataset.sq]: cb.checked, answeredAt: Date.now() });
-    await save('exams', e);
+    e.updatedAt = Date.now();
+    await save('exams', e); Account.syncSoon();
     $('#flexWarn', root).innerHTML = SELF_QUESTIONS.some(([k]) => e.selfReport[k]) ? flexWarnHtml() : '';
   });
 }

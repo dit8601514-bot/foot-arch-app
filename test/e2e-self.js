@@ -51,6 +51,9 @@ async function scenario(tag, video, expectConfirmed, expectMm) {
         const ex = await pg.evaluate(async () => { const e = (await DB.all('exams'))[0]; return { line: e.comparison.lineChangeMm, floor: e.comparison.floor, pl: e.pre.measure.floor && e.pre.measure.floor.placement }; });
         log(`[${tag}] 바닥 기준 발배뼈 높이 ≈42→34mm, 하강 ≈8mm (표준 NDT 방식)`, ex.floor && Math.abs(ex.floor.preMm - 42) < 0.5 && Math.abs(ex.floor.postMm - 34) < 0.5 && Math.abs(ex.floor.dropMm - 8) < 0.4, JSON.stringify(ex.floor && { pre: ex.floor.preMm.toFixed(2), post: ex.floor.postMm.toFixed(2), drop: ex.floor.dropMm.toFixed(2) }));
         log(`[${tag}] P1·P3 부착 높이 표준(20mm) 점검 통과`, ex.pl && ex.pl.every(x => x.ok && Math.abs(x.mm - 20) < 0.6), JSON.stringify(ex.pl));
+        await shot('d06-result'); await pg.click('#detailBtn'); await pg.waitForTimeout(200); await shot('d06b-result-detail');
+        for (const [h, n] of [['#/home', 'd01-home'], ['#/records', 'd07-records'], ['#/exercises', 'd08-exercises']]) { await pg.goto(U + h); await pg.waitForTimeout(700); await shot(n); }
+        await pg.goBack(); await pg.goBack(); await pg.goBack(); await pg.waitForSelector('.result-big');
         log(`[${tag}] 결과 화면에 두 측정값(기준선·바닥) 표시`, main.includes('P1–P3 기준선 하강') && main.includes('바닥 기준 발배뼈 높이') && !main.includes('바닥선 미확인'));
       }
       log(`[${tag}] 결과: 체중부하 인지 기록(일어섬·아치 하강)`, main.includes('일어섬 확인') && main.includes('아치 하강 확인'));

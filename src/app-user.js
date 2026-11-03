@@ -5,40 +5,41 @@ function convSettings() {
   return { stickerDiameterMm: S.settings.stickerDiameterMm, validated: !!(v && v.pass && v.diameterMm === S.settings.stickerDiameterMm), primaryMeasure: S.settings.primaryMeasure || 'line' };
 }
 function defaultToe(foot) { return foot === 'left' ? 'right' : 'left'; } // 안쪽 면 촬영 시 자연스러운 발가락 방향
-function stepper(n) { return `<div class="stepper" aria-label="검사 ${n}/6단계">${[1, 2, 3, 4, 5, 6].map(i => `<span class="${i <= n ? 'on' : ''}"></span>`).join('')}</div>`; }
+function stepper(n) { const k = n <= 5 ? 1 : n === 6 ? 2 : 3; const st = (i, l) => `<div class="st ${i <= k ? 'on' : ''}"><b>${i}</b>${l}</div>`; return `<div class="stepper" aria-label="검사 ${k}/3단계">${st(1, '촬영')}<div class="ln ${k > 1 ? 'on' : ''}"></div>${st(2, '분석')}<div class="ln ${k > 2 ? 'on' : ''}"></div>${st(3, '결과')}</div>`; }
 const DISCLAIMER = '개인 건강관리용 앱입니다. 이 결과는 자가 확인과 관리를 위한 참고 정보입니다. 이 애플리케이션만으로 평발을 확정 진단하지 않으며, 본 측정은 연구에서 정의한 기준점 간 거리 변화 방식으로 표준 임상 발배뼈 하강 검사(Navicular Drop Test)와 동일하다고 검증되지 않았습니다. 통증이나 불편이 있으면 전문가와 상담하세요.';
 
 // ───── 홈 ─────
-route('/home', '발 아치 기능 평가', async (v) => {
+route('/home', 'AI Footarch', async (v) => {
   const exams = (await DB.all('exams')).filter(e => !e.isTest).sort((a, b) => b.createdAt - a.createdAt);
   const latest = f => exams.find(e => e.foot === f);
-  const cv = convSettings();
+  const cv = convSettings(), me = typeof Account !== 'undefined' ? Account.user() : null;
   const mgmt = ['left', 'right'].map(f => exams.find(e => e.foot === f && e.category)).filter(e => e && e.category.key !== 'normal').map(e => FOOT[e.foot]).join('·');
   v.innerHTML = `
-    <h2>안녕하세요</h2>
-    <p class="muted">발에 붙인 파란 스티커 3개를 촬영해 앉았을 때와 섰을 때의 발 아치 높이 변화(발배뼈 하강)를 측정하고, 유연성 평발 양상을 스스로 확인·관리합니다.</p>
-    ${!cv.validated ? `<div class="note warn"><b>mm 환산이 아직 검증되지 않았습니다.</b> 연구자가 스티커 지름 설정과 보정 템플릿 시험을 마치기 전까지는 픽셀 값만 기록되고 평발 분류는 표시되지 않습니다.</div>` : ''}
-    <a class="btn primary block big" href="#/self">🔊 음성 안내 자가 검사</a>
-    <p class="tiny" style="text-align:center;margin-top:-2px">휴대폰을 두 발 사이에 두면 앉은 자세·선 자세를 자동으로 찍습니다</p>
-    ${mgmt ? `<a class="card" style="display:block;text-decoration:none;color:inherit" href="#/manage"><div class="row"><b class="grow">유연성 평발 관리 중</b><span class="badge b-warn">${esc(mgmt)}</span></div><div class="tiny">운동 기록과 하강량 변화를 확인하세요 ›</div></a>` : ''}
-    <div class="grid2">
-      <button class="btn" data-foot="left">왼발 단계별 검사</button>
-      <button class="btn" data-foot="right">오른발 단계별 검사</button>
+    <section class="hero">
+      <div class="bar">${logoHtml(false)}<a href="#/settings" aria-label="설정·알림">${ICON.bell}</a></div>
+      <h2>${me && me.name ? esc(me.name) + '님, ' : ''}안녕하세요!</h2>
+      <p>발 건강 관리를 시작해볼까요? 👣</p>
+    </section>
+    <div class="menu-cards">
+      <a class="menu-card" href="#/self"><span class="mi">${ICON.scan}</span><span>측정하기<span class="sub">음성 안내로 앉은·선 자세 자동 촬영</span></span><span class="chev">${ICON.chev}</span></a>
+      <a class="menu-card" href="#/records"><span class="mi">${ICON.list}</span><span>기록보기<span class="sub">측정 달력과 변화 추이</span></span><span class="chev">${ICON.chev}</span></a>
+      <a class="menu-card" href="#/exercises"><span class="mi">${ICON.playBox}</span><span>족궁재활영상<span class="sub">결과에 맞춘 운동 영상</span></span><span class="chev">${ICON.chev}</span></a>
     </div>
+    ${!cv.validated ? `<div class="note warn small"><b>mm 환산이 아직 검증되지 않았습니다.</b> 연구자가 스티커 지름 설정과 보정 템플릿 시험을 마치기 전까지는 픽셀 값만 기록되고 분류는 표시되지 않습니다.</div>` : ''}
+    ${mgmt ? `<a class="card" style="display:block;text-decoration:none;color:inherit" href="#/manage"><div class="row"><b class="grow">유연성 평발 관리 중</b><span class="badge b-warn">${esc(mgmt)}</span></div><div class="tiny">운동 기록과 하강량 변화를 확인하세요 ›</div></a>` : ''}
     <h3>최근 결과</h3>
-    <div class="grid2">${['left', 'right'].map(f => { const e = latest(f); return `<a class="card" style="margin:0;text-decoration:none;color:inherit" href="${e ? '#/result/' + e.id : '#/guide?foot=' + f}">
+    <div class="grid2">${['left', 'right'].map(f => { const e = latest(f); return `<a class="card" style="margin:0;text-decoration:none;color:inherit" href="${e ? '#/result/' + e.id : '#/self?feet=' + f}">
       <div class="tiny">${FOOT[f]}</div>
-      ${e ? `<div style="font-size:22px;font-weight:800">${e.comparison.changeMm != null ? mm(e.comparison.changeMm) : statusBadge(e.comparison.status)}</div><div>${catBadge(e.category)}</div><div class="tiny">${fmtDate(e.createdAt)}</div>` : '<div class="muted small" style="margin-top:6px">기록 없음</div>'}
+      ${e ? `<div style="font-size:22px;font-weight:800">${e.comparison.changeMm != null ? mm(e.comparison.changeMm) : statusBadge(e.comparison.status)}</div><div>${catBadge(e.category)}</div><div class="tiny">${fmtDate(e.createdAt)}</div>` : '<div class="muted small" style="margin-top:6px">기록 없음 · 측정하기 ›</div>'}
     </a>`; }).join('')}</div>
-    <div class="card"><div class="list-item" style="padding-top:0"><span class="grow">운동 수행 기록</span><a class="btn sm" href="#/logs">보기</a></div>
-    <div class="list-item"><span class="grow">스티커 부착 위치</span><a class="btn sm" href="#/stickers-info">보기</a></div>
-    <div class="list-item"><span class="grow">검사 이력 · 변화 그래프</span><a class="btn sm" href="#/history">보기</a></div>
+    <div class="card"><div class="list-item" style="padding-top:0"><span class="grow">스티커 부착 위치·부착 자</span><a class="btn sm" href="#/stickers-info">보기</a></div>
+    <div class="list-item"><span class="grow">단계별 검사(직접 촬영)</span><span class="row" style="gap:6px"><button class="btn sm" data-foot="left">왼발</button><button class="btn sm" data-foot="right">오른발</button></span></div>
     <div class="list-item" style="padding-bottom:0"><span class="grow">연구자·관리자 모드</span><a class="btn sm" href="#/r/home">열기</a></div></div>
     ${!isStandalone() && location.protocol === 'https:' ? `<div class="card small"><b>휴대폰 홈 화면에 앱으로 설치</b><p class="tiny">${installEvt ? '아래 버튼을 누르면 설치됩니다.' : /iPhone|iPad/.test(navigator.userAgent) ? 'Safari 아래쪽 공유 버튼 → “홈 화면에 추가”를 누르세요.' : '브라우저 메뉴 → “앱 설치” 또는 “홈 화면에 추가”를 누르세요.'} 설치하면 주소창 없이 열리고, 인터넷이 없어도 열립니다.</p>${installEvt ? '<button class="btn primary block" id="install">앱 설치</button>' : ''}</div>` : ''}
     <p class="tiny">${esc(DISCLAIMER)}</p>`;
   $$('[data-foot]', v).forEach(b => b.onclick = () => go('#/guide?foot=' + b.dataset.foot));
   if ($('#install', v)) $('#install', v).onclick = async () => { installEvt.prompt(); await installEvt.userChoice.catch(() => {}); installEvt = null; render(); };
-});
+}, { bare: true });
 
 // ───── 검사 안내 ─────
 route('/guide', '검사 안내', async (v, p) => {
@@ -345,14 +346,17 @@ async function finalizeExam(ex, log) {
     const bid = uid(); if (await save('blobs', { id: bid, kind: 'image', examId: rec.id, phase: ph, blob: ex[ph]._blob, createdAt: Date.now() })) rec[ph].imageId = bid;
   }
   rec._saved = await save('exams', rec);
+  if (rec._saved && typeof Account !== 'undefined') Account.syncSoon();
   log(rec._saved ? '검사 결과 저장 완료' : '<b>저장 실패</b> — 결과는 표시되지만 이력에 남지 않습니다.');
   S.lastResult = rec;
   return rec;
 }
 route('/analyze', 'AI 분석 및 측정', async (v) => {
   const ex = S.exam; if (!ex || !ex.pre || !ex.post) return go('#/guide');
-  v.innerHTML = `${stepper(6)}<h2>분석 중</h2><div class="card"><ol class="steps" id="prog"></ol></div>`;
-  const rec = await finalizeExam(ex, t => { const li = document.createElement('li'); li.innerHTML = t; $('#prog', v).appendChild(li); });
+  v.innerHTML = analyzingHtml();
+  let n = 0;
+  const rec = await finalizeExam(ex, t => { const li = document.createElement('li'); li.innerHTML = t; $('#prog', v).appendChild(li); setRing(v, ++n / 6); });
+  setRing(v, 1);
   S.exam = null;
   await new Promise(r => setTimeout(r, 400)); go('#/result/' + rec.id);
 });
@@ -369,16 +373,31 @@ route('/result/:id', '측정 결과', async (v, p) => {
   const explain = cat ? `체중부하 전·후 P2(발배뼈 부위)와 P1–P3 기준선 사이 거리가 ${mm(c.changeMm)} 변했습니다. 본 연구에서 설정한 기준(${cat.range})에 따라 “${cat.label}”으로 분류됩니다. 이 기준은 본 연구의 분류 기준이며 모든 임상 환경에서 검증된 진단 기준이 아닙니다.`
     : c.status === '보정 필요' ? `mm 환산 조건이 충족되지 않아 mm 값과 분류를 표시하지 않습니다. 픽셀 변화량(${px(c.changePx)})은 기록되었으며, 카메라 거리·해상도에 따라 달라지므로 다른 검사와 비교할 수 없습니다.`
     : '측정을 완료하지 못했습니다. 아래 원인을 확인하고 다시 검사해 주세요.';
-  v.innerHTML = `
+  const ang = c.archAngle, fl = c.floor, deg = x => x == null ? '—' : x.toFixed(1) + '°';
+  const metric = (icon, label, sub, val) => `<div class="metric"><span class="mi">${icon}</span><span class="lab">${label}${sub ? `<small>${sub}</small>` : ''}</span><span class="val">${val}</span></div>`;
+  v.innerHTML = `${stepper(7)}
     <div class="row"><span class="badge b-info">${FOOT[e.foot]}</span><span class="tiny grow">${fmtDate(e.createdAt)} · ${esc(e.algorithmVersion)}${e.calibrationModel ? ' + ' + esc(e.calibrationModel) : ''}</span>${statusBadge(c.status)}</div>
-    <div class="card" style="text-align:center">
-      <div class="tiny">발 아치 높이 변화량</div>
-      <div class="result-big">${c.changeMm != null ? mm(c.changeMm) : '—'}</div>
-      <div style="margin:6px 0">${catBadge(cat)}</div>
-      ${c.changeMm == null && c.changePx != null ? `<div class="tiny">픽셀 변화량 ${px(c.changePx)} (mm 아님)</div>` : ''}
+    <div class="card hero-result">
+      <span class="feet">${footprintsSvg('r')}</span>
+      <div class="grow">
+        <div class="tiny" style="font-weight:700;color:var(--ink-2)">발배뼈 하강 ${c.primary === 'floor' ? '(바닥 기준)' : ''}</div>
+        <div class="result-big">${c.changeMm != null ? mm(c.changeMm) : '—'}</div>
+        <div>${catBadge(cat)}</div>
+        ${c.changeMm == null && c.changePx != null ? `<div class="tiny">픽셀 변화량 ${px(c.changePx)} (mm 아님)</div>` : ''}
+      </div>
     </div>
     ${c.flags && c.flags.length ? `<div class="note warn">${c.flags.map(esc).join('<br>')}</div>` : ''}
     ${c.notes && c.notes.length ? `<div class="note ${c.status === '측정 가능' ? 'info' : 'warn'}"><ul class="list">${c.notes.map(n => `<li>${esc(n)}</li>`).join('')}</ul></div>` : ''}
+    <h3>분석 결과</h3>
+    <div class="card" style="padding:6px 16px">
+      ${metric(ICON.drop, 'P1–P3 기준선 하강', '연구 정의 · Nielsen 등 2009', c.lineChangeMm != null ? mm(c.lineChangeMm) : c.changePx != null ? px(c.changePx) : '—')}
+      ${metric(ICON.height, '발배뼈 높이(바닥 기준)', '앉음 → 섬 · 표준 NDT 방식', fl ? `${mm(fl.preMm)} → ${mm(fl.postMm)}` : '<span class="tiny">바닥선 미확인</span>')}
+      ${fl ? metric(ICON.drop, '바닥 기준 하강', '', mm(fl.dropMm)) : ''}
+      ${metric(ICON.angle, '스티커 아치 각도', 'P3–P2–P1 · 앉음 → 섬', ang ? `${deg(ang.pre)} → ${deg(ang.post)}` : '—')}
+      ${metric(ICON.check, '측정 신뢰도', '검출·선명도 기반 휴리스틱', pct(e.measurementConfidence))}
+    </div>
+    <button class="btn primary block big" id="detailBtn">상세 리포트 보기</button>
+    <div id="detail" class="hide">
     <div class="card"><dl class="kv">
       <dt>체중부하 전</dt><dd>${preV}</dd>
       <dt>체중부하 후</dt><dd>${postV}</dd>
@@ -397,6 +416,7 @@ route('/result/:id', '측정 결과', async (v, p) => {
       <dt>분류에 쓴 값</dt><dd>${c.primary === 'floor' ? '바닥 기준 하강' : 'P1–P3 기준선 하강'}</dd>
     </dl>${(() => { const pl = (e.pre.measure.floor && e.pre.measure.floor.placementNotes) || []; const why = !c.floor ? [e.pre.measure.floor, e.post.measure.floor].filter(f => f && !f.ok).map(f => f.reason)[0] : null; return (pl.length ? `<div class="note warn small">${pl.map(esc).join('<br>')} 다음 검사에서는 부착 자로 위치를 맞춰 주세요.</div>` : '') + (why ? `<p class="tiny">바닥선을 쓰지 못한 이유: ${esc(why)}</p>` : ''); })()}
     </div>
+    </div>
     <div class="card"><b>결과 설명</b><p class="small">${esc(explain)}</p></div>
     ${flexSectionHtml(e)}
     <div id="imgs"></div>
@@ -408,6 +428,7 @@ route('/result/:id', '측정 결과', async (v, p) => {
     <div class="grid2"><button class="btn primary" id="other">${FOOT[e.foot === 'left' ? 'right' : 'left']} 검사</button><a class="btn" href="#/history">검사 이력</a></div>
     <button class="btn ghost block" id="del">이 결과 삭제</button>`;
   bindFlexSection(v, e);
+  $('#detailBtn', v).onclick = () => { const d = $('#detail', v); d.classList.toggle('hide'); $('#detailBtn', v).textContent = d.classList.contains('hide') ? '상세 리포트 보기' : '상세 리포트 접기'; };
   $('#other', v).onclick = () => go(e.method === 'voice' ? '#/self?feet=' + (e.foot === 'left' ? 'right' : 'left') : '#/guide?foot=' + (e.foot === 'left' ? 'right' : 'left'));
   $('#del', v).onclick = async () => { if (await confirmModal('이 검사 결과를 삭제할까요? 되돌릴 수 없습니다.', '삭제', true)) { await deleteExam(e); toast('삭제했습니다.'); go('#/history'); } };
   // 저장된 사진이 있으면 저장된 좌표와 함께 표시
@@ -426,26 +447,14 @@ function loadRecText(r) {
   return `${r.transitionSeen ? '일어섬 확인' : '동작 미확인'} · ${shape}<div class="tiny">아치 하강 ${(f.drop || 0).toFixed(2)}×스티커 지름 · 발 길이 ${f.spanGain >= 0 ? '+' : ''}${pc(f.spanGain || 0)}</div>`;
 }
 function modeLabel(m) { return { auto: '자동', manual: '수동', upload: '파일', voice: '음성 자동' }[m] || m; }
-async function deleteExam(e) {
+async function deleteExam(e, localOnly) {
   for (const ph of ['pre', 'post']) if (e[ph] && e[ph].imageId) await DB.del('blobs', e[ph].imageId).catch(() => {});
   await DB.del('exams', e.id);
+  if (!localOnly && e._syncedAt && typeof Account !== 'undefined' && Account.loggedIn) await Account.removeRemote('exams', e.id).catch(err => toast('서버 기록 삭제 실패: ' + err.message, true));
 }
 
 // ───── 운동 목록 · 상세 ─────
 function hasPrescription(x) { return [x.reps, x.sets, x.holdSec, x.perWeek].some(v => v !== '' && v != null); }
-route('/exercises', '운동 중재', async (v) => {
-  const exs = await DB.all('exercises');
-  const exams = (await DB.all('exams')).filter(e => !e.isTest && e.category).sort((a, b) => b.createdAt - a.createdAt);
-  const recentCats = [...new Set(exams.slice(0, 4).map(e => e.category.key))];
-  const recommended = exs.filter(x => recentCats.some(k => (S.settings.mapping[k] || []).includes(x.id)));
-  const item = x => `<a class="list-item" href="#/exercise/${x.id}"><span class="grow"><b>${esc(x.name)}</b><br>
-    <span class="row" style="gap:4px">${x.videoBlobId || x.videoUrl ? '<span class="badge b-good">영상 있음</span>' : '<span class="badge b-warn">영상 등록 필요</span>'}
-    ${hasPrescription(x) ? '' : '<span class="badge b-warn">처방 수치 미입력</span>'}${x.reviewed ? '' : '<span class="badge">연구자 검토 전</span>'}</span></span>›</a>`;
-  v.innerHTML = `<h2>운동 중재</h2>
-    ${recommended.length ? `<h3>최근 결과에 연결된 운동</h3><div class="card">${recommended.map(item).join('')}</div>` : ''}
-    <h3>전체 운동</h3><div class="card">${exs.length ? exs.map(item).join('') : '<p class="muted">등록된 운동이 없습니다.</p>'}</div>
-    <a class="btn block" href="#/logs">운동 수행 기록 보기</a>`;
-});
 route('/exercise/:id', '운동', async (v, p) => {
   const x = await DB.get('exercises', p.id); if (!x) { v.innerHTML = '<div class="note bad">운동을 찾을 수 없습니다.</div>'; return; }
   let src = null;
@@ -481,7 +490,7 @@ route('/exercise/:id', '운동', async (v, p) => {
     if (Number.isNaN(sets) || Number.isNaN(reps) || (sets != null && sets < 0) || (reps != null && reps < 0)) return toast('세트·반복 수는 0 이상의 숫자로 입력해 주세요.', true);
     const linked = p.q.exam ? await DB.get('exams', p.q.exam).catch(() => null) : null;
     const ok = await save('logs', { id: uid(), date: Date.now(), exerciseId: x.id, exerciseName: x.name, completed: true, watchedSec: Math.round(watched), actualSets: sets, actualReps: reps, memo: $('#memo', v).value.trim(), examId: linked ? linked.id : null, foot: linked ? linked.foot : null, participantId: S.settings.participantId || '' });
-    if (ok) { toast('운동 완료 기록을 저장했습니다.'); go('#/logs'); }
+    if (ok) { Account.syncSoon(); toast('운동 완료 기록을 저장했습니다.'); go('#/logs'); }
   };
 });
 
@@ -557,7 +566,8 @@ route('/compare', '중재 전·후 비교', async (v, p) => {
 // ───── 설정 · 개인정보 ─────
 route('/settings', '설정 및 개인정보', async (v) => {
   const est = navigator.storage && navigator.storage.estimate ? await navigator.storage.estimate().catch(() => null) : null;
-  v.innerHTML = `<h2>설정 및 개인정보</h2>
+  const accHtml = await accountCardHtml();
+  v.innerHTML = `<h2>설정 및 개인정보</h2>${accHtml}
     ${DB.persistentFailed ? `<div class="note bad"><b>영구 저장소를 사용할 수 없습니다.</b> (${esc(DB.persistentFailed)}) 기록이 새로고침 시 사라집니다. 사생활 보호(시크릿) 모드를 끄거나 다른 브라우저를 사용하세요.</div>` : ''}
     <div class="card"><label class="f" for="pid">연구 참여자 ID (익명)</label>
       <input id="pid" value="${esc(S.settings.participantId)}" placeholder="예: P001" maxlength="20" autocomplete="off">
@@ -571,6 +581,7 @@ route('/settings', '설정 및 개인정보', async (v) => {
       <button class="btn danger block" id="wipe">내 검사·운동 기록 모두 삭제</button></div>
     <div class="card small"><dl class="kv"><dt>앱 버전</dt><dd>${APP_VERSION}</dd><dt>측정 알고리즘</dt><dd>${C.ALGORITHM_VERSION}</dd><dt>스티커 지름 설정</dt><dd>${S.settings.stickerDiameterMm ? S.settings.stickerDiameterMm + ' mm' : '미설정'}</dd><dt>mm 환산 검증</dt><dd>${convSettings().validated ? '통과' : '미통과'}</dd></dl></div>
     <a class="btn block" href="#/r/home">연구자·관리자 모드</a>`;
+  bindAccountCard(v);
   $('#saveS', v).onclick = async () => {
     const pid = $('#pid', v).value.trim();
     if (pid && !/^[A-Za-z0-9_-]{1,20}$/.test(pid)) return toast('참여자 ID는 영문·숫자·-·_ 20자 이내로 입력해 주세요.', true);
@@ -580,7 +591,7 @@ route('/settings', '설정 및 개인정보', async (v) => {
   $('#exp', v).onclick = async () => { const data = { exportedAt: new Date().toISOString(), app: APP_VERSION, exams: await DB.all('exams'), logs: await DB.all('logs') }; download(`foot-arch-my-data-${Date.now()}.json`, JSON.stringify(data, null, 1)); };
   $('#wipe', v).onclick = async () => {
     if (!await confirmModal('이 기기에 저장된 모든 검사 결과, 사진, 운동 기록을 삭제합니다. 되돌릴 수 없습니다.', '모두 삭제', true)) return;
-    for (const e of await DB.all('exams')) await deleteExam(e);
-    await DB.clear('logs'); S.lastResult = null; toast('삭제했습니다.'); render();
+    for (const e of await DB.all('exams')) await deleteExam(e, true);
+    await DB.clear('logs'); S.lastResult = null; toast(Account.loggedIn ? '이 기기의 기록을 삭제했습니다(서버 기록은 회원 탈퇴 시 삭제).' : '삭제했습니다.'); render();
   };
 });
