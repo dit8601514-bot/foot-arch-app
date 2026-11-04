@@ -7,7 +7,6 @@ const R = []; const log = (n, ok, d) => { R.push([n, ok ? 'PASS' : 'FAIL', d || 
 (async () => {
   const b = await chromium.launch({ args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--use-file-for-fake-video-capture=' + path.join(__dirname, 'img/track.y4m')] });
   const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, permissions: ['camera'] });
-  await ctx.addInitScript(() => { window.FOOTARCH_SHUTTER_DELAY = 2; }); // 타이머 동작 확인(시험에서는 2초)
   const pg = await ctx.newPage(); const errors = []; pg.on('pageerror', e => errors.push(e.message));
   const U = 'http://localhost:8768/';
   await pg.goto(U + '#/guide?foot=left'); await pg.waitForSelector('#ack'); await pg.check('#ack'); await pg.click('#next'); await pg.click('#next'); await pg.click('#next');
@@ -25,7 +24,7 @@ const R = []; const log = (n, ok, d) => { R.push([n, ok ? 'PASS' : 'FAIL', d || 
   const fps = Math.min(...phase(2, 12.5).map(s => parseInt(s.hud)).filter(Number.isFinite));
   log('ALG-2에서도 실시간 분석 ≥ 8fps', fps >= 8, '최저 ' + fps + 'fps');
   await pg.click('#shot');
-  await pg.waitForTimeout(300); log('수동 촬영 버튼 → 카운트다운 표시', (await pg.textContent('#cd')).trim() === '2' && (await pg.textContent('#shot')).includes('취소'));
+  await pg.waitForTimeout(300); log('수동 촬영 버튼 → 타이머 없이 바로 촬영', !(await pg.$('.cdbig')) && !(await pg.textContent('#shot')).includes('취소'));
   const okShot = await pg.waitForSelector('#use', { timeout: 20000 }).then(() => true).catch(() => false);
   const rv = await pg.textContent('#review');
   log('방해물·저조도 상태에서 연속 촬영 성공', okShot, (rv.match(/연속 촬영[^\n]*\n?[^\n]*/) || [''])[0].replace(/\s+/g, ' '));

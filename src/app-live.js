@@ -84,23 +84,6 @@ const Voice = (() => {
   return { say, beep, unlock, speakable, get supported() { return ok(); }, get hasKorean() { return !!voice; }, get voiceName() { return voice ? voice.name : ''; }, get enabled() { return enabled; }, set enabled(v) { enabled = !!v; if (!v && ok()) { gen++; speechSynthesis.cancel(); } }, get unlocked() { return unlocked; } };
 })();
 
-// 촬영 타이머: 버튼을 누른 뒤 N초 동안 자리를 잡을 시간을 준다(화면 숫자 + 신호음, 마지막 3초는 높은 음)
-// 반환: true(완료) / false(취소). cancelRef.cancel = true 로 취소.
-function shutterDelaySec() { const w = window.FOOTARCH_SHUTTER_DELAY; return w != null ? w : (S.settings && S.settings.shutterDelay != null ? S.settings.shutterDelay : 10); }
-async function shutterCountdown(el, sec, intro, cancelRef) {
-  sec = sec == null ? shutterDelaySec() : sec;
-  if (!(sec > 0)) return true;
-  Voice.say(intro || `${sec}초 뒤에 촬영합니다.`);
-  for (let i = sec; i > 0; i--) {
-    if (cancelRef && cancelRef.cancel) { if (el) el.textContent = ''; return false; }
-    if (el) el.innerHTML = `<span class="cdbig">${i}</span>`;
-    if (i <= 3) Voice.beep(1046, 140); else Voice.beep(660, 50);
-    await new Promise(r => setTimeout(r, 1000));
-  }
-  if (el) el.textContent = '';
-  return !(cancelRef && cancelRef.cancel);
-}
-
 // 휴대폰 방향: 화면이 세로로 고정된 채 휴대폰을 가로로 눕히면 카메라 영상이 세로로 들어온다.
 // 중력 센서로 처음 방향을 추정하고, 스티커 배치(발배뼈 스티커가 위쪽)로 확정한다.
 const Orient = (() => {

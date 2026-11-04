@@ -30,10 +30,9 @@ async function scenario(tag, video, expectConfirmed, expectMm, opt) {
     await pg.evaluate(() => window.__workers.forEach(w => w.terminate())); // onerror 없이 종료
   }
   await pg.waitForSelector('#vid'); await pg.waitForTimeout(4500); if (tag === 'A') await shot('s03-self-align'); if (tag === 'C') await shot('s03-std-align'); if (tag === 'R1') await shot('s03-rot-align');
-  let window_cd_seen = false;
-  if (opt.postMode === 'timer') { window_cd_seen = await pg.waitForFunction(() => window.__spoken.includes('촬영되었습니다.') && document.querySelector('.cdbig'), null, { timeout: 45000 }).then(() => true).catch(() => false); if (tag === 'M') await shot('s04-timer-countdown'); }
+  await pg.evaluate(() => { window.__cdSeen = false; const t = setInterval(() => { if (document.querySelector('.cdbig')) window.__cdSeen = true; if (location.hash.startsWith('#/result/')) clearInterval(t); }, 200); });
   // 체중부하 단계 화면(인지 카드) 캡처
-  if (opt.postMode !== 'timer') await pg.waitForFunction(() => document.querySelector('#lcMove') && document.querySelector('#lcMove').textContent === '확인', null, { timeout: 45000 }).catch(() => {});
+  await pg.waitForFunction(() => document.querySelector('#lcMove') && document.querySelector('#lcMove').textContent === '확인', null, { timeout: 45000 }).catch(() => {});
   await pg.waitForTimeout(1500); if (tag === 'A') await shot('s04-self-load'); if (tag === 'C') await shot('s04-std-load');
   const ok = await pg.waitForFunction(() => location.hash.startsWith('#/result/'), null, { timeout: 60000 }).then(() => true).catch(() => false);
   const secs = ((Date.now() - t0) / 1000).toFixed(1);
@@ -42,11 +41,8 @@ async function scenario(tag, video, expectConfirmed, expectMm, opt) {
   log(`[${tag}] 시작: 타이머 없이 음성 "준비해 주세요"`, J.includes('준비해 주세요') && !J.includes('초 뒤에 시작합니다'));
   log(`[${tag}] 음성: 정확한 정렬 안내`, spoken.some(s => s.includes('정확히 들어왔습니다')));
   log(`[${tag}] 음성: "앉은 자세를 촬영합니다"`, spoken.includes('앉은 자세를 촬영합니다.'));
-  const timerMode = opt.postMode === 'timer';
-  if (timerMode) {
-    log(`[${tag}] 음성: "그대로 일어서서… 10초 뒤에 체중부하 사진을 찍습니다"`, J.includes('이제 그대로 일어서서') && J.includes('10초 뒤에 체중부하 사진을 찍습니다'));
-    log(`[${tag}] 선 자세 타이머 표시(10→1)`, !!window_cd_seen);
-  } else {
+  log(`[${tag}] 타이머 없음: 카운트다운 숫자·"초 뒤에" 안내 없음`, !(await pg.evaluate(() => window.__cdSeen)) && !/초 뒤에/.test(J));
+  {
     log(`[${tag}] 음성: "체중부하 해주십시오"`, spoken.some(s => s.includes('체중부하 해주십시오')));
     log(`[${tag}] 음성: 일어서는 동작 인지`, spoken.some(s => s.includes('일어서는 동작을 확인했습니다')));
   }
@@ -70,8 +66,7 @@ async function scenario(tag, video, expectConfirmed, expectMm, opt) {
         await pg.goBack(); await pg.goBack(); await pg.goBack(); await pg.waitForSelector('.result-big');
         log(`[${tag}] 결과 화면에 두 측정값(기준선·바닥) 표시`, main.includes('P1–P3 기준선 하강') && main.includes('바닥 기준 발배뼈 높이') && !main.includes('바닥선 미확인'));
       }
-      if (!timerMode) log(`[${tag}] 결과: 체중부하 인지 기록(일어섬·발활 하강)`, main.includes('일어섬 확인') && main.includes('발활 하강 확인'));
-      else log(`[${tag}] 결과: 발활 하강 확인 기록`, main.includes('발활 하강 확인'));
+      log(`[${tag}] 결과: 체중부하 인지 기록(일어섬·발활 하강)`, main.includes('일어섬 확인') && main.includes('발활 하강 확인'));
       log(`[${tag}] 유연성 평발 양상 안내`, main.includes('유연성 평발 양상'));
       { await pg.waitForSelector('.care-card', { timeout: 5000 }).catch(() => {}); const ct = await pg.textContent('#careBox').catch(() => '');
         log(`[${tag}] AI 1:1 맞춤 케어: 개인 추정·관리 계획·전문가 값 입력`, ct.includes('AI 1:1 맞춤 케어') && ct.includes('개인 맞춤 추정') && ct.includes('나만의 관리 계획') && ct.includes('자로 실제 잰 값'), ct.slice(0, 120));
@@ -101,9 +96,9 @@ async function scenario(tag, video, expectConfirmed, expectMm, opt) {
   // 예전 설정(시작 타이머 10초)이 남아 있어도 시작 타이머 없이 "준비해 주세요" 후 진행
   if (!which || which === 'T') await scenario('T', 'self_std_long.y4m', true, 8.0, { delay: 10 });
   // 휴대폰이 계속 미세하게 흔들림(±5px·±0.4°) — 발은 가만히 있으므로 정상 촬영되어야 함
-  // 기본 방식: 가이드에 맞으면 앉은 자세 → 일어서기 → 10초 타이머 후 선 자세
+  // 예전 설정(선 자세 타이머)이 남아 있어도 타이머 없이 AI 인지로 진행
   if (!which || which === 'M') await scenario('M', 'self_std.y4m', true, 8.0, { postMode: 'timer' });
-  if (!which || which === 'MR') await scenario('MR', 'self_std_rot90.y4m', true, 8.0, { postMode: 'timer' });
+  if (!which || which === 'MR') await scenario('MR', 'self_std_rot90.y4m', true, 8.0);
   if (!which || which === 'H') await scenario('H', 'self_std_shake.y4m', true, 8.0);
   if (!which || which === 'K') await scenario('K', 'self_std.y4m', true, 8.0, { killAfterPre: true });
   if (!which || which === 'R1') await scenario('R1', 'self_std_rot90.y4m', true, 8.0);
