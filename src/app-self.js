@@ -29,7 +29,7 @@ route('/self', '측정하기', async (v, p) => {
       <h3>발 사진을 촬영해주세요</h3>
       <p class="sub">휴대폰을 두 발 사이에 가로로 세우고 아래 순서대로 진행합니다. 음성이 단계마다 알려 드립니다.</p>
       <ol class="flow">
-        <li><b>촬영 버튼</b><span>누르고 <em id="dlyTxt"></em> 동안 휴대폰을 놓고 앉습니다</span></li>
+        <li><b>촬영 버튼</b><span>누르면 “준비해 주세요” 음성 안내가 나옵니다. 휴대폰을 놓고 앉습니다</span></li>
         <li><b>가이드에 맞추면 촬영</b><span>발 윤곽이 초록색이 되면 앉은 자세를 찍습니다</span></li>
         <li><b>일어서기</b><span>그대로 일어서면 <em id="dlyTxt2"></em> 뒤 선 자세(체중부하)를 찍습니다</span></li>
       </ol>
@@ -37,7 +37,6 @@ route('/self', '측정하기', async (v, p) => {
       <div class="bracket"><i></i><div id="svgBox"></div></div>
       <button class="shutter" id="go" aria-label="촬영 시작">${ICON.camera}</button>
       <div class="tiny" id="goHint" style="margin-top:4px"></div>
-      <div class="optrow"><span>시작 타이머</span><div class="chips" id="delaySeg">${[10, 5, 3, 0].map(n => `<button data-v="${n}" class="${dly0 === n ? 'on' : ''}">${n ? n + '초' : '끔'}</button>`).join('')}</div></div>
       <div class="optrow"><span>선 자세 촬영</span><div class="chips" id="postSeg"><button data-v="timer">타이머</button><button data-v="ai">AI 자동 인지</button></div></div>
       <div class="optrow"><span>음성 안내</span><label class="chk" style="margin:0"><input type="checkbox" id="voiceOn" ${Voice.enabled ? 'checked' : ''}><span class="small">켜기</span></label></div>
     </div>
@@ -45,7 +44,7 @@ route('/self', '측정하기', async (v, p) => {
       <li>발 안쪽에 지름 ${esc(String(S.settings.stickerDiameterMm || 19))} mm 파란 스티커 3개를 붙입니다. <a href="#/stickers-info">부착 위치 보기</a></li>
       <li>의자에 앉아 두 발을 바닥에 편하게 둡니다.</li>
       <li>휴대폰을 <b>가로로 세워 두 발 사이 바닥</b>에 두고, <b>뒷면 카메라</b>가 검사할 발 안쪽을 향하게 합니다. 거리는 정해져 있지 않습니다. <b>가까이 두어도 되고</b>, 스티커 3개가 화면 안에 선명하게 보이기만 하면 됩니다.</li>
-      <li><b>촬영 버튼</b>을 누릅니다. “10초 뒤에 시작합니다” 안내와 함께 10초 타이머가 돌아가는 동안 휴대폰을 놓고 의자에 앉습니다.</li>
+      <li><b>촬영 버튼</b>을 누릅니다. 타이머 없이 “준비해 주세요” 음성 안내가 나오면 휴대폰을 놓고 의자에 앉습니다. 발이 가이드에 맞을 때까지 기다렸다가 찍으므로 서두르지 않아도 됩니다.</li>
       <li>AI가 스티커 3개의 색을 찾고, 실제 발 윤곽을 따라 선을 그립니다. 스티커가 모두 보이고 윤곽이 <b>초록색</b>이 되면 “발이 정확히 들어왔습니다 → 앉은 자세를 촬영합니다” 후 자동으로 찍습니다.</li>
       <li>“이제 그대로 일어서서, 양발에 체중을 똑같이 실어 주십시오. 10초 뒤에 체중부하 사진을 찍습니다” 안내가 나오면 <b>휴대폰은 그대로 두고</b> 일어섭니다. 삑 소리와 함께 10초가 지나면 선 자세를 찍습니다(마지막 3초는 높은 소리).</li>
       <li>“검사가 끝났습니다” 안내 후 결과 화면이 열립니다. 다른 발도 검사하려면 결과 화면에서 따로 시작합니다.</li>
@@ -57,18 +56,17 @@ route('/self', '측정하기', async (v, p) => {
   let dly = dly0;
   let pm = S.settings.postMode || 'timer';
   const paintDelay = () => {
-    $$('#delaySeg button', v).forEach(b => b.classList.toggle('on', +b.dataset.v === dly));
     $$('#postSeg button', v).forEach(b => b.classList.toggle('on', b.dataset.v === pm));
-    $('#goHint', v).textContent = dly ? `누르면 ${dly}초 뒤에 시작합니다` : '누르면 바로 시작합니다';
-    $('#dlyTxt', v).textContent = dly ? dly + '초' : '잠시'; $('#dlyTxt2', v).textContent = pm === 'timer' ? (dly || 10) + '초' : 'AI가 체중부하를 확인한';
+    $('#goHint', v).textContent = '누르면 “준비해 주세요” 음성 안내 후 바로 시작합니다';
+    $('#dlyTxt2', v).textContent = pm === 'timer' ? (dly || 10) + '초' : 'AI가 체중부하를 확인한';
   };
   $$('#postSeg button', v).forEach(b => b.onclick = () => { pm = b.dataset.v; paintDelay(); });
-  $$('#delaySeg button', v).forEach(b => b.onclick = () => { dly = +b.dataset.v; paintDelay(); }); paintDelay();
+  paintDelay();
   let sel = feetSel;
   const paint = () => { $$('#feetSeg button', v).forEach(b => b.classList.toggle('on', b.dataset.v === sel)); $('#svgBox', v).innerHTML = phoneSetupSvg(sel === 'right' ? 'right' : 'left'); };
   $$('#feetSeg button', v).forEach(b => b.onclick = () => { sel = b.dataset.v; paint(); }); paint();
   $('#go', v).onclick = () => {
-    S.settings.shutterDelay = dly; S.settings.postMode = pm; S.settings.privacyAck = true; saveSettings();
+    S.settings.postMode = pm; S.settings.privacyAck = true; saveSettings();
     Voice.enabled = $('#voiceOn', v).checked; Voice.unlock(); Orient.request();
     S.selfRun = { feet: [sel], results: [] };
     go('#/self/run');
@@ -309,15 +307,9 @@ route('/self/run', '측정하기', async (v) => {
   beginFoot();
   try {
     await tracker.start();
-    // 시작 타이머: 휴대폰을 다리 사이에 놓고 앉을 시간(그동안 화면 가이드는 계속 보임)
-    const dly = shutterDelaySec();
-    if (dly > 0) {
-      busy = true; $('#status', v).textContent = `${dly}초 뒤에 시작합니다`;
-      const okGo = await shutterCountdown(cd, dly, `${dly}초 뒤에 시작합니다. 휴대폰을 다리 사이에 세워 두고, 의자에 앉아 주십시오.`, stopRef);
-      if (!okGo) return;
-      busy = false;
-    }
-    say(`${FOOT[foot()]} 검사를 시작합니다. 의자에 앉아 주십시오. 발에 힘을 빼고, ${FOOT[foot()]} 안쪽을 가이드에 맞춰 주십시오. 가이드에 맞으면 자동으로 찍습니다.`);
+    // 시작 타이머 없음: 음성으로 "준비해 주세요"라고 알리고 바로 추적한다(가이드에 맞을 때까지 기다렸다 찍으므로 앉을 시간은 충분)
+    $('#status', v).textContent = '준비해 주세요';
+    say(`준비해 주세요. 휴대폰을 다리 사이에 세워 두고, 의자에 앉아 주십시오. 발에 힘을 빼고, ${FOOT[foot()]} 안쪽을 가이드에 맞춰 주십시오. 가이드에 맞으면 자동으로 찍습니다.`);
     phaseStart = performance.now() + 2500;
   } catch (e) {
     if (e.name === 'Stale') return;

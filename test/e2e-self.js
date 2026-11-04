@@ -39,7 +39,7 @@ async function scenario(tag, video, expectConfirmed, expectMm, opt) {
   const secs = ((Date.now() - t0) / 1000).toFixed(1);
   const spoken = await pg.evaluate(() => window.__spoken), J = spoken.join(' ');
   log(`[${tag}] 손대지 않고 비체중부하·체중부하 자동 촬영 → 결과`, ok, secs + '초');
-  if (opt.delay) log(`[${tag}] 시작 타이머 안내(${opt.delay}초)`, J.includes(`${opt.delay}초 뒤에 시작합니다`));
+  log(`[${tag}] 시작: 타이머 없이 음성 "준비해 주세요"`, J.includes('준비해 주세요') && !J.includes('초 뒤에 시작합니다'));
   log(`[${tag}] 음성: 정확한 정렬 안내`, spoken.some(s => s.includes('정확히 들어왔습니다')));
   log(`[${tag}] 음성: "앉은 자세를 촬영합니다"`, spoken.includes('앉은 자세를 촬영합니다.'));
   const timerMode = opt.postMode === 'timer';
@@ -98,7 +98,7 @@ async function scenario(tag, video, expectConfirmed, expectMm, opt) {
   // 휴대폰을 가로로 눕혔는데 화면은 세로로 고정된 경우(영상이 세로로 들어옴) — 양쪽 방향 모두
   // 일어선 뒤 발이 목표 원에서 조금 벗어난 경우(실사용) — 그래도 선 자세가 찍혀야 한다
   if (!which || which === 'S') await scenario('S', 'self_std_shift.y4m', true, 8.0);
-  // 시작 타이머 10초(실사용 기본값): 카운트다운 안내 후 정상 진행
+  // 예전 설정(시작 타이머 10초)이 남아 있어도 시작 타이머 없이 "준비해 주세요" 후 진행
   if (!which || which === 'T') await scenario('T', 'self_std_long.y4m', true, 8.0, { delay: 10 });
   // 휴대폰이 계속 미세하게 흔들림(±5px·±0.4°) — 발은 가만히 있으므로 정상 촬영되어야 함
   // 기본 방식: 가이드에 맞으면 앉은 자세 → 일어서기 → 10초 타이머 후 선 자세
