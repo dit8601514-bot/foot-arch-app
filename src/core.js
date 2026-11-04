@@ -9,7 +9,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  const ALGORITHM_VERSION = 'ALG-2.3.0';
+  const ALGORITHM_VERSION = 'ALG-2.3.1';
 
   // 기본 검출 파라미터 (휴리스틱 값 — 실제 사진으로 검증 후 연구자가 조정해야 함)
   const DEFAULT_DETECT = {
@@ -1417,7 +1417,7 @@
       const q = det.quality || {}, crisp = q.edgeWidthPx != null && q.edgeLimitPx && q.edgeWidthPx <= 0.6 * q.edgeLimitPx; // 2차 방법은 사진이 선명할 때만(흐리면 경계 위치가 치우침)
       const m2 = o.noModel || !crisp ? null : detectSoleLineModel(img, det, o);
       if (!m2 || !m2.pts || m2.stats.P3 < 0.45 || m2.stats.P1 < 0.45) return { ok: false, reason: '발바닥 경계를 충분히 찾지 못함(바닥과 피부색이 비슷하거나 그림자)', stats, stats2: m2 && m2.stats };
-      pts.length = 0; m2.pts.forEach(p => pts.push(p)); method = 'model'; Object.assign(stats, m2.stats); o.maxRmsPx = Math.min(o.maxRmsPx, 1.25);
+      pts.length = 0; m2.pts.forEach(p => pts.push(p)); method = 'model'; Object.assign(stats, m2.stats); o.maxRmsPx = Math.min(o.maxRmsPx, 1.5);
     }
     // 견고한 직선 피팅(y = m x + c, Tukey 가중 반복)
     let m = 0, c = median(pts.map(p => p.y)), w = pts.map(() => 1);
