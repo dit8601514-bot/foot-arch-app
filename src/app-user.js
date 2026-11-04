@@ -294,7 +294,7 @@ route('/capture/:phase', '촬영', async (v, p) => {
         <dt>P2–기준선 거리</dt><dd>${px(meas.heightPx)}${meas.heightMm != null ? ' / ' + mm(meas.heightMm) : ''}</dd>
         <dt>길이 환산 상태</dt><dd>${statusBadge(meas.status)}</dd>
         <dt>바닥선</dt><dd>${meas.floor && meas.floor.ok ? `검출 · P2 높이 ${meas.floor.P2Mm != null ? mm(meas.floor.P2Mm) : px(meas.floor.P2Px)}` : '미확인'}</dd>
-        ${meas.floor && meas.floor.P1Mm != null ? `<dt>P1·P3 부착 높이</dt><dd>${mm(meas.floor.P1Mm, 1)} / ${mm(meas.floor.P3Mm, 1)} <span class="tiny">(표준 2.0 cm)</span></dd>` : ''}
+        ${meas.floor && meas.floor.P1Mm != null ? `<dt>P1·P3 부착 높이</dt><dd>${mm(meas.floor.P1Mm, 1)} / ${mm(meas.floor.P3Mm, 1)} <span class="tiny">(표준 20 mm)</span></dd>` : ''}
       </dl>${meas.status !== '측정 가능' && meas.notes.length ? `<ul class="list tiny">${meas.notes.map(n => `<li>${esc(n)}</li>`).join('')}</ul>` : ''}
       <p class="tiny">빨간 십자가 실제 검출된 스티커 중심, 노란 선이 P1–P3 기준선, 하늘색 점선이 P2에서 기준선까지의 수직거리입니다. 표시된 P1·P2·P3 위치가 실제 스티커와 다르면 다시 촬영하세요.</p></div>` : ''}
       ${det.ok ? '<button class="btn primary block big" id="use">이 사진 사용</button>' : ''}
@@ -435,8 +435,8 @@ route('/result/:id', '측정 결과', async (v, p) => {
       <dt>이미지 품질</dt><dd>${e.pre.quality.sharp && e.post.quality.sharp ? '양호' : '흐림 있음'} (경계 ${e.pre.quality.edgeWidthPx?.toFixed(1)} / ${e.post.quality.edgeWidthPx?.toFixed(1)} px)</dd>
       <dt>스티커 검출 신뢰도</dt><dd>${pct(e.pre.detectionConfidence)} / ${pct(e.post.detectionConfidence)}</dd>
       <dt>측정 신뢰도(휴리스틱)</dt><dd>${pct(e.measurementConfidence)}</dd>
-      <dt>측정 해상도</dt><dd>${c.mmPerPx ? `1픽셀 = ${(c.mmPerPx / 10).toFixed(4)} cm <span class="tiny">(스티커 지름 ${(convSettings().stickerDiameterMm / c.mmPerPx).toFixed(0)} px · 가장자리 0.01픽셀 단위 추정)</span>` : '—'}</dd>
-      <dt>측정 정밀도(반복 오차)</dt><dd>${c.precisionMm != null ? '± ' + (c.precisionMm / 10).toFixed(3) + ' cm' + (c.frames ? ` <span class="tiny">(연속 사진 ${c.frames[0]}·${c.frames[1]}장 평균)</span>` : '') : '—'}</dd>
+      <dt>측정 해상도</dt><dd>${c.mmPerPx ? `1픽셀 = ${c.mmPerPx.toFixed(3)} mm <span class="tiny">(스티커 지름 ${(convSettings().stickerDiameterMm / c.mmPerPx).toFixed(0)} px · 가장자리 0.01픽셀 단위 추정)</span>` : '—'}</dd>
+      <dt>측정 정밀도(반복 오차)</dt><dd>${c.precisionMm != null ? '± ' + c.precisionMm.toFixed(2) + ' mm' + (c.frames ? ` <span class="tiny">(연속 사진 ${c.frames[0]}·${c.frames[1]}장 평균)</span>` : '') : '—'}</dd>
       <dt>전·후 축척 차이</dt><dd>${c.scaleDiff != null ? (c.scaleDiff * 100).toFixed(1) + '%' : '—'}</dd>
       <dt>촬영 방식</dt><dd>${modeLabel(e.pre.mode)} / ${modeLabel(e.post.mode)}</dd>
       ${e.loadRecognition ? `<dt>체중부하 인지</dt><dd>${loadRecText(e.loadRecognition)}</dd>` : ''}
@@ -550,8 +550,8 @@ route('/history', '검사 이력', async (v, p) => {
   const L = latest('left'), R = latest('right');
   v.innerHTML = `<h2>검사 이력</h2>
     <div class="seg" id="fseg">${[['all', '전체'], ['left', '왼발'], ['right', '오른발']].map(([k, l]) => `<button data-v="${k}" class="${f === k ? 'on' : ''}">${l}</button>`).join('')}</div>
-    <div class="card"><b>발활 높이 변화량 추이 (cm)</b>
-      ${valid.length ? `<div class="legend"><span><i style="background:var(--series-1)"></i>왼발</span><span><i style="background:var(--series-2)"></i>오른발</span></div><canvas class="chart" id="ch" aria-label="변화량 그래프"></canvas><p class="tiny">길이 환산이 유효한 검사만 표시합니다. 점선은 연구 분류 경계(0.2·0.4·0.6 cm)입니다.</p>`
+    <div class="card"><b>발활 높이 변화량 추이 (mm)</b>
+      ${valid.length ? `<div class="legend"><span><i style="background:var(--series-1)"></i>왼발</span><span><i style="background:var(--series-2)"></i>오른발</span></div><canvas class="chart" id="ch" aria-label="변화량 그래프"></canvas><p class="tiny">길이 환산이 유효한 검사만 표시합니다. 점선은 연구 분류 경계(2·4·6 mm)입니다.</p>`
       : '<p class="muted small">mm 값이 확보된 검사가 아직 없어 그래프를 그릴 수 없습니다.</p>'}</div>
     <div class="card"><b>좌우 발 비교(가장 최근 유효 결과)</b>
       <div class="grid2" style="margin-top:8px">${[['left', L], ['right', R]].map(([ft, e]) => `<div><div class="tiny">${FOOT[ft]}</div>${e ? `<div style="font-size:22px;font-weight:800">${mm(e.comparison.changeMm)}</div>${catBadge(e.category)}<div class="tiny">${fmtDate(e.createdAt, false)}</div>` : '<div class="muted small">유효 결과 없음</div>'}</div>`).join('')}</div>
@@ -561,7 +561,7 @@ route('/history', '검사 이력', async (v, p) => {
     <div class="card">${list.length ? list.map(e => `<a class="list-item" href="#/result/${e.id}"><span class="badge b-info">${FOOT[e.foot]}</span><span class="grow small">${fmtDate(e.createdAt)}<br>${e.comparison.changeMm != null ? '<b>' + mm(e.comparison.changeMm) + '</b> ' + catBadge(e.category) : statusBadge(e.comparison.status)}</span>›</a>`).join('') : '<p class="muted">검사 기록이 없습니다.</p>'}</div>`;
   $$('#fseg button', v).forEach(b => b.onclick = () => go('#/history?foot=' + b.dataset.v));
   if (valid.length) {
-    const ser = ['left', 'right'].filter(ft => f === 'all' || f === ft).map(ft => ({ name: FOOT[ft], color: ft === 'left' ? '#2a78d6' : '#eb6834', points: valid.filter(e => e.foot === ft).map(e => ({ x: e.createdAt, y: C.roundMm(e.comparison.changeMm) / 10, label: `${fmtDate(e.createdAt)} ${mm(e.comparison.changeMm)}` })) })).filter(s => s.points.length);
+    const ser = ['left', 'right'].filter(ft => f === 'all' || f === ft).map(ft => ({ name: FOOT[ft], color: ft === 'left' ? '#2a78d6' : '#eb6834', points: valid.filter(e => e.foot === ft).map(e => ({ x: e.createdAt, y: C.roundMm(e.comparison.changeMm), label: `${fmtDate(e.createdAt)} ${mm(e.comparison.changeMm)}` })) })).filter(s => s.points.length);
     if (ser.length) lineChart($('#ch', v), ser, { yMin: 0, bands: CLASS_BANDS() });
   }
 });
@@ -644,7 +644,7 @@ function careHtml(pc, e) {
   const F = pc.feet[e ? e.foot : pc.plan.focusFoot] || pc.feet.left || pc.feet.right, pl = pc.plan;
   if (!F) return '';
   const s = e ? F.series.find(x => x.id === e.id) : F.series[F.series.length - 1];
-  const sign = x => (x >= 0 ? '+' : '−') + (Math.abs(x) / 10).toFixed(2) + ' cm';
+  const sign = x => (x >= 0 ? '+' : '−') + Math.abs(x).toFixed(1) + ' mm';
   const ACT = { consult: '🩺', exercise: '🏃', adherence: '📅', asym: '⚖️', retake: '📸', reference: '🏥' };
   const rows = [];
   rows.push(['개인 맞춤 추정', `<b>${mm(F.estimateMm)}</b> <span class="tiny">± ${cmTxt(F.ciMm)} (95%)</span>`]);
@@ -668,7 +668,7 @@ function careHtml(pc, e) {
     <div class="sec-title" style="margin-top:10px">나만의 관리 계획</div>
     <ul class="care-acts">${pl.actions.map(a => `<li><span>${ACT[a.kind] || '•'}</span><span>${esc(a.text)}${a.kind === 'exercise' ? ' <a href="#/exercises">운동 보기 ›</a>' : ''}</span></li>`).join('')}
       ${pl.nextTestAt ? `<li><span>⏰</span><span>다음 검사: <b>${fmtDate(pl.nextTestAt, false)}</b> (${pl.nextTestDays}일 뒤) · 같은 시간대·같은 장소에서 재면 더 정확합니다</span></li>` : ''}</ul>
-    ${e ? `<button class="btn block" id="refBtn">${e.reference ? `실제 잰 값 수정 (하강 ${mm(e.reference.ndtMm)}${e.reference.preMm != null ? ` · ${(e.reference.preMm / 10).toFixed(1)}→${(e.reference.postMm / 10).toFixed(1)} cm` : ''})` : '자로 실제 잰 값 입력 → AI 오차 학습'}</button>` : ''}
+    ${e ? `<button class="btn block" id="refBtn">${e.reference ? `실제 잰 값 수정 (하강 ${mm(e.reference.ndtMm)}${e.reference.preMm != null ? ` · ${e.reference.preMm.toFixed(1)}→${e.reference.postMm.toFixed(1)} mm` : ''})` : '자로 실제 잰 값 입력 → AI 오차 학습'}</button>` : ''}
     <p class="tiny" style="margin-top:8px">AI 맞춤 추정은 내 기록에서 통계적으로 계산한 참고값입니다. 진단이 아니며, 분류는 앱 측정값 기준으로 따로 표시합니다.</p>
   </div>`;
 }
@@ -679,14 +679,14 @@ async function renderCare(box, e) {
     const pc = C.personalCare(exams, { logs, selfReport: e && e.selfReport });
     box.innerHTML = careHtml(pc, e);
     const b = $('#refBtn', box); if (b) b.onclick = async () => {
-      const val = await refModal(e.reference || null); if (val === undefined) return;
+      const val = await refModal(e.reference || null, e.comparison && e.comparison.changeMm); if (val === undefined) return;
       if (val === null) delete e.reference; else e.reference = Object.assign(val, { source: 'user', at: Date.now() });
       e.updatedAt = Date.now(); e._syncedAt = null; await save('exams', e); if (typeof Account !== 'undefined') Account.syncSoon();
       toast(val === null ? '실측값을 지웠습니다.' : 'AI가 내 오차를 다시 학습했습니다. 다음 측정부터 보정됩니다.'); renderCare(box, e);
     };
   } catch (er) { console.warn('care', er); box.innerHTML = ''; }
 }
-function refModal(cur) {
+function refModal(cur, appMm) {
   // 실측값 입력: 앉은 자세·선 자세 발배뼈 높이(자로 잰 값) 또는 하강량만. 단위 cm/mm
   return new Promise(res => {
     const c = cur || {}, unit0 = c.unit || 'cm', show = v => v == null || !isFinite(v) ? '' : +(unit0 === 'cm' ? v / 10 : v).toFixed(2);
@@ -698,14 +698,16 @@ function refModal(cur) {
       <div class="grid2" style="margin-top:10px"><div><label class="f" for="rPre">앉은 자세(체중부하 전)</label><input id="rPre" type="number" inputmode="decimal" step="0.01" value="${show(c.preMm)}" placeholder="예: 3.4"></div>
         <div><label class="f" for="rPost">선 자세(체중부하 후)</label><input id="rPost" type="number" inputmode="decimal" step="0.01" value="${show(c.postMm)}" placeholder="예: 2.4"></div></div>
       <label class="f" for="rNdt" style="margin-top:8px">또는 하강량(NDT)만</label><input id="rNdt" type="number" inputmode="decimal" step="0.01" value="${c.preMm == null ? show(c.ndtMm) : ''}" placeholder="높이를 모를 때만">
+      ${appMm != null && isFinite(appMm) ? `<label class="f" for="rErr" style="margin-top:8px">또는 오차만 (앱 하강 ${appMm.toFixed(1)} mm 기준)</label>
+      <div class="grid2"><select id="rSign"><option value="1">실제가 더 많이 내려감(+)</option><option value="-1">실제가 덜 내려감(−)</option></select><input id="rErr" type="number" inputmode="decimal" step="0.01" min="0" placeholder="예: 0.2"></div>` : ''}
       <div class="tiny" id="rPrev" style="margin-top:6px"></div>
       <div class="grid2" style="margin-top:12px"><button class="btn" data-a="no">취소</button><button class="btn primary" data-a="ok">저장 → AI 학습</button></div>${cur ? '<button class="btn ghost block" data-a="del" style="margin-top:6px">값 지우기</button>' : ''}</div>`;
     let unit = unit0;
     const toMm = v => v === '' || v == null ? null : num(v) * (unit === 'cm' ? 10 : 1);
-    const read = () => ({ pre: toMm($('#rPre', bg).value), post: toMm($('#rPost', bg).value), nd: toMm($('#rNdt', bg).value) });
+    const read = () => { const er = $('#rErr', bg), ev = er ? toMm(er.value) : null, nd0 = toMm($('#rNdt', bg).value); return { pre: toMm($('#rPre', bg).value), post: toMm($('#rPost', bg).value), nd: nd0 != null ? nd0 : ev != null ? Math.max(0, appMm + (+$('#rSign', bg).value) * ev) : null, err: nd0 == null && ev != null }; };
     const prev = () => { const { pre, post, nd } = read(); $('#rPrev', bg).textContent = pre != null && post != null ? `= 앉음 ${cmTxt(pre)} · 섬 ${cmTxt(post)} · 하강 ${cmTxt(pre - post)}` : nd != null ? `= 하강 ${nd.toFixed(1)} mm` : ''; };
     $$('#ru button', bg).forEach(bt => bt.onclick = () => { unit = bt.dataset.u; $$('#ru button', bg).forEach(x => x.classList.toggle('on', x === bt)); prev(); });
-    ['#rPre', '#rPost', '#rNdt'].forEach(id => $(id, bg).oninput = prev); prev();
+    ['#rPre', '#rPost', '#rNdt', '#rErr', '#rSign'].forEach(id => { const el = $(id, bg); if (el) { el.oninput = prev; el.onchange = prev; } }); prev();
     bg.addEventListener('click', ev => {
       const a = ev.target.dataset.a; if (!a && ev.target !== bg) return;
       if (a === 'ok') {
@@ -715,7 +717,7 @@ function refModal(cur) {
           if (post > pre + 3) return toast('선 자세 높이가 앉은 자세보다 많이 높습니다. 두 값을 바꿔 넣었는지 확인해 주세요.', true);
           close(); return res({ ndtMm: Math.max(0, pre - post), preMm: pre, postMm: post, unit });
         }
-        if (!(nd >= 0 && nd <= 30)) return toast('값을 넣어 주세요(하강량 0~3 cm).', true);
+        if (!(nd >= 0 && nd <= 30)) return toast('값을 넣어 주세요(하강량 0~30 mm).', true);
         close(); return res({ ndtMm: nd, unit });
       }
       close(); res(a === 'del' ? null : undefined);

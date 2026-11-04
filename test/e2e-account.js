@@ -61,7 +61,7 @@ async function signup(pg, { name, phone, un, pw, research }) {
   await pb.waitForTimeout(500); await pb.fill('#pw', 'footarch2026'); await pb.click('#go');
   await pb.waitForFunction(() => location.hash === '#/home', null, { timeout: 8000 }).catch(() => {});
   await pb.goto(U + '#/records'); await pb.waitForTimeout(600); await shot(pb, 'a05-deviceB-records');
-  log('다른 기기에서 로그인하면 서버 기록을 내려받음(달력·측정 내역)', (await pb.textContent('main')).includes('발배뼈 하강 8.00 mm'));
+  log('다른 기기에서 로그인하면 서버 기록을 내려받음(달력·측정 내역)', (await pb.textContent('main')).includes('발배뼈 하강 8.0 mm'));
   // ── 다른 사용자 C: 남의 기록이 보이지 않아야 함 ──
   const Cc = await b.newContext({ viewport: { width: 390, height: 844 } }); const pc = await Cc.newPage(); pc.on('pageerror', e => errors.push(e.message));
   await signup(pc, { name: '김영희', phone: '010-9876-5432', un: 'gildong01', pw: 'another2026' });
@@ -69,7 +69,7 @@ async function signup(pg, { name, phone, un, pw, research }) {
   await pc.waitForTimeout(400); await pc.fill('#un', 'younghee'); await pc.click('#go');
   await pc.waitForFunction(() => location.hash === '#/home', null, { timeout: 8000 }).catch(() => {});
   await pc.goto(U + '#/records'); await pc.waitForTimeout(600);
-  const leak = (await pc.textContent('main')).includes('발배뼈 하강 8.00 mm');
+  const leak = (await pc.textContent('main')).includes('발배뼈 하강 8.0 mm');
   const direct = await pc.evaluate(async () => { const r = await fetch(window.FOOTARCH_CONFIG.supabaseUrl + '/rest/v1/exams?select=id', { headers: { apikey: window.FOOTARCH_CONFIG.supabaseAnonKey, Authorization: 'Bearer ' + JSON.parse(localStorage.getItem('footarch.session')).access_token } }); return r.json(); });
   log('사용자 분리: 다른 계정은 남의 기록을 볼 수 없음', !leak && direct.length === 0, JSON.stringify(direct));
   // ── 로그인 없이 둘러보기 ──

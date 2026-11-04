@@ -809,10 +809,10 @@
 
   // ───────────────────────── 연구 기준 분류 ─────────────────────────
   const CATEGORIES = [
-    { key: 'normal', label: '정상 범위', range: '0 cm 이상 0.20 cm 이하' },
-    { key: 'mild', label: '경증 평발 의심', range: '0.20 cm 초과 0.40 cm 미만' },
-    { key: 'moderate', label: '중등도 평발 의심', range: '0.40 cm 이상 0.60 cm 미만' },
-    { key: 'severe', label: '중증 평발 의심', range: '0.60 cm 이상' }
+    { key: 'normal', label: '정상 범위', range: '0 mm 이상 2 mm 이하' },
+    { key: 'mild', label: '경증 평발 의심', range: '2 mm 초과 4 mm 미만' },
+    { key: 'moderate', label: '중등도 평발 의심', range: '4 mm 이상 6 mm 미만' },
+    { key: 'severe', label: '중증 평발 의심', range: '6 mm 이상' }
   ];
   // 분류 경계(mm, 내부 계산 단위). 연구자 지정 기준: 정상 ≤2 · 경증 2~4 · 중등도 4~6 · 중증 ≥6 mm
   const CLASS_MM = { normal: 2, mild: 4, moderate: 6 };
@@ -1099,7 +1099,7 @@
     const ex = level === 'keep' ? ['짧은 발 운동(Short Foot Exercise)'] : level === 'care' ? ['짧은 발 운동(Short Foot Exercise)', '수건 당기기(Towel Curl)'] : ['짧은 발 운동(Short Foot Exercise)', '수건 당기기(Towel Curl)', '발꿈치 들기(Heel Raise)'];
     actions.push({ kind: 'exercise', text: `${ex.join(' · ')} — ${dose}`, exercises: ex });
     if (level !== 'keep') actions.push({ kind: 'adherence', text: days >= 3 ? `지난 7일 중 ${days}일 운동했어요. 좋은 흐름입니다.` : `지난 7일 운동 ${days}일 — 하루 10분부터 다시 시작해 보세요.` });
-    if (o.asym != null && o.asym >= o.mdc) actions.push({ kind: 'asym', text: `좌우 차이 ${(o.asym / 10).toFixed(2)} cm — ${feet.left.estimateMm > feet.right.estimateMm ? '왼발' : '오른발'}에 운동을 한 세트 더 하세요.` });
+    if (o.asym != null && o.asym >= o.mdc) actions.push({ kind: 'asym', text: `좌우 차이 ${o.asym.toFixed(1)} mm — ${feet.left.estimateMm > feet.right.estimateMm ? '왼발' : '오른발'}에 운동을 한 세트 더 하세요.` });
     if (W.lastOutlier) actions.push({ kind: 'retake', text: `이번 측정은 평소 상태와 많이 달라 다시 찍기를 권합니다${W.lastIssues.length ? ' (' + W.lastIssues.join(', ') + ')' : ''}.` });
     if (!o.refs) actions.push({ kind: 'reference', text: '병원·전문가가 잰 발배뼈 하강 값이 있으면 입력해 주세요. AI가 내 측정 습관에 맞춰 오차를 보정합니다.' });
     if (sr.restFlat) actions.push({ kind: 'consult', text: '앉아서도 발활이 거의 보이지 않으면 경직성 평발일 수 있어 전문가 확인이 필요합니다.' });

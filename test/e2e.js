@@ -46,7 +46,7 @@ const R = []; const log = (n, ok, d) => { R.push([n, ok ? 'PASS' : 'FAIL', d || 
   await pg.waitForSelector('#use', { timeout: 10000 }); await shot('08-review-post'); await pg.click('#use');
   await pg.waitForSelector('.result-big', { timeout: 15000 }).catch(async e => { await shot('ERR'); console.log(errors, await pg.evaluate(() => location.hash + ' ' + document.querySelector('main').innerText.slice(0, 600))); throw e; }); await shot('09-result');
   const big = (await pg.textContent('.result-big')).trim(); const cat = await pg.textContent('.card .badge.b-warn, .card .badge.b-bad, .card .badge.b-good');
-  log('결과: 변화량 ≈0.71cm(허용 ±0.015) · 중증 평발 의심(0.60 cm 이상)', Math.abs(parseFloat(big) - 0.714) <= 0.015 && big.includes('cm') && (await pg.isVisible('text=중증 평발 의심')), big);
+  log('결과: 변화량 ≈7.1mm(허용 ±0.15) · 중증 평발 의심(6 mm 이상)', Math.abs(parseFloat(big) - 7.14) <= 0.15 && big.includes('mm') && (await pg.isVisible('text=중증 평발 의심')), big);
   log('결과: 확정 진단 아님 고지', await pg.isVisible('text=확정 진단하지 않으며'));
   // 새로고침 후 유지
   await pg.reload(); await pg.goto(U + '#/history'); await pg.waitForSelector('text=전체 기록').catch(async e => { console.log('DEBUG', await pg.evaluate(() => [location.href, document.title, S.booted, document.querySelector('#title').textContent, document.querySelector('main').innerText.slice(0, 300)])); throw e; }); await pg.waitForTimeout(300); await shot('10-history');

@@ -393,13 +393,13 @@ route('/manage', '유연성 평발 관리', async (v) => {
   v.innerHTML = `<h2>유연성 평발 관리</h2>
     <p class="small muted">운동을 하면서 같은 방법(음성 자가 검사)으로 다시 측정해 발활 하강의 변화를 확인합니다.</p>
     ${footCard('left')}${footCard('right')}
-    ${exams.length ? `<div class="card"><b>하강량 추이 (cm)</b><div class="legend"><span><i style="background:var(--series-1)"></i>왼발</span><span><i style="background:var(--series-2)"></i>오른발</span></div><canvas class="chart" id="ch"></canvas><p class="tiny">점선: 연구 분류 경계 0.2·0.4·0.6 cm</p></div>` : ''}
+    ${exams.length ? `<div class="card"><b>하강량 추이 (mm)</b><div class="legend"><span><i style="background:var(--series-1)"></i>왼발</span><span><i style="background:var(--series-2)"></i>오른발</span></div><canvas class="chart" id="ch"></canvas><p class="tiny">점선: 연구 분류 경계 2·4·6 mm</p></div>` : ''}
     <div class="card"><dl class="kv"><dt>최근 7일 운동</dt><dd>${week}회</dd><dt>누적 운동</dt><dd>${logs.length}회</dd></dl><a class="btn block" href="#/exercises">오늘의 운동</a></div>
     <a class="btn primary block big" href="#/self">다시 측정하기</a>
     <a class="btn block" href="#/history">검사 이력 전체 보기</a>
     <p class="tiny">측정값의 변화가 곧 발활 구조의 개선을 뜻하지는 않습니다. 측정 오차와 촬영 조건을 함께 고려하세요.</p>`;
   if (exams.length) {
-    const ser = ['left', 'right'].map(f => ({ name: FOOT[f], color: f === 'left' ? '#2a78d6' : '#eb6834', points: exams.filter(e => e.foot === f).map(e => ({ x: e.createdAt, y: C.roundMm(e.comparison.changeMm) / 10, label: `${fmtDate(e.createdAt)} ${mm(e.comparison.changeMm)}` })) })).filter(s => s.points.length);
+    const ser = ['left', 'right'].map(f => ({ name: FOOT[f], color: f === 'left' ? '#2a78d6' : '#eb6834', points: exams.filter(e => e.foot === f).map(e => ({ x: e.createdAt, y: C.roundMm(e.comparison.changeMm), label: `${fmtDate(e.createdAt)} ${mm(e.comparison.changeMm)}` })) })).filter(s => s.points.length);
     lineChart($('#ch', v), ser, { yMin: 0, bands: CLASS_BANDS() });
   }
 });

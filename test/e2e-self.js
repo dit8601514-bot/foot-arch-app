@@ -60,7 +60,7 @@ async function scenario(tag, video, expectConfirmed, expectMm, opt) {
     await pg.waitForSelector('.result-big'); await shot(`s05-result-${tag}`);
     const big = (await pg.textContent('.result-big')).trim(), main = await pg.textContent('main');
     if (expectConfirmed) {
-      log(`[${tag}] 결과: 변화량 ≈${(expectMm / 10).toFixed(2)} cm · 중증(0.60 cm 이상)`, big.includes('cm') && Math.abs(parseFloat(big) * 10 - expectMm) <= 0.2 && main.includes('중증 평발 의심'), big);
+      log(`[${tag}] 결과: 변화량 ≈${expectMm} mm · 중증(6 mm 이상)`, big.includes('mm') && Math.abs(parseFloat(big) - expectMm) <= 0.2 && main.includes('중증 평발 의심'), big);
       if (tag === 'C') {
         const ex = await pg.evaluate(async () => { const e = (await DB.all('exams'))[0]; return { line: e.comparison.lineChangeMm, floor: e.comparison.floor, pl: e.pre.measure.floor && e.pre.measure.floor.placement }; });
         log(`[${tag}] 바닥 기준 발배뼈 높이 ≈42→34mm, 하강 ≈8mm (표준 NDT 방식)`, ex.floor && Math.abs(ex.floor.preMm - 42) < 0.5 && Math.abs(ex.floor.postMm - 34) < 0.5 && Math.abs(ex.floor.dropMm - 8) < 0.4, JSON.stringify(ex.floor && { pre: ex.floor.preMm.toFixed(2), post: ex.floor.postMm.toFixed(2), drop: ex.floor.dropMm.toFixed(2) }));
@@ -83,7 +83,7 @@ async function scenario(tag, video, expectConfirmed, expectMm, opt) {
       await pg.reload(); await pg.waitForSelector('#flex'); log(`[${tag}] 자가 확인 응답 저장 유지`, await pg.isChecked('[data-sq="restFlat"]'));
       await pg.goto(U + '#/manage'); await pg.waitForSelector('text=최근 하강'); await shot('s06-manage'); log(`[${tag}] 관리 현황`, true);
     } else {
-      log(`[${tag}] 결과: 변화량 ≈0 · 정상 범위`, parseFloat(big) * 10 <= 0.3 && main.includes('정상 범위'), big);
+      log(`[${tag}] 결과: 변화량 ≈0 · 정상 범위`, parseFloat(big) <= 0.3 && main.includes('정상 범위'), big);
       log(`[${tag}] 결과: "형태 변화 작음"으로 정직하게 기록`, main.includes('형태 변화 작음'));
     }
   }
