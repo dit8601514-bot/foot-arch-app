@@ -9,7 +9,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  const ALGORITHM_VERSION = 'ALG-2.3.1';
+  const ALGORITHM_VERSION = 'ALG-2.4.0';
 
   // 기본 검출 파라미터 (휴리스틱 값 — 실제 사진으로 검증 후 연구자가 조정해야 함)
   const DEFAULT_DETECT = {
@@ -801,10 +801,55 @@
       if (c.primaryMeasure === 'floor') { r.changeMm = Math.abs(r.floor.dropMm); r.primary = 'floor'; }
     } else if (c.primaryMeasure === 'floor') r.notes.push('바닥선이 확인되지 않아 P1–P3 기준선 방식으로 분류했습니다.');
     r.scaleDiff = sd;
+    // 발 길이로 정규화한 지표(문헌: 정규화 발배뼈 높이 NNHt = 발배뼈 높이 ÷ 잘린 발 길이, Murley 등 2009)
+    // 이 앱은 P1(첫째발허리뼈머리)–P3(발꿈치뼈) 스티커 거리로 발 길이를 근사한다 → 참고용
+    if (pre.spanPx > 0 && post.spanPx > 0) {
+      r.span = { preMm: pre.spanPx * common, postMm: post.spanPx * common };
+      r.span.gainMm = r.span.postMm - r.span.preMm; // 체중부하 시 발이 길어진 정도(발활 늘어남)
+      r.norm = normalizedIndices(r);
+    }
     if (r.changeMm >= c.maxPlausibleChangeMm) { r.status = '측정 불가'; r.notes.push(`변화량(${r.changeMm.toFixed(1)}mm)이 비정상적으로 큽니다. 스티커 위치·자세를 확인하고 다시 검사해 주세요.`); r.changeMm = null; return r; }
     if (postMm - preMm > c.riseReviewMm) r.flags.push('체중부하 후 발활 높이가 오히려 높게 측정되었습니다. 자세·스티커 위치 검토가 필요합니다.');
     r.status = '측정 가능';
     return r;
+  }
+
+  // 정규화 지표: 발 길이 대비 하강률(%), 정규화 발배뼈 높이(앉음·섬). 문헌 NNHt 참고 범위 0.22–0.31(평발 < 0.22)
+  const NNH_REF = { low: 0.22, high: 0.31, source: 'Murley 등 2009 (J Foot Ankle Res) · 잘린 발 길이 기준' };
+  function normalizedIndices(r) {
+    if (!r.span || !(r.span.preMm > 0)) return null;
+    const o = { dropPct: r.changeMm != null ? r.changeMm / r.span.preMm * 100 : null, footMm: r.span.preMm, gainPct: r.span.gainMm / r.span.preMm * 100 };
+    if (r.floor) { o.nnhPre = r.floor.preMm / r.span.preMm; o.nnhPost = r.floor.postMm / r.span.postMm; o.nnhLow = o.nnhPost < NNH_REF.low; }
+    return o;
+  }
+
+  // ═══════════════ 신뢰도·일치도 통계(논문용): ICC(2,1)·Bland–Altman·SEM·MDC95 ═══════════════
+  // pairs: [{a, b}] — 같은 대상의 두 측정(검사-재검사, 또는 앱 vs 기준)
+  // ICC(2,1): 이원 무선효과·절대 일치·단일 측정(Shrout & Fleiss 1979; Koo & Li 2016 해석: <0.5 낮음, 0.5–0.75 보통, 0.75–0.9 좋음, >0.9 매우 좋음)
+  function reliabilityStats(pairs) {
+    const ok = (pairs || []).filter(p => isFinite(p.a) && isFinite(p.b)), n = ok.length;
+    if (n < 2) return { n };
+    const k = 2, all = ok.flatMap(p => [p.a, p.b]), gm = mean(all);
+    const rowM = ok.map(p => (p.a + p.b) / 2), colA = mean(ok.map(p => p.a)), colB = mean(ok.map(p => p.b));
+    const ssR = k * rowM.reduce((s, m) => s + (m - gm) ** 2, 0), ssC = n * ((colA - gm) ** 2 + (colB - gm) ** 2);
+    const ssT = all.reduce((s, x) => s + (x - gm) ** 2, 0), ssE = ssT - ssR - ssC;
+    const msR = ssR / (n - 1), msC = ssC / (k - 1), msE = ssE / ((n - 1) * (k - 1));
+    const den = msR + (k - 1) * msE + k * (msC - msE) / n;
+    const icc = den > 0 ? (msR - msE) / den : null;
+    const d = ok.map(p => p.b - p.a), bias = mean(d), sdD = Math.sqrt(d.reduce((s, x) => s + (x - bias) ** 2, 0) / (n - 1));
+    const sa = Math.sqrt(ok.reduce((s, p) => s + (p.a - colA) ** 2, 0)), sb = Math.sqrt(ok.reduce((s, p) => s + (p.b - colB) ** 2, 0));
+    const rr = sa > 0 && sb > 0 ? ok.reduce((s, p) => s + (p.a - colA) * (p.b - colB), 0) / (sa * sb) : null;
+    const sem = sdD / Math.SQRT2, mdc95 = 1.96 * Math.SQRT2 * sem;
+    const level = icc == null ? '—' : icc > 0.9 ? '매우 좋음' : icc >= 0.75 ? '좋음' : icc >= 0.5 ? '보통' : '낮음';
+    return { n, meanA: colA, meanB: colB, icc, level, bias, sdDiff: sdD, loaLow: bias - 1.96 * sdD, loaHigh: bias + 1.96 * sdD, sem, mdc95, r: rr, mae: mean(d.map(Math.abs)) };
+  }
+  // 검사-재검사 짝: 같은 사람·같은 발에서 maxGapH 시간 안에 잇달아 잰 유효 검사
+  function retestPairs(exams, maxGapH) {
+    const gap = (maxGapH == null ? 24 : maxGapH) * 3600e3, by = {};
+    for (const e of exams) { const v = e && e.comparison && e.comparison.changeMm; if (!isFinite(v) || e.isTest) continue; const k = (e.participantId || e.userId || '') + '|' + e.foot; (by[k] = by[k] || []).push(e); }
+    const out = [];
+    for (const list of Object.values(by)) { list.sort((x, y) => x.createdAt - y.createdAt); for (let i = 1; i < list.length; i++) if (list[i].createdAt - list[i - 1].createdAt <= gap) { out.push({ a: list[i - 1].comparison.changeMm, b: list[i].comparison.changeMm, key: list[i].id }); i++; } }
+    return out;
   }
 
   // ───────────────────────── 연구 기준 분류 ─────────────────────────
@@ -1671,6 +1716,6 @@
     rgbToHsv, detectStickers, labelLandmarks, signedDistanceToLine, distanceToLine, projectionT,
     measureImage, comparePrePost, classify, roundMm, errorMetrics,
     splitByParticipant, trainCalibration, applyCalibration, fitMethod, validateConversion,
-    motionBetween, framingCheck, laplacianVariance, archAngle, cropImage, detectInRoi, labelsConsistent, combineDetections, shapeDelta, AI_FEATURES, errorFeatures, trainErrorModel, applyErrorModel, fitRidge, createLandmarkKalman, chromaMap, ALIGN, alignmentCheck, LOAD, loadEvidence, shapeOf, FOOT_MODEL, GUIDE_LAYOUT, guideGeometry, guideCheck, fitFootModel, snapOutline, densify, segmentFoot, appHeights, EXERCISE_DRAFTS, EXERCISE_CATEGORIES, youtubeId, resampleClosed, personalCare, measurementWeight, CARE, detectSoleLine, heightAboveSole
+    motionBetween, framingCheck, laplacianVariance, archAngle, cropImage, detectInRoi, labelsConsistent, combineDetections, shapeDelta, AI_FEATURES, errorFeatures, trainErrorModel, applyErrorModel, fitRidge, createLandmarkKalman, chromaMap, ALIGN, alignmentCheck, LOAD, loadEvidence, shapeOf, FOOT_MODEL, GUIDE_LAYOUT, guideGeometry, guideCheck, fitFootModel, snapOutline, densify, segmentFoot, appHeights, EXERCISE_DRAFTS, EXERCISE_CATEGORIES, youtubeId, resampleClosed, personalCare, measurementWeight, CARE, detectSoleLine, heightAboveSole, reliabilityStats, retestPairs, normalizedIndices, NNH_REF
   };
 });

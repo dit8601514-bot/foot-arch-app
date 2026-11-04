@@ -417,7 +417,8 @@ route('/result/:id', '측정 결과', async (v, p) => {
       ${e.aiCorrection ? metric(ICON.chart, 'AI 보정 (임상 NDT 추정)', `모델 v${e.aiCorrection.version} · 예상 오차 ±${cmTxt(e.aiCorrection.piMm || 0)}${e.aiCorrection.category ? ' · ' + e.aiCorrection.category.label : ''}`, mm(e.aiCorrection.mm)) : ''}
       ${metric(ICON.check, '측정 신뢰도', '검출·선명도 기반 휴리스틱', pct(e.measurementConfidence))}
     </div>
-    <button class="btn primary block big" id="detailBtn">상세 리포트 보기</button>
+    ${normCardHtml(c)}
+    <div class="grid2"><button class="btn primary big" id="detailBtn">상세 리포트 보기</button><button class="btn big" id="printBtn">PDF 리포트 저장</button></div>
     <div id="detail" class="hide">
     <div class="card"><dl class="kv">
       <dt>체중부하 전</dt><dd>${preV}</dd>
@@ -453,6 +454,7 @@ route('/result/:id', '측정 결과', async (v, p) => {
   bindFlexSection(v, e);
   await renderCare($('#careBox', v), e);
   $('#detailBtn', v).onclick = () => { const d = $('#detail', v); d.classList.toggle('hide'); $('#detailBtn', v).textContent = d.classList.contains('hide') ? '상세 리포트 보기' : '상세 리포트 접기'; };
+  $('#printBtn', v).onclick = () => printReport(e);
   $('#other', v).onclick = () => go(e.method === 'voice' ? '#/self?feet=' + (e.foot === 'left' ? 'right' : 'left') : '#/guide?foot=' + (e.foot === 'left' ? 'right' : 'left'));
   $('#del', v).onclick = async () => { if (await confirmModal('이 검사 결과를 삭제할까요? 되돌릴 수 없습니다.', '삭제', true)) { await deleteExam(e); toast('삭제했습니다.'); go('#/history'); } };
   // 저장된 사진이 있으면 저장된 좌표와 함께 표시
@@ -465,6 +467,41 @@ route('/result/:id', '측정 결과', async (v, p) => {
     drawOverlay(g, { stickers: e[ph].stickers, landmarks: e[ph].landmarks }, k);
   }
 });
+// 발 길이로 정규화한 지표(발 크기가 다른 사람끼리·성장기 아동 비교에 유리)
+function normCardHtml(c) {
+  const n = c.norm || (c.span ? C.normalizedIndices(c) : null); if (!n) return '';
+  const R = C.NNH_REF, f2 = x => x == null ? '—' : x.toFixed(2);
+  return `<div class="card" id="normCard"><b>발 크기로 정규화한 지표</b> <span class="badge b-info">NEW</span>
+    <dl class="kv" style="margin-top:6px">
+      <dt>발 길이(P1–P3)<div class="tiny">첫째발허리뼈머리~발꿈치뼈 스티커</div></dt><dd>${mm(n.footMm)}</dd>
+      <dt>발 길이 대비 하강률<div class="tiny">하강 ÷ 발 길이</div></dt><dd>${n.dropPct != null ? n.dropPct.toFixed(1) + '%' : '—'}</dd>
+      <dt>체중부하 시 발 늘어남</dt><dd>${c.span.gainMm >= 0 ? '+' : ''}${mm(c.span.gainMm)} (${n.gainPct >= 0 ? '+' : ''}${n.gainPct.toFixed(1)}%)</dd>
+      <dt>정규화 발배뼈 높이<div class="tiny">바닥 높이 ÷ 발 길이 · 앉음 → 섬</div></dt><dd>${n.nnhPre != null ? `${f2(n.nnhPre)} → <b>${f2(n.nnhPost)}</b>` : '<span class="tiny">바닥선 미확인</span>'}</dd>
+    </dl>
+    <p class="tiny">참고: 문헌의 정규화 발배뼈 높이(NNHt)는 선 자세에서 ${R.low}~${R.high}가 보통이고 ${R.low} 미만이면 낮은 발활로 봅니다(${esc(R.source)}). 이 앱은 스티커 사이 거리로 발 길이를 근사하므로 문헌 값보다 다소 크게 나올 수 있어 <b>같은 사람의 변화 추적용</b>으로 쓰세요.</p></div>`;
+}
+// 결과 리포트: 인쇄 대화상자에서 "PDF로 저장"을 고르면 파일로 남는다
+function printReport(e) {
+  const c = e.comparison, n = c.norm, w = document.createElement('div'); w.id = 'printArea';
+  const row = (k, val) => `<tr><th>${k}</th><td>${val}</td></tr>`;
+  w.innerHTML = `<h1>AI Footarch 발배뼈 하강(NDT) 측정 리포트</h1>
+    <p>${esc(fmtDate(e.createdAt))} · ${FOOT[e.foot]} · 참여자 ${esc(e.participantId || '—')} · ${esc(e.algorithmVersion)} · 앱 v${APP_VERSION}</p>
+    <table>${row('발배뼈 하강', `<b>${c.changeMm != null ? mm(c.changeMm) : '—'}</b> ${e.category ? '· ' + esc(e.category.label) : ''}`)}
+    ${row('분류 기준', '정상 ≤2 mm · 경증 2–4 mm · 중등도 4–6 mm · 중증 ≥6 mm (본 연구 기준)')}
+    ${row('P1–P3 기준선 하강', c.lineChangeMm != null ? mm(c.lineChangeMm) : '—')}
+    ${row('바닥 기준 발배뼈 높이', c.floor ? `${mm(c.floor.preMm)} → ${mm(c.floor.postMm)} (하강 ${mm(c.floor.dropMm)})` : '바닥선 미확인')}
+    ${c.archAngle ? row('스티커 발활 각도', `${c.archAngle.pre.toFixed(1)}° → ${c.archAngle.post.toFixed(1)}°`) : ''}
+    ${n ? row('발 길이(P1–P3) · 하강률', `${mm(n.footMm)} · ${n.dropPct != null ? n.dropPct.toFixed(1) + '%' : '—'}`) : ''}
+    ${n && n.nnhPre != null ? row('정규화 발배뼈 높이', `${n.nnhPre.toFixed(2)} → ${n.nnhPost.toFixed(2)}`) : ''}
+    ${e.aiCorrection ? row('AI 보정(임상 NDT 추정)', `${mm(e.aiCorrection.mm)} (모델 v${e.aiCorrection.version})`) : ''}
+    ${e.reference && isFinite(e.reference.ndtMm) ? row('직접 잰 실측 NDT', mm(e.reference.ndtMm)) : ''}
+    ${row('측정 정밀도(반복 오차)', c.precisionMm != null ? '± ' + c.precisionMm.toFixed(2) + ' mm' : '—')}
+    ${row('측정 해상도', c.mmPerPx ? `1픽셀 = ${c.mmPerPx.toFixed(3)} mm` : '—')}</table>
+    <p class="small">${esc(DISCLAIMER)}</p>`;
+  document.body.appendChild(w); document.body.classList.add('printing');
+  const done = () => { document.body.classList.remove('printing'); w.remove(); window.removeEventListener('afterprint', done); };
+  window.addEventListener('afterprint', done); window.print(); setTimeout(() => { if (document.body.contains(w) && !matchMedia('print').matches) done(); }, 1500);
+}
 function loadRecText(r) {
   const f = r.final || {}, pc = x => (x * 100).toFixed(1) + '%';
   const shape = r.confirmed ? (f.by === 'drop' || (r.live && r.live.by === 'drop') ? '발활 하강 확인' : '발 길이 변화 확인') : '형태 변화 작음';

@@ -392,6 +392,25 @@ t('발활 각도: 체중부하로 P2가 내려가면 각도 증가', () => {
   a.imageSize = b.imageSize = [W, H]; const r = C.comparePrePost(a, b, conv); ok(r.archAngle && r.archAngle.change > 0, JSON.stringify(r.archAngle));
 });
 
+
+// 신뢰도 통계(논문용)
+t('ICC(2,1)·SEM·MDC95 손계산 일치', () => {
+  const r = C.reliabilityStats([1, 2, 3, 4, 5].map((a, i) => ({ a, b: [1.5, 2.5, 2.5, 4.5, 5.5][i] })));
+  near(r.icc, 0.95238, 1e-4); near(r.bias, 0.3, 1e-9); near(r.sdDiff, Math.sqrt(0.2), 1e-9); near(r.sem, Math.sqrt(0.1), 1e-9); near(r.mdc95, 1.96 * Math.sqrt(0.2), 1e-9); eq(r.level, '매우 좋음');
+});
+t('ICC: 체계적 차이가 크면 낮아짐(절대 일치)', () => { const r = C.reliabilityStats([1, 2, 3, 4, 5].map(a => ({ a, b: a + 5 }))); ok(r.icc < 0.3, r.icc); });
+t('검사-재검사 짝: 같은 사람·발·24시간 안', () => {
+  const ex = (id, foot, h, v) => ({ id, foot, participantId: 'p', createdAt: h * 3600e3, comparison: { changeMm: v } });
+  const p = C.retestPairs([ex('a', 'left', 0, 5), ex('b', 'left', 1, 5.4), ex('c', 'right', 1, 3), ex('d', 'left', 100, 6)]);
+  eq(p.length, 1); eq(p[0].a, 5); eq(p[0].b, 5.4);
+});
+t('정규화 지표: 발 길이 대비 하강률·NNH', () => {
+  const pre = measured(84, 14), post = measured(56, 14); const r = C.comparePrePost(pre, post, conv);
+  ok(r.span && r.span.preMm > 0, 'span'); ok(r.norm && Math.abs(r.norm.dropPct - r.changeMm / r.span.preMm * 100) < 1e-9, 'dropPct');
+  const n = C.normalizedIndices({ changeMm: 6, span: { preMm: 150, postMm: 153, gainMm: 3 }, floor: { preMm: 40, postMm: 32 } });
+  near(n.dropPct, 4, 1e-9); near(n.nnhPre, 40 / 150, 1e-9); near(n.nnhPost, 32 / 153, 1e-9); eq(n.nnhLow, true);
+});
+
 const pass = results.filter(r => r[1] === 'PASS').length;
 for (const r of results) console.log(`${r[1]}  ${r[0]}${r[2] ? '  — ' + r[2] : ''}`);
 console.log(`\n${pass}/${results.length} 통과`);

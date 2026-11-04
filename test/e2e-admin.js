@@ -79,6 +79,7 @@ function synthExam(id, foot) {
   log('[서버] 관리자 기준값 일괄 입력', rest.status === 201 && mock.tables.reference_ndt.size === 24, String(mock.tables.reference_ndt.size));
   // 오차 분석
   await pa.goto(U + 'admin/#/errors'); await pa.waitForSelector('svg.chart'); await shot(pa, 'm04-admin-errors');
+  { const t = await pa.textContent('#view'); const m = t.match(/타당도: 앱 vs 임상 NDT\d+([\d.]+)/); log('[관리자] 신뢰도 리포트(ICC·SEM·MDC·논문 문장)', t.includes('신뢰도 리포트') && !!m && t.includes('논문 문장 초안'), m ? 'ICC ' + m[1] : ''); await pa.evaluate(() => { const h = [...document.querySelectorAll('h2')].find(x => x.textContent.includes('신뢰도 리포트')); if (h) { const w = document.createElement('div'); w.id = 'relWrap'; h.before(w); let n = h; const list = []; while (n) { list.push(n); n = n.nextElementSibling; } list.forEach(x => w.appendChild(x)); } }); await pa.locator('#relWrap').screenshot({ path: path.join(__dirname, 'shots', 'm04b-admin-reliability.png') }).catch(() => {}); }
   log('[관리자 앱] 오차 분석: 지표 표 + Bland–Altman', (await pa.textContent('#view')).includes('평균 절대 오차') && await pa.locator('svg.chart circle').count() === 24);
   // AI 학습·배포
   await pa.click('text=AI 보정 모델'); await pa.waitForSelector('#train'); await pa.click('#train'); await pa.waitForSelector('#res .note', { timeout: 30000 });

@@ -346,12 +346,50 @@ route('/manage', '유연성 평발 관리', async (v) => {
     <p class="small muted">운동을 하면서 같은 방법(음성 자가 검사)으로 다시 측정해 발활 하강의 변화를 확인합니다.</p>
     ${footCard('left')}${footCard('right')}
     ${exams.length ? `<div class="card"><b>하강량 추이 (mm)</b><div class="legend"><span><i style="background:var(--series-1)"></i>왼발</span><span><i style="background:var(--series-2)"></i>오른발</span></div><canvas class="chart" id="ch"></canvas><p class="tiny">점선: 연구 분류 경계 2·4·6 mm</p></div>` : ''}
+    ${programCardHtml(exams, logs)}
     <div class="card"><dl class="kv"><dt>최근 7일 운동</dt><dd>${week}회</dd><dt>누적 운동</dt><dd>${logs.length}회</dd></dl><a class="btn block" href="#/exercises">오늘의 운동</a></div>
     <a class="btn primary block big" href="#/self">다시 측정하기</a>
     <a class="btn block" href="#/history">검사 이력 전체 보기</a>
     <p class="tiny">측정값의 변화가 곧 발활 구조의 개선을 뜻하지는 않습니다. 측정 오차와 촬영 조건을 함께 고려하세요.</p>`;
+  bindProgram(v);
   if (exams.length) {
     const ser = ['left', 'right'].map(f => ({ name: FOOT[f], color: f === 'left' ? '#2a78d6' : '#eb6834', points: exams.filter(e => e.foot === f).map(e => ({ x: e.createdAt, y: C.roundMm(e.comparison.changeMm), label: `${fmtDate(e.createdAt)} ${mm(e.comparison.changeMm)}` })) })).filter(s => s.points.length);
     lineChart($('#ch', v), ser, { yMin: 0, bands: CLASS_BANDS() });
   }
 });
+
+// ───── 6주 숏풋(짧은 발) 운동 프로그램 ─────
+// 근거: 숏풋 운동을 매일 6주 하면 발배뼈 하강이 줄었다(Unver 등 2019 J Sport Rehabil; Zarali 등 2024 BMC Sports Sci Med Rehabil).
+const PROGRAM = { weeks: 6, perWeek: 6, checkWeeks: [3, 6], cite: 'Unver 등 2019 · Zarali 등 2024 (숏풋 운동 6주 후 발배뼈 하강 감소)' };
+function programState(exams, logs, start, now) {
+  now = now || Date.now(); const W = 7 * 864e5;
+  const week = Math.min(PROGRAM.weeks, Math.floor((now - start) / W) + 1), finished = now - start >= PROGRAM.weeks * W;
+  const perWeek = Array.from({ length: PROGRAM.weeks }, (_, i) => logs.filter(l => l.date >= start + i * W && l.date < start + (i + 1) * W).length);
+  const base = {}, last = {};
+  for (const e of exams) { const f = e.foot, t = e.createdAt;
+    if (t <= start + 3 * 864e5 && (!base[f] || Math.abs(t - start) < Math.abs(base[f].createdAt - start))) base[f] = e;
+    if (t > start + 3 * 864e5 && (!last[f] || t > last[f].createdAt)) last[f] = e; }
+  const checks = PROGRAM.checkWeeks.map(w => ({ week: w, done: exams.some(e => e.createdAt >= start + (w * 7 - 4) * 864e5) }));
+  return { week, finished, perWeek, base, last, checks };
+}
+function programCardHtml(exams, logs) {
+  const start = S.settings.programStart;
+  if (!start) return `<div class="card" id="progCard"><b>6주 숏풋 운동 프로그램</b> <span class="badge b-info">NEW</span>
+    <p class="small">연구에서 효과가 확인된 방식대로 <b>6주 동안 주 ${PROGRAM.perWeek}회 이상</b> 운동하고, <b>시작·3주·6주</b>에 다시 측정해 변화를 확인합니다.</p>
+    <p class="tiny">근거: ${esc(PROGRAM.cite)}</p><button class="btn primary block" id="progStart">오늘부터 시작</button></div>`;
+  const st = programState(exams, logs, start), pc = (() => { try { return C.personalCare(exams, { logs }); } catch (e) { return null; } })(), mdc = pc && pc.mdcMm;
+  const bars = st.perWeek.map((n, i) => `<div style="flex:1;text-align:center"><div style="height:46px;display:flex;align-items:flex-end;justify-content:center"><div style="width:70%;height:${Math.min(100, n / PROGRAM.perWeek * 100)}%;min-height:3px;border-radius:4px;background:${n >= PROGRAM.perWeek ? 'var(--good,#2a9d5c)' : i + 1 === st.week ? 'var(--series-1,#3b6fd8)' : '#c9d2e3'}"></div></div><div class="tiny">${i + 1}주<br>${n}회</div></div>`).join('');
+  const change = ['left', 'right'].filter(f => st.base[f] && st.last[f]).map(f => { const d = st.last[f].comparison.changeMm - st.base[f].comparison.changeMm;
+    const real = mdc != null && Math.abs(d) >= mdc; return `<li>${FOOT[f]}: ${mm(st.base[f].comparison.changeMm)} → <b>${mm(st.last[f].comparison.changeMm)}</b> (${d <= 0 ? '' : '+'}${mm(d)}) ${mdc == null ? '' : real ? (d < 0 ? '<span class="badge b-good">의미 있는 개선</span>' : '<span class="badge b-bad">의미 있는 증가</span>') : '<span class="tiny">측정 흔들림 범위</span>'}</li>`; }).join('');
+  return `<div class="card" id="progCard"><div class="row"><b class="grow">6주 숏풋 운동 프로그램</b><span class="badge ${st.finished ? 'b-good' : 'b-info'}">${st.finished ? '완료' : st.week + '/6주'}</span></div>
+    <div style="display:flex;gap:4px;margin:8px 0">${bars}</div>
+    <p class="small">재측정: ${st.checks.map(c => `${c.week}주 ${c.done ? '✓' : '대기'}`).join(' · ')}${st.finished ? '' : ` · 이번 주 목표 ${PROGRAM.perWeek}회 중 ${st.perWeek[st.week - 1]}회`}</p>
+    ${change ? `<ul class="list small">${change}</ul>${mdc != null ? `<p class="tiny">의미 있는 변화 기준(내 MDC95): ±${mm(mdc)}</p>` : ''}` : '<p class="tiny">시작 무렵 측정과 3주 이후 측정이 있으면 변화가 표시됩니다.</p>'}
+    <p class="tiny">근거: ${esc(PROGRAM.cite)}</p>
+    <div class="grid2"><a class="btn primary" href="#/exercises">오늘 운동하기</a><button class="btn ghost" id="progReset">프로그램 다시 시작</button></div></div>`;
+}
+function bindProgram(v) {
+  const st = $('#progStart', v), rs = $('#progReset', v);
+  if (st) st.onclick = () => { S.settings.programStart = Date.now(); saveSettings(); render(); };
+  if (rs) rs.onclick = async () => { if (await confirmModal('6주 프로그램을 오늘부터 다시 시작할까요? 운동·측정 기록은 그대로 남습니다.', '다시 시작')) { S.settings.programStart = Date.now(); saveSettings(); render(); } };
+}

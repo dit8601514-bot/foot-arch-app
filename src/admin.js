@@ -93,7 +93,7 @@ const routes = {};
 const route = (p, title, fn) => { routes[p] = { title, fn }; };
 function topbar(cur) {
   $('#top').innerHTML = `<span class="logo">AI Footarch</span><span class="tag">관리자</span>
-    ${Api.loggedIn ? `<nav>${[['dash', '대시보드'], ['users', '사용자·측정'], ['content', '운동 영상'], ['errors', '오차 분석'], ['ai', 'AI 보정 모델'], ['export', '데이터 내보내기']].map(([k, l]) => `<a href="#/${k}" class="${cur === k ? 'on' : ''}">${l}</a>`).join('')}</nav><button id="logout">로그아웃</button>` : ''}`;
+    ${Api.loggedIn ? `<nav>${[['dash', '대시보드'], ['users', '사용자·측정'], ['content', '운동 영상'], ['errors', '오차·신뢰도'], ['ai', 'AI 보정 모델'], ['export', '데이터 내보내기']].map(([k, l]) => `<a href="#/${k}" class="${cur === k ? 'on' : ''}">${l}</a>`).join('')}</nav><button id="logout">로그아웃</button>` : ''}`;
   const lo = $('#logout'); if (lo) lo.onclick = async () => { await Api.signOut(); Object.assign(D, { loaded: false }); location.hash = '#/login'; };
 }
 async function render() {
@@ -193,8 +193,40 @@ route('errors', '오차 분석', async (v) => {
     ${pairs.length ? '' : '<div class="note warn">임상 NDT 기준값이 입력된 측정이 없습니다. "사용자·측정"에서 입력해 주세요.</div>'}
     <div class="card scroll"><table>${metricsHead}<tbody>${metricsRow('앱 측정값 그대로', m)}${corr ? metricsRow(`AI 보정 v${am.version} 적용(학습에 쓴 자료 포함 — 참고용)`, C.errorMetrics(corr)) : ''}</tbody></table>
       <p class="small muted">학습에 쓴 자료로 잰 보정 후 오차는 실제보다 좋게 나옵니다. 모델 성능은 "AI 보정 모델"의 교차검증 값을 보세요.</p></div>
-    ${pairs.length ? `<div class="card"><b>Bland–Altman</b>${blandAltmanSvg(pairs, m)}</div>` : ''}`;
+    ${pairs.length ? `<div class="card"><b>Bland–Altman</b>${blandAltmanSvg(pairs, m)}</div>` : ''}
+    ${reliabilityHtml(pairs)}`;
+  bindReliability(v);
 });
+
+// ───── 논문용 신뢰도 리포트: 타당도(앱 vs 임상) + 검사-재검사(같은 사람·발·24시간 안) ─────
+let REL = null;
+function reliabilityHtml(pairs) {
+  const val = C.reliabilityStats(pairs.map(p => ({ a: p.ref, b: p.ai })));
+  const ex = D.exams.map(r => Object.assign({}, r.data || {}, { id: r.id, userId: r.user_id, foot: r.foot, createdAt: r.data && r.data.createdAt || Date.parse(r.created_at) }));
+  const rp = C.retestPairs(ex, 24), rt = C.reliabilityStats(rp);
+  REL = { val, rt, rp };
+  const row = (name, r) => `<tr><td>${name}</td><td>${r.n}</td><td><b>${f2(r.icc)}</b> <span class="small muted">${r.level || ''}</span></td><td>${f2(r.bias)}</td><td>${r.loaLow != null ? f2(r.loaLow) + ' ~ ' + f2(r.loaHigh) : '—'}</td><td>${f2(r.sem)}</td><td>${f2(r.mdc95)}</td><td>${f2(r.r)}</td></tr>`;
+  const sent = rt.n >= 2 ? `앱의 검사-재검사 신뢰도는 ICC(2,1) = ${f2(rt.icc)}(${rt.n}쌍)였고, 측정의 표준오차(SEM)는 ${f2(rt.sem)} mm, 최소 탐지 변화량(MDC95)은 ${f2(rt.mdc95)} mm였다.` : '';
+  const sent2 = val.n >= 2 ? ` 임상 NDT와의 일치도는 ICC(2,1) = ${f2(val.icc)}, 평균 차이 ${f2(val.bias)} mm(95% 일치 한계 ${f2(val.loaLow)} ~ ${f2(val.loaHigh)} mm, n = ${val.n})였다.` : '';
+  return `<h2>신뢰도 리포트 (논문용) <span class="badge b-info">NEW</span></h2>
+    <div class="card scroll"><table><thead><tr><th>구분</th><th>n</th><th>ICC(2,1)</th><th>평균 차이</th><th>95% 일치 한계</th><th>SEM</th><th>MDC95</th><th>r</th></tr></thead><tbody>
+      ${val.n >= 2 ? row('타당도: 앱 vs 임상 NDT', val) : '<tr><td>타당도: 앱 vs 임상 NDT</td><td colspan="7" class="muted">짝 2건 이상 필요</td></tr>'}
+      ${rt.n >= 2 ? row('검사-재검사(24시간 안)', rt) : '<tr><td>검사-재검사(24시간 안)</td><td colspan="7" class="muted">같은 사람·같은 발을 하루 안에 두 번 잰 기록이 2쌍 이상 필요</td></tr>'}
+    </tbody></table>
+    <p class="small muted">ICC(2,1): 이원 무선효과·절대 일치·단일 측정. 해석(Koo & Li 2016): 0.5 미만 낮음 · 0.5–0.75 보통 · 0.75–0.9 좋음 · 0.9 초과 매우 좋음. SEM = 차이의 표준편차/√2, MDC95 = 1.96×√2×SEM. 단위 mm.</p>
+    ${sent || sent2 ? `<p class="small"><b>논문 문장 초안</b><br><span id="relSent">${esc(sent + sent2)}</span></p>` : ''}
+    <div class="row"><button class="btn" id="relCsv" ${val.n >= 2 || rt.n >= 2 ? '' : 'disabled'}>신뢰도 표 CSV 내려받기</button>${sent || sent2 ? '<button class="btn" id="relCopy">문장 복사</button>' : ''}</div></div>
+    ${rt.n >= 2 ? `<div class="card"><b>검사-재검사 Bland–Altman</b>${blandAltmanSvg(rp.map(p => ({ ai: p.b, ref: p.a })), C.errorMetrics(rp.map(p => ({ ai: p.b, ref: p.a }))))}</div>` : ''}`;
+}
+function bindReliability(v) {
+  const b = $('#relCsv', v); if (b) b.onclick = () => {
+    const H = ['구분', 'n', 'ICC(2,1)', '해석', '평균차이_mm', 'LoA하한_mm', 'LoA상한_mm', 'SEM_mm', 'MDC95_mm', 'r'];
+    const line = (k, r) => [k, r.n, r.icc, r.level, r.bias, r.loaLow, r.loaHigh, r.sem, r.mdc95, r.r].map(x => typeof x === 'number' ? x.toFixed(3) : x == null ? '' : x).join(',');
+    const csv = '\ufeff' + [H.join(','), REL.val.n >= 2 ? line('타당도(앱vs임상)', REL.val) : '', REL.rt.n >= 2 ? line('검사-재검사(24h)', REL.rt) : ''].filter(Boolean).join('\n');
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); a.download = 'footarch-reliability.csv'; a.click();
+  };
+  const c = $('#relCopy', v); if (c) c.onclick = () => { navigator.clipboard.writeText($('#relSent', v).textContent).then(() => toast('복사했습니다.'), () => toast('복사하지 못했습니다.', true)); };
+}
 
 route('ai', 'AI 보정 모델', async (v) => {
   await loadAll(true);
