@@ -91,11 +91,11 @@ route('/self/run', '측정하기', async (v) => {
   // 상태: align(앉은 자세 정렬) → stand(체중부하 요청, 일어서는 동작 감지) → settle(선 자세 안정·형태 근거 확인) → 촬영
   const PHASE_LABEL = { align: '1/2 앉은 자세', stand: '일어서기', settle: '2/2 선 자세' };
   // 선 자세 촬영: 타이머 없이 AI가 일어서는 동작·체중부하 형태를 인지하면 찍는다
-  let fi = 0, phase = 'align', phaseStart = 0, readySince = 0, busy = false, cur = null, lastHint = { t: 0, msg: '' }, announcedAlign = false, distSaid = 0, distCount = 0, lastDist = null;
+  let fi = 0, phase = 'align', phaseStart = 0, readySince = 0, busy = false, cur = null, lastHint = { t: 0, msg: '' }, announcedAlign = false, distSaid = 0, distCount = 0, lastDist = null, plateau = [], plateauSince = 0, posSince = 0, posSaid = 0;
   let preLive = [], liveRef = null, lostFrames = 0, moveFrames = 0, transitionSeen = false, standPrompts = 0, settleWin = [], recheckAt = 0, reprompted = false, lastEv = null;
   const foot = () => run.feet[fi], toe = () => defaultToe(foot());
   let shapeFrames = 0, lastSpoke = 0;
-  const T = { alignHold: 1200, settleHold: 1500, sceneMove: 6, lostMove: 5, standRepeat: 8000, standGiveUp: 30000, recheck: 4500 };
+  const T = { posMaxWait: window.FOOTARCH_POS_WAIT != null ? window.FOOTARCH_POS_WAIT : 10000, preSteady: 0.04, preMaxWait: 6000, plateauMin: 2500, plateauMax: 9000, plateauEps: 0.02, alignHold: 1200, settleHold: 1500, sceneMove: 6, lostMove: 5, standRepeat: 8000, standGiveUp: 30000, recheck: 4500 };
   const setPhase = ph => { phase = ph; phaseStart = performance.now(); readySince = 0; $('#phaseBadge', v).textContent = PHASE_LABEL[ph] || ''; $('#loadCard', v).style.display = ph === 'align' ? 'none' : ''; };
   const say = (t, o) => Voice.say(t, o);
   { const cb = $('#distCal', v); if (cb) cb.onclick = () => { const d = lastDist; if (!d) return toast('스티커 3개가 보이게 한 뒤 눌러 주세요.', true);
@@ -209,11 +209,22 @@ route('/self/run', '측정하기', async (v) => {
       if (off && (!distSaid || (now - distSaid > 8000 && (fixed || distCount < 3)))) { distSaid = now; distCount++; lastHint = { t: now, msg: d.msg }; say(d.msg + '.', { interrupt: false }); }
       if (off && fixed) { readySince = 0; $('#status', v).textContent = `${d.code === 'FAR' ? '조금 더 가까이' : '조금 더 멀리'} · ${d.targetCm} cm에 맞춰 주세요 (지금 약 ${d.estCm.toFixed(0)} cm)`; if (!f.ready) hint(f, now); return; }
       if (f.ready && off && distSaid && now - distSaid < 6000) { readySince = 0; $('#status', v).textContent = d.code === 'FAR' ? '조금 더 가까이 (약 30 cm)' : '조금 더 멀리 (약 30 cm)'; return; }
+      const pc = f.guide && f.guide.posCode;
+      if (f.ready && pc) {
+        if (!posSince) posSince = now;
+        if (now - posSince < T.posMaxWait) {
+          readySince = 0; $('#status', v).textContent = f.guide.posMsg + ' (발배뼈가 화면 가운데에 오게)';
+          if (!posSaid || now - posSaid > 6000) { posSaid = now; lastHint = { t: now, msg: f.guide.posMsg }; say(f.guide.posMsg + '.', { interrupt: false }); }
+          return;
+        }
+      } else if (!pc) posSince = 0;
       if (f.ready) {
         preLive.push(C.shapeOf(f.det)); if (preLive.length > 20) preLive.shift();
         if (!readySince) { readySince = now; if (!announcedAlign) { announcedAlign = true; say('발이 정확히 들어왔습니다. 그대로 계십시오.'); } }
         $('#status', v).textContent = '정확히 들어왔습니다. 그대로 계십시오';
-        if (now - readySince >= T.alignHold && preLive.length >= 5) { busy = true; guarded(shootPre, '앉은 자세 촬영'); }
+        const hs = preLive.slice(-10).map(s => s.heightPx / s.dia), steady = hs.length >= 8 && Math.max(...hs) - Math.min(...hs) <= T.preSteady;
+        if (now - readySince >= T.alignHold && preLive.length >= 8 && (steady || now - readySince > T.preMaxWait)) { busy = true; guarded(shootPre, '앉은 자세 촬영'); }
+        else if (now - readySince >= T.alignHold && !steady) $('#status', v).textContent = '발에 힘을 빼고 그대로 계십시오';
       } else { readySince = 0; $('#status', v).textContent = (!f.c.stickers ? f.c.stickersMsg : !f.c.frame ? f.c.frameMsg : !f.c.sharp ? f.c.sharpMsg : f.c.stillMsg) || '가이드 안에 발을 맞춰 주십시오'; hint(f, now); }
       return;
     }
@@ -241,7 +252,7 @@ route('/self/run', '측정하기', async (v) => {
       const okPost = f.readyLoose && sameCam;
       const settleFor = now - phaseStart;
       if (!okPost) {
-        readySince = 0; settleWin = [];
+        readySince = 0; settleWin = []; plateau = []; plateauSince = 0;
         const msg = !f.c.stickers ? f.c.stickersMsg : !sameCam ? '휴대폰이 움직인 것 같습니다. 휴대폰은 그대로 두십시오' : !f.c.sharp ? f.c.sharpMsg : f.c.stillMsg;
         $('#status', v).textContent = msg || '가만히 서 계십시오';
         // 오래 안 찍히면 무엇이 문제인지 말로 알려 준다(조용히 멈춰 있지 않게)
@@ -254,7 +265,15 @@ route('/self/run', '측정하기', async (v) => {
       const ev = liveRef && settleWin.length >= 5 ? C.loadEvidence(liveRef, medShape(settleWin)) : null; lastEv = ev;
       updateLoadCard(ev);
       if (now < recheckAt) { $('#status', v).textContent = '선 자세 확인 중… 그대로 계십시오'; return; }
-      if (ev && ev.confirmed) { busy = true; guarded(() => shootPost(true, ev), '선 자세 촬영'); return; }
+      if (ev && ev.confirmed) {
+        // 체중이 다 실릴 때까지: 최근 1초 하강(중앙값)이 그 전 1초보다 더 커지지 않으면(정점) 촬영 — 덜 실린 상태에서 찍혀 값이 작게 나오는 것을 막는다
+        plateau.push({ t: now, d: C.shapeOf(f.det) ? ev.drop : null }); plateau = plateau.filter(p => now - p.t < 2200 && p.d != null);
+        const a1 = plateau.filter(p => now - p.t < 1000).map(p => p.d), a0 = plateau.filter(p => now - p.t >= 1000).map(p => p.d);
+        const flat = a1.length >= 4 && a0.length >= 4 && median(a1) - median(a0) < T.plateauEps;
+        if (!plateauSince) plateauSince = now;
+        if ((flat && now - plateauSince >= T.plateauMin) || now - plateauSince >= T.plateauMax) { busy = true; plateau = []; plateauSince = 0; guarded(() => shootPost(true, ev), '선 자세 촬영'); return; }
+        $('#status', v).textContent = '체중이 다 실릴 때까지 그대로 서 계십시오'; return;
+      }
       if (!reprompted) {
         reprompted = true; recheckAt = now + T.recheck; settleWin = [];
         $('#status', v).textContent = '양발에 체중을 고르게 실어 주십시오';

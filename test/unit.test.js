@@ -445,6 +445,13 @@ t('개인 오차 보정: 최근·같은 촬영 조건 실측을 더 믿고, 서�
   const v = pc.personalMm(next); ok(v > 5.3 && v < 7.6, '보정값 ' + v.toFixed(2)); // 예전 방식(단순 평균)이면 약 8.9 mm
 });
 
+t('앞뒤 위치 안내: 발배뼈가 화면 가운데에서 벗어나면 P1(발가락) 쪽 기준 앞으로/뒤로', () => {
+  const mk = (p2x) => ({ imageSize: [640, 360], landmarks: { P3: { x: p2x - 110, y: 230 }, P2: { x: p2x, y: 190 }, P1: { x: p2x + 160, y: 235 } }, quality: { diameterPx: 22 } });
+  eq(C.guideCheck(mk(320), 'right').posCode, null);
+  eq(C.guideCheck(mk(250), 'right').posCode, 'FWD'); ok(/앞으로/.test(C.guideCheck(mk(250), 'right').posMsg)); // 발가락이 오른쪽, P2가 왼쪽(뒤꿈치 쪽) → 앞으로
+  eq(C.guideCheck(mk(390), 'right').posCode, 'BACK');
+});
+
 const pass = results.filter(r => r[1] === 'PASS').length;
 for (const r of results) console.log(`${r[1]}  ${r[0]}${r[2] ? '  — ' + r[2] : ''}`);
 console.log(`\n${pass}/${results.length} 통과`);

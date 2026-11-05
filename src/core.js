@@ -9,7 +9,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  const ALGORITHM_VERSION = 'ALG-2.5.2';
+  const ALGORITHM_VERSION = 'ALG-2.6.0';
 
   // 기본 검출 파라미터 (휴리스틱 값 — 실제 사진으로 검증 후 연구자가 조정해야 함)
   const DEFAULT_DETECT = {
@@ -1452,6 +1452,7 @@
     if (!(layout && layout.mode === 'fixed')) return guideCheckAdaptive(det, toe);
     return guideCheckFixed(det, toe, layout);
   }
+  const POS_TOL = 0.07; // 화면 폭의 7% (25 cm 거리에서 약 1.5 cm)
   function guideCheckAdaptive(det, toe) {
     const [W, H] = det.imageSize, L = det.landmarks, F = fitFootModel(L, toe), M = FOOT_MODEL;
     const span = dist(L.P1, L.P3);
@@ -1466,6 +1467,10 @@
     if (frac < 0.18) notes.push('FAR');
     const floorY = Math.max(F.heelFloor.y, F.toeFloor.y); if (floorY > H) notes.push('FLOOR_CUT');
     out.notes = notes;
+    // 앞뒤 위치(v3.5, 사용자 요청): 카메라 정면(화면 가로 가운데)에 발배뼈(P2)가 오게. '앞' = P1(발가락) 쪽.
+    // 정면에서 벗어나면 원근 때문에 높이가 달라져 같은 발도 값이 흔들린다.
+    { const fwd = Math.sign(L.P1.x - L.P3.x) || 1, off = (L.P2.x - W / 2) / W * fwd; out.posOff = off;
+      out.posCode = off < -POS_TOL ? 'FWD' : off > POS_TOL ? 'BACK' : null; out.posMsg = out.posCode === 'FWD' ? '발을 조금 앞으로 옮겨 주십시오' : out.posCode === 'BACK' ? '발을 조금 뒤로 옮겨 주십시오' : ''; }
     if (!inP2) return fail('P2_ZONE', hl < Z.hCm[0] ? '가운데 스티커가 너무 낮습니다. 발배뼈거친면에 붙였는지 확인해 주십시오' : '가운데 스티커 위치를 확인해 주십시오. 발배뼈거친면에 붙여야 합니다');
 
     return Object.assign(out, { ok: true, code: 'OK', msg: '발이 가이드에 정확히 들어왔습니다' });

@@ -14,7 +14,7 @@ async function scenario(tag, video, expectConfirmed, expectMm, opt) {
   expectMm = expectMm == null ? 7.14 : expectMm;
   const b = await chromium.launch({ args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--use-file-for-fake-video-capture=' + path.join(__dirname, 'img', video)] });
   const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, permissions: ['camera'] });
-  await ctx.addInitScript(d => { window.FOOTARCH_SHUTTER_DELAY = d.delay; window.FOOTARCH_POST_MODE = d.postMode; window.FOOTARCH_MMPX_SCALE = d.mmpxScale; window.FOOTARCH_STICKER_MM = 16; /* 합성 영상은 16 mm 스티커로 만들어짐 */ window.__workers = []; const OW = window.Worker; window.Worker = function (u, o) { const w = new OW(u, o); window.__workers.push(w); return w; }; window.__spoken = []; const sy = window.speechSynthesis; if (sy) { const orig = sy.speak.bind(sy); sy.speak = u => { if (u.text.trim()) window.__spoken.push(u.text); try { orig(u); } catch (e) {} }; } }, { delay: opt.delay == null ? 0 : opt.delay, postMode: opt.postMode || 'ai', mmpxScale: opt.mmpxScale || 0 });
+  await ctx.addInitScript(d => { window.FOOTARCH_SHUTTER_DELAY = d.delay; window.FOOTARCH_POST_MODE = d.postMode; window.FOOTARCH_MMPX_SCALE = d.mmpxScale; if (d.posWait != null) window.FOOTARCH_POS_WAIT = d.posWait; window.FOOTARCH_STICKER_MM = 16; /* 합성 영상은 16 mm 스티커로 만들어짐 */ window.__workers = []; const OW = window.Worker; window.Worker = function (u, o) { const w = new OW(u, o); window.__workers.push(w); return w; }; window.__spoken = []; const sy = window.speechSynthesis; if (sy) { const orig = sy.speak.bind(sy); sy.speak = u => { if (u.text.trim()) window.__spoken.push(u.text); try { orig(u); } catch (e) {} }; } }, { delay: opt.delay == null ? 0 : opt.delay, postMode: opt.postMode || 'ai', mmpxScale: opt.mmpxScale || 0, posWait: opt.posWait });
   const pg = await ctx.newPage(); const errors = [];
   pg.on('pageerror', e => errors.push(e.message)); pg.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
   const shot = n => pg.screenshot({ path: path.join(__dirname, 'shots', n + '.png'), fullPage: true });
@@ -113,11 +113,12 @@ async function scenario(tag, video, expectConfirmed, expectMm, opt) {
   // 예전 설정(선 자세 타이머)이 남아 있어도 타이머 없이 AI 인지로 진행
   if (!which || which === 'M') await scenario('M', 'self_std.y4m', true, 8.0, { postMode: 'timer' });
   if (!which || which === 'D') await scenario('D', 'self_std.y4m', true, 8.0, { mmpxScale: 3 }); // 멀리 둔 상황(해상도 3배 거칠게) 재현
-  if (!which || which === 'MR') await scenario('MR', 'self_std_rot90.y4m', true, 8.0);
+  // 회전 영상은 발이 화면 가운데에서 벗어나 있음(합성 영상 — 발을 옮길 수 없음): 앞뒤 안내 대기 시간 짧게
+  if (!which || which === 'MR') await scenario('MR', 'self_std_rot90.y4m', true, 8.0, { posWait: 4000 });
   if (!which || which === 'H') await scenario('H', 'self_std_shake.y4m', true, 8.0);
   if (!which || which === 'K') await scenario('K', 'self_std.y4m', true, 8.0, { killAfterPre: true });
-  if (!which || which === 'R1') await scenario('R1', 'self_std_rot90.y4m', true, 8.0);
-  if (!which || which === 'R2') await scenario('R2', 'self_std_rot270.y4m', true, 8.0);
+  if (!which || which === 'R1') await scenario('R1', 'self_std_rot90.y4m', true, 8.0, { posWait: 4000 });
+  if (!which || which === 'R2') await scenario('R2', 'self_std_rot270.y4m', true, 8.0, { posWait: 4000 });
   srv.close();
   fs.writeFileSync(path.join(__dirname, 'e2e-self-results.json'), JSON.stringify(R, null, 1));
   console.log(`\n${R.filter(r => r[1] === 'PASS').length}/${R.length} 통과`);

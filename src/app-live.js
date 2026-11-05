@@ -290,13 +290,13 @@ function createTracker(opts) {
     // 정렬: 가이드 안(가장자리 여유) + 목표 영역 정밀 정렬(중앙·크기·수평) + 정면 촬영(스티커가 원으로 보임)
     const fr = det.landmarks ? C.framingCheck(det) : { ok: false, msg: '', code: 'NONE' };
     const al = det.landmarks ? C.guideCheck(det, getToe()) : { ok: false, msg: '', code: 'NONE' };
-    const faceOn = det.quality && det.quality.minAxisRatio >= 0.78; // 발 곡면에 붙은 스티커는 정면이어도 약간 타원
-    c.frame = fr.ok && al.ok && !!faceOn;
-    c.frameMsg = !det.landmarks ? '' : !fr.ok ? fr.msg : !al.ok ? al.msg : !faceOn ? '휴대폰이 발 안쪽 면을 정면으로 향하게 해 주십시오' : '';
-    c.frameCode = !det.landmarks ? 'NONE' : !fr.ok ? fr.code : !al.ok ? al.code : faceOn ? '' : 'FACE';
+    // '발 안쪽 면을 정면으로' 요구는 없앰(v3.5, 사용자 요청) — 카메라 구도상 이미 발 안쪽을 찍고 있고, 기울기는 스티커 모양으로 품질 점수에만 반영
+    c.frame = fr.ok && al.ok;
+    c.frameMsg = !det.landmarks ? '' : !fr.ok ? fr.msg : !al.ok ? al.msg : '';
+    c.frameCode = !det.landmarks ? 'NONE' : !fr.ok ? fr.code : !al.ok ? al.code : '';
     const ready = det.ok && c.stickers && c.sharp && c.still && c.frame;
     // 선 자세용 완화 기준: 일어서면 발이 조금 움직이므로 목표 원 정렬은 요구하지 않는다(카메라 고정·선명·정지·스티커 정면만)
-    const readyLoose = det.ok && c.stickers && c.sharp && c.still && !!(det.quality && det.quality.minAxisRatio >= 0.75);
+    const readyLoose = det.ok && c.stickers && c.sharp && c.still;
     st.lastOk = det.ok && consistent ? det : (det.ok && !st.lastOk ? det : null);
     // 칼만 갱신: 측정 잡음 = 타원 피팅 잔차. 실패 프레임은 '놓침'으로 처리(7회 연속이면 추적 초기화)
     if (det.ok && consistent) { st.kf.update(det.landmarks, Math.max(0.15, det.quality.fitRmsPx || 0.3), now); st.colorModel = det.colorModel || st.colorModel; st.dia = det.quality.diameterPx; }
