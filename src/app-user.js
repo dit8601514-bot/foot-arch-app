@@ -446,13 +446,13 @@ route('/result/:id', '측정 결과', async (v, p) => {
     <div id="imgs"></div>
     <h3>운동 중재</h3>
     ${cat ? (exs.length ? exs.map(x => `<a class="list-item card" style="margin:6px 0" href="#/exercise/${x.id}?exam=${e.id}"><span class="grow"><b>${esc(x.name)}</b><br><span class="tiny">${x.videoBlobId || x.videoUrl ? '영상 있음' : '영상 등록 필요'}</span></span>›</a>`).join('')
-      : `<div class="note info small">위 <b>AI 1:1 맞춤 케어</b>의 관리 계획에 나에게 맞춘 운동과 횟수가 있습니다.</div><a class="btn block" href="#/exercises">전체 운동 목록 보기</a>`)
+      : `<a class="btn block" href="#/exercises">발활 재활영상(운동) 보기</a>`)
       : '<p class="small muted">유효한 분류 결과가 있을 때 맞춤 운동이 연결됩니다.</p>'}
     <p class="tiny">${esc(DISCLAIMER)}</p>
     <div class="grid2"><button class="btn primary" id="other">${FOOT[e.foot === 'left' ? 'right' : 'left']} 검사</button><a class="btn" href="#/history">검사 이력</a></div>
     <button class="btn ghost block" id="del">이 결과 삭제</button>`;
   bindFlexSection(v, e);
-  await renderCare($('#careBox', v), e);
+  await renderRefBox($('#careBox', v), e); // 측정 결과에는 AI 1:1 맞춤 창을 두지 않음(사용자 요청 2026-11-05) — 실측 입력만
   $('#detailBtn', v).onclick = () => { const d = $('#detail', v); d.classList.toggle('hide'); $('#detailBtn', v).textContent = d.classList.contains('hide') ? '상세 리포트 보기' : '상세 리포트 접기'; };
   $('#printBtn', v).onclick = () => printReport(e);
   $('#other', v).onclick = () => go(e.method === 'voice' ? '#/self?feet=' + (e.foot === 'left' ? 'right' : 'left') : '#/guide?foot=' + (e.foot === 'left' ? 'right' : 'left'));
@@ -698,6 +698,20 @@ function careHtml(pc, e) {
     ${e ? `<button class="btn block" id="refBtn">${e.reference ? `실제 잰 값 수정 (하강 ${mm(e.reference.ndtMm)}${e.reference.preMm != null ? ` · ${e.reference.preMm.toFixed(1)}→${e.reference.postMm.toFixed(1)} mm` : ''})` : '자로 실제 잰 값 입력 → AI 오차 학습'}</button>` : ''}
     <p class="tiny" style="margin-top:8px">AI 맞춤 추정은 내 기록에서 통계적으로 계산한 참고값입니다. 진단이 아니며, 분류는 앱 측정값 기준으로 따로 표시합니다.</p>
   </div>`;
+}
+// 측정 결과용: 자로 잰 실측값 입력만(오차 학습은 뒤에서 그대로 진행)
+function renderRefBox(box, e) {
+  if (!box || !e) return;
+  const r = e.reference;
+  box.innerHTML = `<div class="card" id="refCard"><b>직접 잰 값(실측)</b>
+    <p class="tiny" style="margin:4px 0 8px">자로 잰 앉은·선 자세 발배뼈 높이를 넣으면 앱이 내 오차를 배워 다음 측정부터 보정합니다.</p>
+    <button class="btn block" id="refBtn">${r ? `실제 잰 값 수정 (하강 ${mm(r.ndtMm)}${r.preMm != null ? ` · ${r.preMm.toFixed(1)}→${r.postMm.toFixed(1)} mm` : ''})` : '자로 실제 잰 값 입력'}</button></div>`;
+  $('#refBtn', box).onclick = async () => {
+    const val = await refModal(e.reference || null, e.comparison && e.comparison.changeMm); if (val === undefined) return;
+    if (val === null) delete e.reference; else e.reference = Object.assign(val, { source: 'user', at: Date.now() });
+    e.updatedAt = Date.now(); e._syncedAt = null; await save('exams', e); if (typeof Account !== 'undefined') Account.syncSoon();
+    toast(val === null ? '실측값을 지웠습니다.' : '저장했습니다. 다음 측정부터 오차 보정에 반영됩니다.'); renderRefBox(box, e);
+  };
 }
 async function renderCare(box, e) {
   if (!box) return;

@@ -78,11 +78,11 @@ async function scenario(tag, video, expectConfirmed, expectMm, opt) {
       }
       log(`[${tag}] 결과: 체중부하 인지 기록(일어섬·발활 하강)`, main.includes('일어섬 확인') && main.includes('발활 하강 확인'));
       log(`[${tag}] 유연성 평발 양상 안내`, main.includes('유연성 평발 양상'));
-      { await pg.waitForSelector('.care-card', { timeout: 5000 }).catch(() => {}); const ct = await pg.textContent('#careBox').catch(() => '');
-        log(`[${tag}] AI 1:1 맞춤 케어: 개인 추정·관리 계획·전문가 값 입력`, ct.includes('AI 1:1 맞춤 케어') && ct.includes('개인 맞춤 추정') && ct.includes('나만의 관리 계획') && ct.includes('자로 실제 잰 값'), ct.slice(0, 120));
+      { const ct = await pg.textContent('main');
+        log(`[${tag}] 측정 결과에 AI 1:1 맞춤 창 없음 · 실측 입력만`, !ct.includes('AI 1:1 맞춤 케어') && !ct.includes('나만의 관리 계획') && await pg.isVisible('#refCard'));
         await pg.click('#refBtn'); await pg.fill('#rPre', '4.4'); await pg.fill('#rPost', '3.2'); await pg.click('.modal-bg:has(#rPre) [data-a="ok"]'); await pg.waitForTimeout(500);
         const ct2 = await pg.textContent('#careBox'); const refSaved = await pg.evaluate(async () => { const a = (await DB.all('exams')).filter(x => x.reference); return a[0] && a[0].reference; });
-        log(`[${tag}] 실측 전·후 높이(cm) 입력 → 자세별 오차 학습`, ct2.includes('실측 1회 학습') && ct2.includes('자세별 보정') && ct2.includes('실제 잰 값') && refSaved && Math.abs(refSaved.preMm - 44) < 0.01 && Math.abs(refSaved.postMm - 32) < 0.01 && Math.abs(refSaved.ndtMm - 12) < 0.01, ct2.slice(0, 200)); }
+        log(`[${tag}] 실측 전·후 높이(cm) 입력 → 저장(오차 학습용)`, ct2.includes('실제 잰 값 수정') && refSaved && Math.abs(refSaved.preMm - 44) < 0.01 && Math.abs(refSaved.postMm - 32) < 0.01 && Math.abs(refSaved.ndtMm - 12) < 0.01, ct2.slice(0, 200)); }
       await pg.check('[data-sq="restFlat"]'); await pg.waitForTimeout(300);
       log(`[${tag}] 자가 확인 질문 → 전문가 상담 안내`, await pg.isVisible('text=전문가 상담을 권합니다'));
       await pg.reload(); await pg.waitForSelector('#flex'); log(`[${tag}] 자가 확인 응답 저장 유지`, await pg.isChecked('[data-sq="restFlat"]'));
