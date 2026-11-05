@@ -36,7 +36,6 @@ route('/self', '측정하기', async (v, p) => {
       <div class="bracket"><i></i><div id="svgBox"></div></div>
       <button class="shutter" id="go" aria-label="촬영 시작">${ICON.camera}</button>
       <div class="tiny" id="goHint" style="margin-top:4px"></div>
-      <div class="optrow"><span>촬영 거리</span><div class="chips" id="distSeg"><button data-v="1">${S.settings.targetDistCm || 25} cm 고정</button><button data-v="0">자유</button></div></div>
       <div class="optrow"><span>음성 안내</span><label class="chk" style="margin:0"><input type="checkbox" id="voiceOn" ${Voice.enabled ? 'checked' : ''}><span class="small">켜기</span></label></div>
     </div>
     <details class="card"><summary>촬영 방법 보기</summary><ol class="steps small" style="margin-top:10px">
@@ -52,8 +51,6 @@ route('/self', '측정하기', async (v, p) => {
     <div class="links"><a href="#/guide">단계별 검사(직접 촬영)</a><a href="#/settings">스티커 지름 ${esc(String(S.settings.stickerDiameterMm || 19))} mm</a></div>
     <p class="tiny" style="text-align:center">${esc(DISCLAIMER)}</p>`;
   $('#goHint', v).textContent = '누르면 “준비해 주세요” 음성 안내 후 바로 시작합니다';
-  const paintDist = () => $$('#distSeg button', v).forEach(b => b.classList.toggle('on', (b.dataset.v === '1') === (S.settings.distFixed !== false)));
-  $$('#distSeg button', v).forEach(b => b.onclick = () => { S.settings.distFixed = b.dataset.v === '1'; saveSettings(); paintDist(); }); paintDist();
   let sel = feetSel;
   const paint = () => { $$('#feetSeg button', v).forEach(b => b.classList.toggle('on', b.dataset.v === sel)); $('#svgBox', v).innerHTML = phoneSetupSvg(sel === 'right' ? 'right' : 'left'); };
   $$('#feetSeg button', v).forEach(b => b.onclick = () => { sel = b.dataset.v; paint(); }); paint();

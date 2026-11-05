@@ -1,7 +1,7 @@
 'use strict';
 /* ═════════════ 기본: 저장소 · 상태 · 유틸 · 라우터 ═════════════ */
 const C = window.FootCore;
-const APP_VERSION = '3.3.1';
+const APP_VERSION = '3.3.2';
 const STORES = ['settings', 'exams', 'exercises', 'logs', 'errors', 'models', 'blobs', 'validations'];
 
 const DB = (() => {
@@ -49,7 +49,7 @@ async function save(store, obj) {
 }
 
 const DEFAULT_SETTINGS = {
-  id: 'app', participantId: '', savePhotos: false, privacyAck: false, postMode: 'ai', distFixed: true, targetDistCm: 25, fovK: null,
+  id: 'app', participantId: '', savePhotos: false, privacyAck: false, postMode: 'ai', targetDistCm: 25, fovK: null,
   stickerDiameterMm: 19, diameterSource: 'spec', validation: null, researcherPinHash: null, // 실제 스티커 지름 19 mm(사용 스티커 실측)
   activeModelId: null, mapping: { normal: [], mild: [], moderate: [], severe: [] }, seeded: false
 };

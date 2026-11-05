@@ -387,7 +387,7 @@ function createTracker(opts) {
       const cs = typeof convSettings === 'function' ? convSettings() : null, mmD = (cs && cs.stickerDiameterMm) || (S.settings && S.settings.stickerDiameterMm) || 19;
       st.mmpx = (st.mmpx || []).concat(mmD / (det.quality.diameterPx * capSide / liveSide) * (window.FOOTARCH_MMPX_SCALE || 1)).slice(-9); // 시험용 배율
       const q = st.mmpx.slice().sort((x, y) => x - y), Sg = (S && S.settings) || {};
-      dist = C.distanceAdvice(q[q.length >> 1], capSide, { targetCm: Sg.distFixed === false ? null : (Sg.targetDistCm || 25), fovK: window.FOOTARCH_FOVK || Sg.fovK });
+      dist = C.distanceAdvice(q[q.length >> 1], capSide, { targetCm: Sg.targetDistCm || 25 /* 거리 25 cm 고정(선택 없음, 사용자 결정) */, fovK: window.FOOTARCH_FOVK || Sg.fovK });
     }
     onFrame(Object.assign({ det, fps: st.fpsT.length, roi: !!det.roi, sceneMotion, rotation: rot, dist }, a));
   }
