@@ -373,7 +373,15 @@ function createTracker(opts) {
       drawTrackHud(g, det, st.smooth, k, { locked: st.lockN >= 4, heightMm: hMm, n: det.landmarks ? 3 : Math.min(3, (det.stickers || []).length), fps: st.fpsT.length, sigma: det.quality && det.quality.fitRmsPx, h: IH * k }); }
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     orientUpdate(det);
-    onFrame(Object.assign({ det, fps: st.fpsT.length, roi: !!det.roi, sceneMotion, rotation: rot }, a));
+    // 촬영 거리: 실시간(640px) 스티커 지름을 촬영 해상도로 환산 → 최근 9프레임 중앙값으로 흔들림 제거
+    let dist = null;
+    if (det.landmarks && det.quality && det.quality.diameterPx > 0) {
+      const capSide = Math.min(MAXSIDE, Math.max(video.videoWidth || 0, video.videoHeight || 0) || MAXSIDE), liveSide = Math.max(IW, IH);
+      const cs = typeof convSettings === 'function' ? convSettings() : null, mmD = (cs && cs.stickerDiameterMm) || (S.settings && S.settings.stickerDiameterMm) || 19;
+      st.mmpx = (st.mmpx || []).concat(mmD / (det.quality.diameterPx * capSide / liveSide) * (window.FOOTARCH_MMPX_SCALE || 1)).slice(-9); // 시험용 배율
+      const q = st.mmpx.slice().sort((x, y) => x - y); dist = C.distanceAdvice(q[q.length >> 1], capSide);
+    }
+    onFrame(Object.assign({ det, fps: st.fpsT.length, roi: !!det.roi, sceneMotion, rotation: rot, dist }, a));
   }
   function loop() {
     if (!st.stream) return;

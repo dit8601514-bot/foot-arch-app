@@ -411,6 +411,12 @@ t('정규화 지표: 발 길이 대비 하강률·NNH', () => {
   near(n.dropPct, 4, 1e-9); near(n.nnhPre, 40 / 150, 1e-9); near(n.nnhPost, 32 / 153, 1e-9); eq(n.nnhLow, true);
 });
 
+t('촬영 거리 안내: 추정 거리로 멂·적당·가까움', () => {
+  const a = C.distanceAdvice(0.21, 1920); eq(a.code, 'OK'); near(a.estCm, 29.3, 0.1); eq(a.label, '적당'); eq(a.coarse, false);
+  eq(C.distanceAdvice(0.40, 1920).code, 'FAR'); ok(/가까이/.test(C.distanceAdvice(0.40).msg)); eq(C.distanceAdvice(0.11, 1920).code, 'NEAR'); ok(/멀리/.test(C.distanceAdvice(0.11).msg));
+  eq(C.distanceAdvice(0.30, 1920).label, '조금 멂'); eq(C.distanceAdvice(0.40, 1280).code, 'OK'); eq(C.distanceAdvice(0.40, 1280).coarse, true); eq(C.distanceAdvice(null), null);
+});
+
 const pass = results.filter(r => r[1] === 'PASS').length;
 for (const r of results) console.log(`${r[1]}  ${r[0]}${r[2] ? '  — ' + r[2] : ''}`);
 console.log(`\n${pass}/${results.length} 통과`);

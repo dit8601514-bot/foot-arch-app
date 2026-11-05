@@ -14,7 +14,7 @@ async function scenario(tag, video, expectConfirmed, expectMm, opt) {
   expectMm = expectMm == null ? 7.14 : expectMm;
   const b = await chromium.launch({ args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--use-file-for-fake-video-capture=' + path.join(__dirname, 'img', video)] });
   const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, permissions: ['camera'] });
-  await ctx.addInitScript(d => { window.FOOTARCH_SHUTTER_DELAY = d.delay; window.FOOTARCH_POST_MODE = d.postMode; window.FOOTARCH_STICKER_MM = 16; /* 합성 영상은 16 mm 스티커로 만들어짐 */ window.__workers = []; const OW = window.Worker; window.Worker = function (u, o) { const w = new OW(u, o); window.__workers.push(w); return w; }; window.__spoken = []; const sy = window.speechSynthesis; if (sy) { const orig = sy.speak.bind(sy); sy.speak = u => { if (u.text.trim()) window.__spoken.push(u.text); try { orig(u); } catch (e) {} }; } }, { delay: opt.delay == null ? 0 : opt.delay, postMode: opt.postMode || 'ai' });
+  await ctx.addInitScript(d => { window.FOOTARCH_SHUTTER_DELAY = d.delay; window.FOOTARCH_POST_MODE = d.postMode; window.FOOTARCH_MMPX_SCALE = d.mmpxScale; window.FOOTARCH_STICKER_MM = 16; /* 합성 영상은 16 mm 스티커로 만들어짐 */ window.__workers = []; const OW = window.Worker; window.Worker = function (u, o) { const w = new OW(u, o); window.__workers.push(w); return w; }; window.__spoken = []; const sy = window.speechSynthesis; if (sy) { const orig = sy.speak.bind(sy); sy.speak = u => { if (u.text.trim()) window.__spoken.push(u.text); try { orig(u); } catch (e) {} }; } }, { delay: opt.delay == null ? 0 : opt.delay, postMode: opt.postMode || 'ai', mmpxScale: opt.mmpxScale || 0 });
   const pg = await ctx.newPage(); const errors = [];
   pg.on('pageerror', e => errors.push(e.message)); pg.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
   const shot = n => pg.screenshot({ path: path.join(__dirname, 'shots', n + '.png'), fullPage: true });
@@ -25,6 +25,8 @@ async function scenario(tag, video, expectConfirmed, expectMm, opt) {
   await pg.goto(U + '#/self'); await pg.waitForSelector('#feetSeg'); await pg.click('#feetSeg button[data-v="left"]');
   if (tag === 'A') await shot('s02-self-setup');
   const t0 = Date.now(); await pg.click('#go');
+  { const bt = await pg.waitForFunction(() => { const b = document.querySelector('#distBadge'); return b && !b.classList.contains('hide') && b.textContent; }, null, { timeout: 30000 }).then(h => h.jsonValue()).catch(() => '');
+    log(`[${tag}] 촬영 거리 배지`, /^거리 /.test(bt) && (opt.mmpxScale ? /멂/.test(bt) : true), bt); }
   if (opt.killAfterPre) { // 앉은 자세 촬영 직후 분석 워커가 응답 없이 죽는 상황(휴대폰 메모리 부족) 재현
     await pg.waitForFunction(() => window.__spoken.includes('촬영되었습니다.'), null, { timeout: 40000 });
     await pg.evaluate(() => window.__workers.forEach(w => w.terminate())); // onerror 없이 종료
@@ -51,6 +53,7 @@ async function scenario(tag, video, expectConfirmed, expectMm, opt) {
     log(`[${tag}] 형태 변화 없음 → 재안내`, J.includes('변화가 아직 작습니다. 양발에 체중을 똑같이 실어 주십시오'));
     log(`[${tag}] 확인 못 하면 "확인했습니다"라고 말하지 않음`, !J.includes('체중부하 확인했습니다') && spoken.includes('현재 자세로 체중부하 상태를 촬영합니다.'), spoken.join(' / '));
   }
+  if (opt.mmpxScale) log(`[${tag}] 거리가 멀면 "조금 더 가까이" 음성 안내 후에도 촬영 진행(강제 아님)`, J.includes('휴대폰을 발에 조금 더 가까이 두십시오. 약 30센티미터가 좋습니다'), spoken.slice(0, 6).join(" / "));
   log(`[${tag}] 음성: "촬영되었습니다" 2회`, spoken.filter(s => s === '촬영되었습니다.').length === 2);
   if (ok) {
     await pg.waitForSelector('.result-big'); await shot(`s05-result-${tag}`);
@@ -102,6 +105,7 @@ async function scenario(tag, video, expectConfirmed, expectMm, opt) {
   // 휴대폰이 계속 미세하게 흔들림(±5px·±0.4°) — 발은 가만히 있으므로 정상 촬영되어야 함
   // 예전 설정(선 자세 타이머)이 남아 있어도 타이머 없이 AI 인지로 진행
   if (!which || which === 'M') await scenario('M', 'self_std.y4m', true, 8.0, { postMode: 'timer' });
+  if (!which || which === 'D') await scenario('D', 'self_std.y4m', true, 8.0, { mmpxScale: 3 }); // 멀리 둔 상황(해상도 3배 거칠게) 재현
   if (!which || which === 'MR') await scenario('MR', 'self_std_rot90.y4m', true, 8.0);
   if (!which || which === 'H') await scenario('H', 'self_std_shake.y4m', true, 8.0);
   if (!which || which === 'K') await scenario('K', 'self_std.y4m', true, 8.0, { killAfterPre: true });

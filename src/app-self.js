@@ -41,7 +41,7 @@ route('/self', '측정하기', async (v, p) => {
     <details class="card"><summary>촬영 방법 보기</summary><ol class="steps small" style="margin-top:10px">
       <li>발 안쪽에 지름 ${esc(String(S.settings.stickerDiameterMm || 19))} mm 파란 스티커 3개를 붙입니다. <a href="#/stickers-info">부착 위치 보기</a></li>
       <li>의자에 앉아 두 발을 바닥에 편하게 둡니다.</li>
-      <li>휴대폰을 <b>가로로 세워 두 발 사이 바닥</b>에 두고, <b>뒷면 카메라</b>가 검사할 발 안쪽을 향하게 합니다. 거리는 정해져 있지 않습니다. <b>가까이 두어도 되고</b>, 스티커 3개가 화면 안에 선명하게 보이기만 하면 됩니다.</li>
+      <li>휴대폰을 <b>가로로 세워 두 발 사이 바닥</b>에 두고, <b>뒷면 카메라</b>가 검사할 발 안쪽을 향하게 합니다. 권장 거리는 발 안쪽에서 <b>약 30 cm</b>(25~35 cm)이고, 렌즈는 바닥에서 1~3 cm 띄웁니다. 너무 멀거나 가까우면 음성으로 알려 드립니다(기본 1× 렌즈 사용).</li>
       <li><b>촬영 버튼</b>을 누릅니다. “준비해 주세요” 음성 안내가 나오면 휴대폰을 놓고 의자에 앉습니다. 발이 가이드에 맞을 때까지 기다렸다가 찍으므로 서두르지 않아도 됩니다.</li>
       <li>AI가 스티커 3개의 색을 찾고, 실제 발 윤곽을 따라 선을 그립니다. 스티커가 모두 보이고 윤곽이 <b>초록색</b>이 되면 “발이 정확히 들어왔습니다 → 앉은 자세를 촬영합니다” 후 자동으로 찍습니다.</li>
       <li>“이제 일어서서, 체중부하 해주십시오” 안내가 나오면 <b>휴대폰은 그대로 두고</b> 일어섭니다. 앱이 일어서는 동작과 발 모양 변화를 확인한 뒤 “체중부하 확인했습니다. 촬영합니다”라고 말하고 선 자세를 찍습니다(타이머 없음).</li>
@@ -80,7 +80,7 @@ route('/self/run', '측정하기', async (v) => {
     <div class="row" style="margin-top:-4px"><span class="badge b-info" id="footBadge"></span><span class="grow"></span><span class="badge" id="phaseBadge"></span></div>
     <div class="bracket" style="margin-top:6px"><i></i><div class="camwrap" id="camwrap"><video id="vid" playsinline muted autoplay></video><canvas id="ov"></canvas><div class="countdown" id="cd"></div></div></div>
     </div><div class="run-side">
-    <div class="statusline" id="status" aria-live="polite">카메라 준비 중…</div><div class="tiny" id="hud" style="text-align:center"></div>
+    <div class="statusline" id="status" aria-live="polite">카메라 준비 중…</div><div style="text-align:center;margin-top:4px"><span class="badge hide" id="distBadge"></span></div><div class="tiny" id="hud" style="text-align:center"></div>
     <div class="checks compact" id="checks"></div>
     <div style="text-align:center"><button class="shutter hide" id="postNow" aria-label="지금 선 자세 촬영">${ICON.camera}</button><div class="tiny hide" id="postNowHint">지금 선 자세 촬영</div></div>
     <div class="iconbar"><button id="mute">${Voice.enabled ? ICON.vol : ICON.volOff}<span>${Voice.enabled ? '음성 켬' : '음성 끔'}</span></button><button id="cam">${ICON.camera}<span>카메라</span></button><button id="rot">${ICON.rotate}<span>방향 자동</span></button><button id="stop">${ICON.stop}<span>중지</span></button></div>
@@ -91,7 +91,7 @@ route('/self/run', '측정하기', async (v) => {
   // 상태: align(앉은 자세 정렬) → stand(체중부하 요청, 일어서는 동작 감지) → settle(선 자세 안정·형태 근거 확인) → 촬영
   const PHASE_LABEL = { align: '1/2 앉은 자세', stand: '일어서기', settle: '2/2 선 자세' };
   // 선 자세 촬영: 타이머 없이 AI가 일어서는 동작·체중부하 형태를 인지하면 찍는다
-  let fi = 0, phase = 'align', phaseStart = 0, readySince = 0, busy = false, cur = null, lastHint = { t: 0, msg: '' }, announcedAlign = false;
+  let fi = 0, phase = 'align', phaseStart = 0, readySince = 0, busy = false, cur = null, lastHint = { t: 0, msg: '' }, announcedAlign = false, distSaid = 0, distCount = 0;
   let preLive = [], liveRef = null, lostFrames = 0, moveFrames = 0, transitionSeen = false, standPrompts = 0, settleWin = [], recheckAt = 0, reprompted = false, lastEv = null;
   const foot = () => run.feet[fi], toe = () => defaultToe(foot());
   let shapeFrames = 0, lastSpoke = 0;
@@ -103,7 +103,7 @@ route('/self/run', '측정하기', async (v) => {
   const medShape = arr => ({ heightPx: median(arr.map(s => s.heightPx / s.dia)), spanPx: median(arr.map(s => s.spanPx / s.dia)), dia: 1 });
   function beginFoot() {
     cur = { id: uid(), foot: foot(), toeDirection: toe(), participantId: S.settings.participantId || '', startedAt: Date.now(), pre: null, post: null, method: 'voice' };
-    preLive = []; liveRef = null; announcedAlign = false;
+    preLive = []; liveRef = null; announcedAlign = false; distSaid = 0; distCount = 0;
     $('#footBadge', v).textContent = FOOT[foot()]; setPhase('align'); tracker.lockRotation(false);
   }
   function hint(f, now) {
@@ -197,8 +197,12 @@ route('/self/run', '측정하기', async (v) => {
     const now = performance.now();
     paintChecksInto($('#checks', v), f.c);
     $('#hud', v).textContent = `${f.fps} fps · ${f.roi ? '추적 모드' : '전체 검색'} · 장면 움직임 ${f.sceneMotion.toFixed(1)}`;
+    { const db = $('#distBadge', v), d = f.dist; if (db) { db.classList.toggle('hide', !d); if (d) { db.textContent = `거리 ${d.label}${d.estCm ? ` · 약 ${Math.round(d.estCm / 5) * 5} cm` : ''}`; db.className = 'badge ' + (d.label === '적당' ? 'b-good' : 'b-warn'); } } }
     if (now < phaseStart) { $('#status', v).textContent = '음성 안내를 들어 주십시오…'; return; }
     if (phase === 'align') {
+      const d = f.dist, off = d && d.code !== 'OK' && f.c.stickers;
+      if (off && (!distSaid || (now - distSaid > 8000 && distCount < 3))) { distSaid = now; distCount++; lastHint = { t: now, msg: d.msg }; say(d.msg + '.', { interrupt: false }); }
+      if (f.ready && off && distSaid && now - distSaid < 6000) { readySince = 0; $('#status', v).textContent = d.code === 'FAR' ? '조금 더 가까이 (약 30 cm)' : '조금 더 멀리 (약 30 cm)'; return; }
       if (f.ready) {
         preLive.push(C.shapeOf(f.det)); if (preLive.length > 20) preLive.shift();
         if (!readySince) { readySince = now; if (!announcedAlign) { announcedAlign = true; say('발이 정확히 들어왔습니다. 그대로 계십시오.'); } }

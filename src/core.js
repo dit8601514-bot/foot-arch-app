@@ -9,7 +9,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  const ALGORITHM_VERSION = 'ALG-2.4.0';
+  const ALGORITHM_VERSION = 'ALG-2.4.1';
 
   // 기본 검출 파라미터 (휴리스틱 값 — 실제 사진으로 검증 후 연구자가 조정해야 함)
   const DEFAULT_DETECT = {
@@ -812,6 +812,19 @@
     if (postMm - preMm > c.riseReviewMm) r.flags.push('체중부하 후 발활 높이가 오히려 높게 측정되었습니다. 자세·스티커 위치 검토가 필요합니다.');
     r.status = '측정 가능';
     return r;
+  }
+
+  // ───── 촬영 거리 안내(측정은 거리와 무관 — 스티커로 환산. 정밀도만 거리에 따라 달라짐) ─────
+  // 추정 거리: 1픽셀 mm × 촬영 가로 픽셀 = 화면에 담긴 가로 폭. 일반 휴대폰 기본(1×) 카메라 가로 화각 약 69°(폭 ≈ 1.375 × 거리) 가정 → 참고값
+  // 판정: 18 cm 미만 너무 가까움 · 45 cm 초과 멂(권장 25~35 cm). 1픽셀이 0.33 mm보다 크면 거리와 상관없이 '해상도 낮음' 표시
+  const DIST = { nearCm: 18, farCm: 45, okCm: [20, 40], fovK: 1.375, coarseMmPx: 0.33, idealCm: [25, 35] };
+  function distanceAdvice(mmPerPx, capSidePx) {
+    if (!(mmPerPx > 0)) return null;
+    const side = capSidePx > 0 ? capSidePx : 1920, estCm = mmPerPx * side / DIST.fovK / 10;
+    const code = estCm > DIST.farCm ? 'FAR' : estCm < DIST.nearCm ? 'NEAR' : 'OK';
+    const msg = code === 'FAR' ? '휴대폰을 발에 조금 더 가까이 두십시오. 약 30센티미터가 좋습니다' : code === 'NEAR' ? '휴대폰을 발에서 조금 멀리 두십시오. 약 30센티미터가 좋습니다' : '거리가 적당합니다';
+    const label = code === 'FAR' ? '멂' : code === 'NEAR' ? '가까움' : estCm > DIST.okCm[1] ? '조금 멂' : estCm < DIST.okCm[0] ? '조금 가까움' : '적당';
+    return { code, msg, label, mmPerPx, estCm, coarse: mmPerPx > DIST.coarseMmPx };
   }
 
   // 정규화 지표: 발 길이 대비 하강률(%), 정규화 발배뼈 높이(앉음·섬). 문헌 NNHt 참고 범위 0.22–0.31(평발 < 0.22)
@@ -1716,6 +1729,6 @@
     rgbToHsv, detectStickers, labelLandmarks, signedDistanceToLine, distanceToLine, projectionT,
     measureImage, comparePrePost, classify, roundMm, errorMetrics,
     splitByParticipant, trainCalibration, applyCalibration, fitMethod, validateConversion,
-    motionBetween, framingCheck, laplacianVariance, archAngle, cropImage, detectInRoi, labelsConsistent, combineDetections, shapeDelta, AI_FEATURES, errorFeatures, trainErrorModel, applyErrorModel, fitRidge, createLandmarkKalman, chromaMap, ALIGN, alignmentCheck, LOAD, loadEvidence, shapeOf, FOOT_MODEL, GUIDE_LAYOUT, guideGeometry, guideCheck, fitFootModel, snapOutline, densify, segmentFoot, appHeights, EXERCISE_DRAFTS, EXERCISE_CATEGORIES, youtubeId, resampleClosed, personalCare, measurementWeight, CARE, detectSoleLine, heightAboveSole, reliabilityStats, retestPairs, normalizedIndices, NNH_REF
+    motionBetween, framingCheck, laplacianVariance, archAngle, cropImage, detectInRoi, labelsConsistent, combineDetections, shapeDelta, AI_FEATURES, errorFeatures, trainErrorModel, applyErrorModel, fitRidge, createLandmarkKalman, chromaMap, ALIGN, alignmentCheck, LOAD, loadEvidence, shapeOf, FOOT_MODEL, GUIDE_LAYOUT, guideGeometry, guideCheck, fitFootModel, snapOutline, densify, segmentFoot, appHeights, EXERCISE_DRAFTS, EXERCISE_CATEGORIES, youtubeId, resampleClosed, personalCare, measurementWeight, CARE, detectSoleLine, heightAboveSole, reliabilityStats, retestPairs, normalizedIndices, NNH_REF, distanceAdvice, DIST
   };
 });

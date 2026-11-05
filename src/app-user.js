@@ -426,7 +426,7 @@ route('/result/:id', '측정 결과', async (v, p) => {
       <dt>이미지 품질</dt><dd>${e.pre.quality.sharp && e.post.quality.sharp ? '양호' : '흐림 있음'} (경계 ${e.pre.quality.edgeWidthPx?.toFixed(1)} / ${e.post.quality.edgeWidthPx?.toFixed(1)} px)</dd>
       <dt>스티커 검출 신뢰도</dt><dd>${pct(e.pre.detectionConfidence)} / ${pct(e.post.detectionConfidence)}</dd>
       <dt>측정 신뢰도(휴리스틱)</dt><dd>${pct(e.measurementConfidence)}</dd>
-      <dt>측정 해상도</dt><dd>${c.mmPerPx ? `1픽셀 = ${c.mmPerPx.toFixed(3)} mm <span class="tiny">(스티커 지름 ${(convSettings().stickerDiameterMm / c.mmPerPx).toFixed(0)} px · 가장자리 0.01픽셀 단위 추정)</span>` : '—'}</dd>
+      <dt>측정 해상도</dt><dd>${c.mmPerPx ? `${(d => `<span class="badge ${d.label === '적당' ? 'b-good' : 'b-warn'}">거리 ${d.label} · 약 ${Math.round(d.estCm / 5) * 5} cm</span> `)(C.distanceAdvice(c.mmPerPx))}1픽셀 = ${c.mmPerPx.toFixed(3)} mm <span class="tiny">(스티커 지름 ${(convSettings().stickerDiameterMm / c.mmPerPx).toFixed(0)} px · 가장자리 0.01픽셀 단위 추정)</span>` : '—'}</dd>
       <dt>측정 정밀도(반복 오차)</dt><dd>${c.precisionMm != null ? '± ' + c.precisionMm.toFixed(2) + ' mm' + (c.frames ? ` <span class="tiny">(연속 사진 ${c.frames[0]}·${c.frames[1]}장 평균)</span>` : '') : '—'}</dd>
       <dt>전·후 축척 차이</dt><dd>${c.scaleDiff != null ? (c.scaleDiff * 100).toFixed(1) + '%' : '—'}</dd>
       <dt>촬영 방식</dt><dd>${modeLabel(e.pre.mode)} / ${modeLabel(e.post.mode)}</dd>
@@ -496,7 +496,7 @@ function printReport(e) {
     ${e.aiCorrection ? row('AI 보정(임상 NDT 추정)', `${mm(e.aiCorrection.mm)} (모델 v${e.aiCorrection.version})`) : ''}
     ${e.reference && isFinite(e.reference.ndtMm) ? row('직접 잰 실측 NDT', mm(e.reference.ndtMm)) : ''}
     ${row('측정 정밀도(반복 오차)', c.precisionMm != null ? '± ' + c.precisionMm.toFixed(2) + ' mm' : '—')}
-    ${row('측정 해상도', c.mmPerPx ? `1픽셀 = ${c.mmPerPx.toFixed(3)} mm` : '—')}</table>
+    ${row('측정 해상도 · 촬영 거리', c.mmPerPx ? `1픽셀 = ${c.mmPerPx.toFixed(3)} mm · 추정 거리 약 ${Math.round(C.distanceAdvice(c.mmPerPx).estCm / 5) * 5} cm(${C.distanceAdvice(c.mmPerPx).label}, 권장 약 30 cm)` : '—')}</table>
     <p class="small">${esc(DISCLAIMER)}</p>`;
   document.body.appendChild(w); document.body.classList.add('printing');
   const done = () => { document.body.classList.remove('printing'); w.remove(); window.removeEventListener('afterprint', done); };
