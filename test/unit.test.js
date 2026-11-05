@@ -417,6 +417,23 @@ t('촬영 거리 안내: 추정 거리로 멂·적당·가까움', () => {
   eq(C.distanceAdvice(0.30, 1920).label, '조금 멂'); eq(C.distanceAdvice(0.40, 1280).code, 'OK'); eq(C.distanceAdvice(0.40, 1280).coarse, true); eq(C.distanceAdvice(null), null);
 });
 
+t('거리 고정 25 cm: 목표 ±2.5 cm · 기기 보정', () => {
+  const o = { targetCm: 25 }; eq(C.distanceAdvice(0.18, 1920, o).code, 'OK'); // 약 25.1 cm
+  eq(C.distanceAdvice(0.21, 1920, o).code, 'FAR'); ok(/25센티미터에 맞춰/.test(C.distanceAdvice(0.21, 1920, o).msg)); eq(C.distanceAdvice(0.15, 1920, o).code, 'NEAR');
+  const k = C.calibrateFovK(0.21, 1920, 25); near(C.distanceAdvice(0.21, 1920, { targetCm: 25, fovK: k }).estCm, 25, 1e-9); eq(C.distanceAdvice(0.21, 1920, { targetCm: 25, fovK: k }).code, 'OK');
+});
+t('발 윤곽 분할 v2: 범위 밖(뒤꿈치 뒤·발등 위)으로 새지 않음', () => {
+  // 합성: 배경도 피부색인 최악의 경우 → 봉투(해부학 범위) 안에서만 윤곽이 나와야 함
+  const w = 240, h = 135, data = new Uint8Array(w * h * 3).fill(0);
+  for (let i = 0; i < w * h; i++) { data[i * 3] = 200; data[i * 3 + 1] = 160; data[i * 3 + 2] = 140; }
+  const L = { P3: { x: 60, y: 90 }, P1: { x: 180, y: 95 }, P2: { x: 110, y: 75 } };
+  for (const P of [L.P1, L.P2, L.P3]) for (let y = -4; y <= 4; y++) for (let x = -4; x <= 4; x++) if (x * x + y * y <= 16) { const i = ((P.y + y) * w + P.x + x) * 3; data[i] = 30; data[i + 1] = 80; data[i + 2] = 200; }
+  const seg = C.segmentFoot({ data, w, h, s: 1 }, L, 9);
+  ok(seg && seg.pts.length > 20, 'seg');
+  const xs = seg.pts.map(p => p.x), ys = seg.pts.map(p => p.y);
+  ok(Math.min(...xs) > 60 - 9 * 1.8 - 6, 'heel ' + Math.min(...xs)); ok(Math.max(...xs) < 180 + 0.55 * 120, 'toe ' + Math.max(...xs)); ok(Math.min(...ys) > 90 - 0.75 * 120, 'top ' + Math.min(...ys));
+});
+
 const pass = results.filter(r => r[1] === 'PASS').length;
 for (const r of results) console.log(`${r[1]}  ${r[0]}${r[2] ? '  — ' + r[2] : ''}`);
 console.log(`\n${pass}/${results.length} 통과`);

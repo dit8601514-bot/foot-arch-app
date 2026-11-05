@@ -26,7 +26,15 @@ async function scenario(tag, video, expectConfirmed, expectMm, opt) {
   if (tag === 'A') await shot('s02-self-setup');
   const t0 = Date.now(); await pg.click('#go');
   { const bt = await pg.waitForFunction(() => { const b = document.querySelector('#distBadge'); return b && !b.classList.contains('hide') && b.textContent; }, null, { timeout: 30000 }).then(h => h.jsonValue()).catch(() => '');
-    log(`[${tag}] 촬영 거리 배지`, /^거리 /.test(bt) && (opt.mmpxScale ? /멂/.test(bt) : true), bt); }
+    log(`[${tag}] 촬영 거리 배지(25 cm 고정)`, /^거리 약 \d+ cm · 목표 25 cm/.test(bt), bt);
+    await pg.waitForSelector('#distCal:not(.hide)', { timeout: 30000 }).catch(() => {});
+    if (opt.mmpxScale) { // 멀리 둔 상황: 25 cm에 들어올 때까지 찍지 않아야 함 → 기기 거리 보정 후 진행
+      await pg.waitForTimeout(9000);
+      const held = await pg.evaluate(() => !window.__spoken.includes('촬영되었습니다.') && /25 cm에 맞춰/.test(document.querySelector('#status').textContent));
+      log(`[${tag}] 거리 고정: 25 cm 밖이면 촬영 보류 + 안내`, held && (await pg.evaluate(() => window.__spoken.join(' '))).includes('25센티미터에 맞춰 주십시오'));
+    }
+    await pg.click('#distCal').catch(() => {}); await pg.waitForTimeout(400);
+    log(`[${tag}] 거리 보정 버튼 → 이 휴대폰 계수 저장`, await pg.evaluate(() => S.settings.fovK > 0)); }
   if (opt.killAfterPre) { // 앉은 자세 촬영 직후 분석 워커가 응답 없이 죽는 상황(휴대폰 메모리 부족) 재현
     await pg.waitForFunction(() => window.__spoken.includes('촬영되었습니다.'), null, { timeout: 40000 });
     await pg.evaluate(() => window.__workers.forEach(w => w.terminate())); // onerror 없이 종료
@@ -53,7 +61,6 @@ async function scenario(tag, video, expectConfirmed, expectMm, opt) {
     log(`[${tag}] 형태 변화 없음 → 재안내`, J.includes('변화가 아직 작습니다. 양발에 체중을 똑같이 실어 주십시오'));
     log(`[${tag}] 확인 못 하면 "확인했습니다"라고 말하지 않음`, !J.includes('체중부하 확인했습니다') && spoken.includes('현재 자세로 체중부하 상태를 촬영합니다.'), spoken.join(' / '));
   }
-  if (opt.mmpxScale) log(`[${tag}] 거리가 멀면 "조금 더 가까이" 음성 안내 후에도 촬영 진행(강제 아님)`, J.includes('휴대폰을 발에 조금 더 가까이 두십시오. 약 30센티미터가 좋습니다'), spoken.slice(0, 6).join(" / "));
   log(`[${tag}] 음성: "촬영되었습니다" 2회`, spoken.filter(s => s === '촬영되었습니다.').length === 2);
   if (ok) {
     await pg.waitForSelector('.result-big'); await shot(`s05-result-${tag}`);

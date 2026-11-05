@@ -101,7 +101,7 @@ function synthExam(id, foot) {
   log('[사용자 앱] 관리자 앱과 로그인 정보가 분리됨(관리자 세션 없음)', await pu.evaluate(() => !localStorage.getItem('footarch.admin.session') && !!localStorage.getItem('footarch.session')));
   await pu.evaluate(() => Account.sync()); await pu.waitForTimeout(400);
   log('[사용자 앱] 동기화로 본인 기록만 내려받음', await pu.evaluate(async () => { const a = await DB.all('exams'); return a.length === 2 && a.every(e => e.id.startsWith('ex-0-')); }));
-  await pu.goto(U + '#/self'); await pu.waitForSelector('#feetSeg'); await pu.click('#feetSeg button[data-v="left"]'); await pu.click('#go');
+  await pu.goto(U + '#/self'); await pu.waitForSelector('#feetSeg'); await pu.click('#feetSeg button[data-v="left"]'); await pu.click('#go'); await pu.waitForSelector('#distCal:not(.hide)', { timeout: 40000 }).catch(() => {}); await pu.click('#distCal').catch(() => {}); // 25 cm 거리 보정
   const okRes = await pu.waitForFunction(() => location.hash.startsWith('#/result/'), null, { timeout: 90000 }).then(() => true).catch(() => false);
   if (okRes) { await pu.waitForSelector('.result-big'); await shot(pu, 'm06-user-result-ai'); }
   const main = okRes ? await pu.textContent('main') : '';

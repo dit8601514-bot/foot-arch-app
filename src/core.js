@@ -9,7 +9,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  const ALGORITHM_VERSION = 'ALG-2.4.1';
+  const ALGORITHM_VERSION = 'ALG-2.5.0';
 
   // 기본 검출 파라미터 (휴리스틱 값 — 실제 사진으로 검증 후 연구자가 조정해야 함)
   const DEFAULT_DETECT = {
@@ -130,77 +130,108 @@
     return { pts: out, conf, score: conf.reduce((x, y) => x + y, 0) / n };
   }
   /**
-   * 실제 발 영역 분할(정밀 발 윤곽 추적): 스티커 둘레의 피부색을 그 자리에서 배워(사람마다·조명마다 다름)
-   * 화면 위·아래 띠(벽·바닥)의 색과 비교해 피부 픽셀을 고르고, 스티커와 이어진 덩어리만 남긴 뒤 윤곽을 만든다.
-   * rgb: {data(RGB), w, h, s(분석 좌표 → 축소 배율)}, L: 스티커 좌표(분석 좌표), dia: 스티커 지름(분석 px)
-   * 반환 { pts(분석 좌표 윤곽: 발등·발목 앞 → 뒤꿈치 → 발바닥), score(0~1), area } 또는 null
+   * 실제 발 영역 분할 v2(정밀 발 윤곽 추적, 2026-11 사용자 화면 보고 반영):
+   * ① 발 좌표계(P3→P1 축)로 화면을 펴고, 해부학적으로 가능한 범위(뒤꿈치 P3 뒤 1.3지름, 발끝 P1 앞 0.5, 발목 높이 상한)
+   *    안에서만 발을 찾는다 → 뒤꿈치 뒤 분홍 매트·벽·다리로 새지 않음
+   * ② 피부 모델: 스티커 둘레 + P3–P1 사이 띠, 배경 모델: 범위 밖 픽셀을 6무리(k-평균)로 — 벽·카펫·매트를 각각 배움
+   * ③ 특징에 질감(밝기 라플라시안)을 넣어 피부색과 비슷한 카펫·매트를 구분
+   * ④ 열마다 기준선 근처에서 이어진 구간만(빈칸 2칸 허용) → 떨어진 덩어리는 버림
+   * cache(선택): 색 모델을 8프레임마다 다시 배워 휴대폰 부담을 줄인다
+   * 반환 { pts(분석 좌표: 발등·발목 → 발바닥), nTop, score(0~1), area, allIn } 또는 null
    */
-  function segmentFoot(rgb, L, dia) {
-    const { data, w, h, s } = rgb, N = w * h, F = new Float32Array(N * 3);
-    for (let i = 0; i < N; i++) { const r = data[i * 3], g = data[i * 3 + 1], b = data[i * 3 + 2], t = r + g + b + 1, mx = Math.max(r, g, b), mn = Math.min(r, g, b); F[i * 3] = r / t; F[i * 3 + 1] = g / t; F[i * 3 + 2] = mx ? (mx - mn) / mx * 0.35 : 0; }
-    const gauss = idx => {
-      if (idx.length < 12) return null; const m = [0, 0, 0];
-      for (const i of idx) for (let c = 0; c < 3; c++) m[c] += F[i * 3 + c] / idx.length;
-      const S = [[1e-5, 0, 0], [0, 1e-5, 0], [0, 0, 1e-5]];
-      for (const i of idx) { const d = [0, 1, 2].map(c => F[i * 3 + c] - m[c]); for (let a = 0; a < 3; a++) for (let b = 0; b < 3; b++) S[a][b] += d[a] * d[b] / idx.length; }
-      const [[a, b, c], [d, e, f], [g, hh, k]] = S, det3 = a * (e * k - f * hh) - b * (d * k - f * g) + c * (d * hh - e * g);
-      if (!(det3 > 0)) return null;
-      const I = [[(e * k - f * hh) / det3, (c * hh - b * k) / det3, (b * f - c * e) / det3], [(f * g - d * k) / det3, (a * k - c * g) / det3, (c * d - a * f) / det3], [(d * hh - e * g) / det3, (b * g - a * hh) / det3, (a * e - b * d) / det3]];
-      return { m, I };
+  function segmentFoot(rgb, L, dia, cache) {
+    const { data, w, h, s } = rgb;
+    // 특징: 색도 r, g, 채도, 밝기, 질감(카펫처럼 거친 면은 피부가 아님)
+    const N = w * h, lum = new Float32Array(N), lap = new Float32Array(N), tex = new Float32Array(N);
+    // 밝기·질감은 필요한 사각형에서만 계산(색 모델을 다시 배울 때만 화면 전체)
+    const texRect = (xa, ya, xb, yb) => {
+      xa = Math.max(0, xa | 0); ya = Math.max(0, ya | 0); xb = Math.min(w - 1, Math.ceil(xb)); yb = Math.min(h - 1, Math.ceil(yb));
+      for (let y = ya; y <= yb; y++) for (let x = xa; x <= xb; x++) { const i = y * w + x; lum[i] = 0.299 * data[i * 3] + 0.587 * data[i * 3 + 1] + 0.114 * data[i * 3 + 2]; }
+      for (let y = Math.max(1, ya); y <= Math.min(h - 2, yb); y++) for (let x = Math.max(1, xa); x <= Math.min(w - 2, xb); x++) { const i = y * w + x; lap[i] = Math.abs(4 * lum[i] - lum[i - 1] - lum[i + 1] - lum[i - w] - lum[i + w]); }
+      for (let y = Math.max(2, ya + 1); y <= Math.min(h - 3, yb - 1); y++) for (let x = Math.max(2, xa + 1); x <= Math.min(w - 3, xb - 1); x++) { const i = y * w + x; tex[i] = (lap[i - w - 1] + lap[i - w] + lap[i - w + 1] + lap[i - 1] + lap[i] + lap[i + 1] + lap[i + w - 1] + lap[i + w] + lap[i + w + 1]) / 9; }
     };
-    const md = (G, i) => { const d0 = F[i * 3] - G.m[0], d1 = F[i * 3 + 1] - G.m[1], d2 = F[i * 3 + 2] - G.m[2]; return d0 * (G.I[0][0] * d0 + G.I[0][1] * d1 + G.I[0][2] * d2) + d1 * (G.I[1][0] * d0 + G.I[1][1] * d1 + G.I[1][2] * d2) + d2 * (G.I[2][0] * d0 + G.I[2][1] * d1 + G.I[2][2] * d2); };
+    const D = 5, feat = (i, o) => { const r = data[i * 3], g = data[i * 3 + 1], b = data[i * 3 + 2], t = r + g + b + 1, mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+      o[0] = r / t; o[1] = g / t; o[2] = mx ? (mx - mn) / mx * 0.35 : 0; o[3] = lum[i] / 255 * 0.25; o[4] = Math.min(tex[i], 60) / 60 * 0.3; return o; };
     const isBlue = i => data[i * 3 + 2] > Math.max(data[i * 3], data[i * 3 + 1]) + 25;
-    // 피부 표본: 세 스티커 둘레 고리(지름 0.75~1.3배)
-    const sk = [], R = dia * s;
-    for (const P of [L.P1, L.P2, L.P3]) {
-      const cx = P.x * s, cy = P.y * s;
-      for (let y = Math.floor(cy - 1.3 * R); y <= cy + 1.3 * R; y++) for (let x = Math.floor(cx - 1.3 * R); x <= cx + 1.3 * R; x++) {
-        if (x < 0 || y < 0 || x >= w || y >= h) continue; const r = Math.hypot(x - cx, y - cy) / R; if (r < 0.75 || r > 1.3) continue;
-        const i = y * w + x; if (!isBlue(i)) sk.push(i);
+    const inv = M => { const n = M.length, A = M.map((r, i) => r.concat(M.map((_, j) => +(i === j)))); for (let c = 0; c < n; c++) { let p = c; for (let r = c + 1; r < n; r++) if (Math.abs(A[r][c]) > Math.abs(A[p][c])) p = r; [A[c], A[p]] = [A[p], A[c]]; const v = A[c][c]; if (Math.abs(v) < 1e-12) return null; for (let k = 0; k < 2 * n; k++) A[c][k] /= v; for (let r = 0; r < n; r++) if (r !== c) { const f = A[r][c]; for (let k = 0; k < 2 * n; k++) A[r][k] -= f * A[c][k]; } } return A.map(r => r.slice(n)); };
+    const fit = X => { if (X.length < 12) return null; const m = new Array(D).fill(0); for (const x of X) for (let c = 0; c < D; c++) m[c] += x[c] / X.length;
+      const S = Array.from({ length: D }, (_, a) => Array.from({ length: D }, (_, b) => a === b ? 4e-5 : 0)); for (const x of X) for (let a = 0; a < D; a++) for (let b = 0; b < D; b++) S[a][b] += (x[a] - m[a]) * (x[b] - m[b]) / X.length;
+      const I = inv(S); return I ? { m, I } : null; };
+    const md = (G, f) => { let s2 = 0; for (let a = 0; a < D; a++) { let r = 0; for (let b = 0; b < D; b++) r += G.I[a][b] * (f[b] - G.m[b]); s2 += (f[a] - G.m[a]) * r; } return s2; };
+    // 발 좌표계: u = P3→P1(1 = 두 스티커 사이), v = 수직(발등 쪽 +). 단위: P1–P3 거리
+    const P1 = { x: L.P1.x * s, y: L.P1.y * s }, P3 = { x: L.P3.x * s, y: L.P3.y * s }, P2 = { x: L.P2.x * s, y: L.P2.y * s }, R = dia * s;
+    const span = Math.hypot(P1.x - P3.x, P1.y - P3.y); if (span < 8) return null;
+    const eu = { x: (P1.x - P3.x) / span, y: (P1.y - P3.y) / span }; let ev = { x: -eu.y, y: eu.x };
+    if ((P2.x - P3.x) * ev.x + (P2.y - P3.y) * ev.y < 0) ev = { x: -ev.x, y: -ev.y };
+    const toImg = (u, v) => ({ x: P3.x + span * (u * eu.x + v * ev.x), y: P3.y + span * (u * eu.y + v * ev.y) });
+    const toUV = (x, y) => { const dx = x - P3.x, dy = y - P3.y; return { u: (dx * eu.x + dy * eu.y) / span, v: (dx * ev.x + dy * ev.y) / span }; };
+    const r = R / span; // 스티커 지름(발 단위)
+    // 해부학 범위(봉투): 뒤꿈치는 P3 뒤 1.3지름, 발끝은 P1 앞 0.5, 발바닥은 기준선 아래 1.9지름, 발등 높이는 위치별 상한
+    const u0 = -1.3 * r - 0.02, u1 = 1.5, vMin = -1.9 * r;
+    const vMaxAt = u => { const T = [[-9, 0.62], [0.35, 0.62], [0.7, 0.38], [1.0, 0.26], [1.5, 0.1]]; for (let k = 1; k < T.length; k++) if (u <= T[k][0]) { const [a, va] = T[k - 1], [b, vb] = T[k]; return va + (vb - va) * (u - a) / (b - a); } return 0.1; };
+    const inEnv = (u, v, m) => u >= u0 - m && u <= u1 + m && v >= vMin - m && v <= vMaxAt(u) * (1 + m) + m;
+    const reuse = cache && cache.GS && cache.n < 8 && cache.w === w;
+    if (reuse) { const cs = [[u0, vMin], [u0, 0.7], [u1, vMin], [u1, 0.7]].map(([u, v]) => toImg(u, v)); texRect(Math.min(...cs.map(p => p.x)) - 3, Math.min(...cs.map(p => p.y)) - 3, Math.max(...cs.map(p => p.x)) + 3, Math.max(...cs.map(p => p.y)) + 3); }
+    else texRect(0, 0, w - 1, h - 1);
+    // 피부 표본: 스티커 둘레 고리 + P3–P1 사이 띠(발 안쪽 면 = 확실한 피부)
+    const fb = new Float32Array(D), skin = [];
+    const push = (x, y) => { x = Math.round(x); y = Math.round(y); if (x < 1 || y < 1 || x >= w - 1 || y >= h - 1) return; const i = y * w + x; if (!isBlue(i)) skin.push(Array.from(feat(i, fb))); };
+    for (const P of [P1, P2, P3]) for (let a = 0; a < 48; a++) for (const rr of [0.8, 1.0, 1.2]) push(P.x + Math.cos(a / 48 * 6.283) * R * rr, P.y + Math.sin(a / 48 * 6.283) * R * rr);
+    for (let u = 0.1; u <= 0.9; u += 0.02) for (let v = 0.02; v <= 0.08; v += 0.03) { const p = toImg(u, v); const q = [P1, P2, P3].every(P => Math.hypot(p.x - P.x, p.y - P.y) > 0.8 * R); if (q) push(p.x, p.y); }
+    // 색 모델은 몇 프레임마다 한 번만 새로 배운다(휴대폰 부담 줄이기) — 조명·사람이 바뀌면 자동으로 다시
+    const GS = reuse ? cache.GS : fit(skin); if (!GS) return null;
+    // 배경 표본: 봉투 밖(여유 0.12) 픽셀 → k-평균 6무리
+    let GB;
+    if (reuse) { GB = cache.GB; cache.n++; }
+    else {
+      const bg = [];
+      for (let y = 1; y < h - 1; y += 3) for (let x = 1; x < w - 1; x += 3) { const q = toUV(x, y); if (!inEnv(q.u, q.v, 0.12)) bg.push(Array.from(feat(y * w + x, fb))); }
+      const K = 6, cents = []; for (let k = 0; k < K && bg.length; k++) cents.push(bg[Math.floor((k + 0.5) * bg.length / K)].slice());
+      const asg = new Int32Array(bg.length);
+      for (let it = 0; it < 6; it++) {
+        const sum = cents.map(() => new Float64Array(D)), cnt = new Int32Array(cents.length);
+        for (let n = 0; n < bg.length; n++) { let bd = Infinity, bk = 0; for (let k = 0; k < cents.length; k++) { let d = 0; for (let c = 0; c < D; c++) d += (bg[n][c] - cents[k][c]) ** 2; if (d < bd) { bd = d; bk = k; } } asg[n] = bk; cnt[bk]++; for (let c = 0; c < D; c++) sum[bk][c] += bg[n][c]; }
+        for (let k = 0; k < cents.length; k++) if (cnt[k]) for (let c = 0; c < D; c++) cents[k][c] = sum[k][c] / cnt[k];
       }
+      const groups = cents.map(() => []); for (let n = 0; n < bg.length; n++) groups[asg[n]].push(bg[n]);
+      GB = groups.map(fit).filter(Boolean);
+      if (cache) Object.assign(cache, { GS, GB, n: 0, w });
     }
-    // 배경 표본: 화면 위·아래 띠(벽·바닥) — 발이 닿는 곳은 피부 모델과 가까우므로 제외
-    const G0 = gauss(sk); if (!G0) return null;
-    const bgT = [], bgB = [], band = Math.max(2, Math.round(h * 0.07));
-    for (let y = 0; y < band; y++) for (let x = 0; x < w; x += 2) { const i = y * w + x; if (md(G0, i) > 6) bgT.push(i); }
-    // 바닥: 가장 낮은 스티커보다 아래쪽 전부(발바닥 아래는 바닥) — 피부와 색이 비슷해도 바닥으로 배운다
-    const yLow = Math.max(L.P1.y, L.P3.y) * s + 1.6 * R;
-    for (let y = Math.min(h - band, Math.round(yLow)); y < h; y += 2) for (let x = 0; x < w; x += 2) bgB.push(y * w + x);
-    const BG = [gauss(bgT), gauss(bgB)].filter(Boolean);
-    const m = new Uint8Array(N);
-    for (let i = 0; i < N; i++) {
-      if (isBlue(i)) { m[i] = 1; continue; }
-      const dS = md(G0, i); if (dS > 14) continue;
-      let dB = Infinity; for (const B of BG) dB = Math.min(dB, md(B, i));
-      if (dS * 1.6 < dB) m[i] = 1;
+    // 펴진 격자에서 분류
+    const NU = 120, du = (u1 - u0) / NU, vTop = 0.7, NV = Math.ceil((vTop - vMin) / du);
+    const cell = new Uint8Array(NU * NV);
+    for (let iu = 0; iu < NU; iu++) for (let iv = 0; iv < NV; iv++) {
+      const u = u0 + (iu + 0.5) * du, v = vMin + (iv + 0.5) * du; if (v > vMaxAt(u) * 1.12 + 0.02) continue;
+      const p = toImg(u, v), x = Math.round(p.x), y = Math.round(p.y); if (x < 1 || y < 1 || x >= w - 1 || y >= h - 1) continue;
+      const i = y * w + x; if (isBlue(i)) { cell[iu * NV + iv] = 1; continue; }
+      const f = feat(i, fb), dS = md(GS, f); if (dS > 20) continue;
+      let dB = Infinity; for (const G of GB) dB = Math.min(dB, md(G, f));
+      if (dS < dB) cell[iu * NV + iv] = 1;
     }
-    // 다듬기: 닫기·열기(3×3)
-    const morph = (src, keepIfAll) => { const o = new Uint8Array(N); for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) { let c = 0; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) c += src[(y + dy) * w + x + dx]; o[y * w + x] = keepIfAll ? (c === 9 ? 1 : 0) : (c > 0 ? 1 : 0); } return o; };
-    let mm = morph(morph(m, false), true); mm = morph(morph(mm, true), false);
-    // 스티커에서 시작하는 덩어리만
-    const lab = new Uint8Array(N), q = new Int32Array(N); let qh = 0, qt = 0;
-    for (const P of [L.P1, L.P2, L.P3]) { const i = Math.round(P.y * s) * w + Math.round(P.x * s); if (i >= 0 && i < N && mm[i] && !lab[i]) { lab[i] = 1; q[qt++] = i; } }
-    while (qh < qt) { const i = q[qh++], x = i % w, y = (i / w) | 0; for (const j of [x > 0 ? i - 1 : -1, x < w - 1 ? i + 1 : -1, y > 0 ? i - w : -1, y < h - 1 ? i + w : -1]) if (j >= 0 && mm[j] && !lab[j]) { lab[j] = 1; q[qt++] = j; } }
-    if (qt < 50) return null;
-    // 열마다 위·아래 경계(발 옆모습). 스티커 기준선 쪽으로 이어진 구간만.
-    const top = new Float32Array(w).fill(-1), bot = new Float32Array(w).fill(-1);
-    for (let x = 0; x < w; x++) { for (let y = 0; y < h; y++) if (lab[y * w + x]) { top[x] = y; break; } for (let y = h - 1; y >= 0; y--) if (lab[y * w + x]) { bot[x] = y; break; } }
-    let x0 = 0, x1 = w - 1; while (x0 < w && top[x0] < 0) x0++; while (x1 > 0 && top[x1] < 0) x1--;
-    if (x1 - x0 < 10) return null;
-    const med5 = (A, x) => { const v = []; for (let k = -2; k <= 2; k++) { const xx = x + k; if (xx >= x0 && xx <= x1 && A[xx] >= 0) v.push(A[xx]); } return v.length ? median(v) : -1; };
-    const step = Math.max(1, Math.round(w / 110)), pts = [];
-    for (let x = x0; x <= x1; x += step) { const y = med5(top, x); if (y >= 0) pts.push({ x: x / s, y: y / s }); }
-    // 발바닥 경계: P1·P3 스티커는 바닥에서 약 2 cm(≈1.25×지름) 위 → 기준선 아래 1.7×지름을 넘는 것은 바닥(카펫 등)이 섞인 것
-    const k13 = (L.P3.y - L.P1.y) / ((L.P3.x - L.P1.x) || 1e-6), baseY = xs => (L.P1.y + k13 * (xs / s - L.P1.x)) * s;
-    const bc = new Float32Array(w).fill(-1);
-    for (let x = x0; x <= x1; x++) if (bot[x] >= 0) { const lim = baseY(x) + 1.7 * R, lo = baseY(x) - 0.2 * R; let y = Math.min(bot[x], lim); if (y < lo) y = lo; bc[x] = y; }
-    const med9 = (A, x) => { const v = []; for (let k = -4; k <= 4; k++) { const xx = x + k; if (xx >= x0 && xx <= x1 && A[xx] >= 0) v.push(A[xx]); } return v.length ? median(v) : -1; };
-    const nTop = pts.length;
-    for (let x = x1; x >= x0; x -= step) { const y = med9(bc, x); if (y >= 0) pts.push({ x: x / s, y: (y + 1) / s }); }
-    // 신뢰도: 피부·배경 분리 정도(경계 바로 안팎 색 차이)와 덩어리가 스티커 셋을 모두 품는지
-    const allIn = [L.P1, L.P2, L.P3].every(P => lab[Math.round(P.y * s) * w + Math.round(P.x * s)]);
-    let sep = 0, ns = 0; for (let x = x0 + 2; x <= x1 - 2; x += step) { const y = top[x]; if (y > 2 && y < h - 3) { sep += Math.min(1, md(G0, (y - 3) * w + x) / 30); ns++; } }
-    return { pts, nTop, score: clamp01((ns ? sep / ns : 0) * (allIn ? 1 : 0.5)), area: qt / s / s, allIn };
+    // 스티커·기준선 띠에서 시작해 이어진 피부만
+    const lab = new Uint8Array(NU * NV), q = []; const ivOf = v => Math.max(0, Math.min(NV - 1, Math.floor((v - vMin) / du))), iuOf = u => Math.max(0, Math.min(NU - 1, Math.floor((u - u0) / du)));
+    for (let u = 0; u <= 1; u += du) { const k = iuOf(u) * NV + ivOf(0.02); if (cell[k] && !lab[k]) { lab[k] = 1; q.push(k); } }
+    for (let qh = 0; qh < q.length; qh++) { const k = q[qh], iu = (k / NV) | 0, iv = k % NV; for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const ju = iu + a, jv = iv + b; if (ju < 0 || jv < 0 || ju >= NU || jv >= NV) continue; const j = ju * NV + jv; if (cell[j] && !lab[j]) { lab[j] = 1; q.push(j); } } }
+    if (q.length < 40) return null;
+    // 열마다: 기준선 근처에서 위·아래로 이어진 구간(빈칸 2칸까지 허용)
+    const topV = new Float32Array(NU).fill(NaN), botV = new Float32Array(NU).fill(NaN);
+    for (let iu = 0; iu < NU; iu++) {
+      let best = null, cur = null, gap = 0;
+      for (let iv = 0; iv < NV; iv++) { if (lab[iu * NV + iv]) { if (!cur) cur = { a: iv, b: iv, n: 0 }; cur.b = iv; cur.n++; gap = 0; } else if (cur && ++gap > 2) { if (!best || cur.n > best.n) best = cur; cur = null; gap = 0; } }
+      if (cur && (!best || cur.n > best.n)) best = cur;
+      if (best && best.n >= 3) { botV[iu] = vMin + best.a * du; topV[iu] = vMin + (best.b + 1) * du; }
+    }
+    // 앞·뒤 끝: u∈[0,1]에서 시작해 빈 열이 3개 이어지면 끝
+    let a0 = iuOf(0.5), a1 = a0, miss = 0; while (a0 > 0 && miss < 3) { a0--; if (isNaN(topV[a0])) miss++; else miss = 0; } a0 += miss;
+    miss = 0; while (a1 < NU - 1 && miss < 3) { a1++; if (isNaN(topV[a1])) miss++; else miss = 0; } a1 -= miss;
+    if (a1 - a0 < 10) return null;
+    const sm = (A, i, k) => { const v = []; for (let j = -k; j <= k; j++) { const t = A[i + j]; if (i + j >= a0 && i + j <= a1 && !isNaN(t)) v.push(t); } v.sort((x, y) => x - y); return v.length ? v[v.length >> 1] : NaN; };
+    const top = [], bot = [];
+    for (let iu = a0; iu <= a1; iu++) { const u = u0 + (iu + 0.5) * du, t = sm(topV, iu, 3), b = sm(botV, iu, 3); if (!isNaN(t)) top.push(toImg(u, t)); if (!isNaN(b)) bot.push(toImg(u, Math.max(vMin, b))); }
+    const pts = top.concat(bot.reverse()).map(p => ({ x: p.x / s, y: p.y / s }));
+    const allIn = [L.P1, L.P2, L.P3].every(P => { const c = toUV(P.x * s, P.y * s), k = iuOf(c.u) * NV + ivOf(c.v); return lab[k]; });
+    const capped = top.length ? top.filter((p, j) => { const c = toUV(p.x, p.y); return c.v < vMaxAt(c.u) * 1.08; }).length / top.length : 0;
+    return { pts, nTop: top.length, score: Math.max(0, Math.min(1, 0.35 + 0.65 * capped)), area: q.length * du * du * span * span / s / s, allIn };
   }
   // 닫힌 윤곽을 길이 기준으로 n개 점으로 다시 나눈다(프레임 간 같은 번호 점끼리 부드럽게 잇기 위해)
   function resampleClosed(pts, n) {
@@ -817,15 +848,27 @@
   // ───── 촬영 거리 안내(측정은 거리와 무관 — 스티커로 환산. 정밀도만 거리에 따라 달라짐) ─────
   // 추정 거리: 1픽셀 mm × 촬영 가로 픽셀 = 화면에 담긴 가로 폭. 일반 휴대폰 기본(1×) 카메라 가로 화각 약 69°(폭 ≈ 1.375 × 거리) 가정 → 참고값
   // 판정: 18 cm 미만 너무 가까움 · 45 cm 초과 멂(권장 25~35 cm). 1픽셀이 0.33 mm보다 크면 거리와 상관없이 '해상도 낮음' 표시
-  const DIST = { nearCm: 18, farCm: 45, okCm: [20, 40], fovK: 1.375, coarseMmPx: 0.33, idealCm: [25, 35] };
-  function distanceAdvice(mmPerPx, capSidePx) {
+  // 거리 고정(v3.2, 연구자 결정): 기본 25 cm ± 2.5 cm. 25 cm와 30 cm에서 하강이 약 1 mm 달라 거리를 통일한다.
+  // 기기마다 화각이 달라 추정이 어긋나면, 자로 25 cm를 맞춘 상태에서 '거리 보정'을 눌러 이 휴대폰의 계수(fovK)를 저장한다.
+  const DIST = { nearCm: 18, farCm: 45, okCm: [20, 40], fovK: 1.375, coarseMmPx: 0.33, idealCm: [25, 35], targetCm: 25, tolCm: 2.5 };
+  function distanceAdvice(mmPerPx, capSidePx, opt) {
     if (!(mmPerPx > 0)) return null;
-    const side = capSidePx > 0 ? capSidePx : 1920, estCm = mmPerPx * side / DIST.fovK / 10;
-    const code = estCm > DIST.farCm ? 'FAR' : estCm < DIST.nearCm ? 'NEAR' : 'OK';
-    const msg = code === 'FAR' ? '휴대폰을 발에 조금 더 가까이 두십시오. 약 30센티미터가 좋습니다' : code === 'NEAR' ? '휴대폰을 발에서 조금 멀리 두십시오. 약 30센티미터가 좋습니다' : '거리가 적당합니다';
-    const label = code === 'FAR' ? '멂' : code === 'NEAR' ? '가까움' : estCm > DIST.okCm[1] ? '조금 멂' : estCm < DIST.okCm[0] ? '조금 가까움' : '적당';
-    return { code, msg, label, mmPerPx, estCm, coarse: mmPerPx > DIST.coarseMmPx };
+    opt = opt || {};
+    const side = capSidePx > 0 ? capSidePx : 1920, k = opt.fovK > 0 ? opt.fovK : DIST.fovK, estCm = mmPerPx * side / k / 10;
+    const T = opt.targetCm, tol = opt.tolCm > 0 ? opt.tolCm : DIST.tolCm;
+    let code, label, msg;
+    if (T > 0) {
+      code = estCm > T + tol ? 'FAR' : estCm < T - tol ? 'NEAR' : 'OK'; label = code === 'FAR' ? '멂' : code === 'NEAR' ? '가까움' : '적당';
+      msg = code === 'FAR' ? `휴대폰을 발에 조금 더 가까이 두십시오. ${T}센티미터에 맞춰 주십시오` : code === 'NEAR' ? `휴대폰을 발에서 조금 멀리 두십시오. ${T}센티미터에 맞춰 주십시오` : `거리가 ${T}센티미터에 맞았습니다`;
+    } else {
+      code = estCm > DIST.farCm ? 'FAR' : estCm < DIST.nearCm ? 'NEAR' : 'OK';
+      label = code === 'FAR' ? '멂' : code === 'NEAR' ? '가까움' : estCm > DIST.okCm[1] ? '조금 멂' : estCm < DIST.okCm[0] ? '조금 가까움' : '적당';
+      msg = code === 'FAR' ? '휴대폰을 발에 조금 더 가까이 두십시오. 약 30센티미터가 좋습니다' : code === 'NEAR' ? '휴대폰을 발에서 조금 멀리 두십시오. 약 30센티미터가 좋습니다' : '거리가 적당합니다';
+    }
+    return { code, msg, label, mmPerPx, estCm, side, targetCm: T > 0 ? T : null, coarse: mmPerPx > DIST.coarseMmPx };
   }
+  // 거리 보정: 지금 실제 거리가 trueCm일 때의 화각 계수
+  function calibrateFovK(mmPerPx, capSidePx, trueCm) { return mmPerPx > 0 && trueCm > 0 ? mmPerPx * (capSidePx > 0 ? capSidePx : 1920) / (trueCm * 10) : null; }
 
   // 정규화 지표: 발 길이 대비 하강률(%), 정규화 발배뼈 높이(앉음·섬). 문헌 NNHt 참고 범위 0.22–0.31(평발 < 0.22)
   const NNH_REF = { low: 0.22, high: 0.31, source: 'Murley 등 2009 (J Foot Ankle Res) · 잘린 발 길이 기준' };
@@ -1729,6 +1772,6 @@
     rgbToHsv, detectStickers, labelLandmarks, signedDistanceToLine, distanceToLine, projectionT,
     measureImage, comparePrePost, classify, roundMm, errorMetrics,
     splitByParticipant, trainCalibration, applyCalibration, fitMethod, validateConversion,
-    motionBetween, framingCheck, laplacianVariance, archAngle, cropImage, detectInRoi, labelsConsistent, combineDetections, shapeDelta, AI_FEATURES, errorFeatures, trainErrorModel, applyErrorModel, fitRidge, createLandmarkKalman, chromaMap, ALIGN, alignmentCheck, LOAD, loadEvidence, shapeOf, FOOT_MODEL, GUIDE_LAYOUT, guideGeometry, guideCheck, fitFootModel, snapOutline, densify, segmentFoot, appHeights, EXERCISE_DRAFTS, EXERCISE_CATEGORIES, youtubeId, resampleClosed, personalCare, measurementWeight, CARE, detectSoleLine, heightAboveSole, reliabilityStats, retestPairs, normalizedIndices, NNH_REF, distanceAdvice, DIST
+    motionBetween, framingCheck, laplacianVariance, archAngle, cropImage, detectInRoi, labelsConsistent, combineDetections, shapeDelta, AI_FEATURES, errorFeatures, trainErrorModel, applyErrorModel, fitRidge, createLandmarkKalman, chromaMap, ALIGN, alignmentCheck, LOAD, loadEvidence, shapeOf, FOOT_MODEL, GUIDE_LAYOUT, guideGeometry, guideCheck, fitFootModel, snapOutline, densify, segmentFoot, appHeights, EXERCISE_DRAFTS, EXERCISE_CATEGORIES, youtubeId, resampleClosed, personalCare, measurementWeight, CARE, detectSoleLine, heightAboveSole, reliabilityStats, retestPairs, normalizedIndices, NNH_REF, distanceAdvice, calibrateFovK, DIST
   };
 });

@@ -322,7 +322,7 @@ function createTracker(opts) {
   function trackOutline(rgb, fit, det) {
     if (!rgb || !det.landmarks) { st.snap = null; return null; }
     const dia = (det.quality && det.quality.diameterPx) || 20, avoid = ['P1', 'P2', 'P3'].map(n => ({ x: det.landmarks[n].x, y: det.landmarks[n].y, r: dia * 0.8 }));
-    let seg = null; try { seg = C.segmentFoot(rgb, det.landmarks, dia); } catch (e) { seg = null; }
+    let seg = null; try { st.segCache = st.segCache || {}; seg = C.segmentFoot(rgb, det.landmarks, dia, st.segCache); } catch (e) { seg = null; }
     let pts, score, conf;
     if (seg && seg.allIn && seg.pts.length > 20) {
       // 실제 발 분할 윤곽 + 발바닥 쪽만 색 경계에 한 번 더 붙이기
@@ -379,7 +379,8 @@ function createTracker(opts) {
       const capSide = Math.min(MAXSIDE, Math.max(video.videoWidth || 0, video.videoHeight || 0) || MAXSIDE), liveSide = Math.max(IW, IH);
       const cs = typeof convSettings === 'function' ? convSettings() : null, mmD = (cs && cs.stickerDiameterMm) || (S.settings && S.settings.stickerDiameterMm) || 19;
       st.mmpx = (st.mmpx || []).concat(mmD / (det.quality.diameterPx * capSide / liveSide) * (window.FOOTARCH_MMPX_SCALE || 1)).slice(-9); // 시험용 배율
-      const q = st.mmpx.slice().sort((x, y) => x - y); dist = C.distanceAdvice(q[q.length >> 1], capSide);
+      const q = st.mmpx.slice().sort((x, y) => x - y), Sg = (S && S.settings) || {};
+      dist = C.distanceAdvice(q[q.length >> 1], capSide, { targetCm: Sg.distFixed === false ? null : (Sg.targetDistCm || 25), fovK: window.FOOTARCH_FOVK || Sg.fovK });
     }
     onFrame(Object.assign({ det, fps: st.fpsT.length, roi: !!det.roi, sceneMotion, rotation: rot, dist }, a));
   }
