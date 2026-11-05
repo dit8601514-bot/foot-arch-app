@@ -434,6 +434,16 @@ t('발 윤곽 분할 v2: 범위 밖(뒤꿈치 뒤·발등 위)으로 새지 않�
   ok(Math.min(...xs) > 60 - 9 * 1.8 - 6, 'heel ' + Math.min(...xs)); ok(Math.max(...xs) < 180 + 0.55 * 120, 'toe ' + Math.max(...xs)); ok(Math.min(...ys) > 90 - 0.75 * 120, 'top ' + Math.min(...ys));
 });
 
+t('개인 오차 보정: 최근·같은 촬영 조건 실측을 더 믿고, 서로 어긋나면 덜 보정(사용자 사례 2026-11-05)', () => {
+  // 예전 실측 2회(거리 미기록): 앱이 4.5·5.5 mm 작게 잼 / 오늘(25 cm 고정): 앱 5.3 mm, 실측 24→18(하강 6.0)
+  const mk = (id, t, preApp, postApp, rPre, rPost, dist) => ({ id, foot: 'right', createdAt: t, comparison: { changeMm: preApp - postApp, preMm: preApp, postMm: postApp }, measurementConfidence: 0.9,
+    reference: { ndtMm: rPre - rPost, preMm: rPre, postMm: rPost, at: t }, distance: dist ? { targetCm: 25 } : null });
+  const D = 864e5, ex = [mk('a', 1 * D, 26, 22, 25, 16.5, false), mk('b', 2 * D, 26, 22, 25, 15.5, false), mk('c', 3 * D, 24.3, 19, 24, 18, true)];
+  const next = { id: 'n', foot: 'right', createdAt: 4 * D, comparison: { changeMm: 5.3, preMm: 24.3, postMm: 19 }, measurementConfidence: 0.9, distance: { targetCm: 25 } };
+  const pc = C.personalCare(ex.concat([next]), {});
+  const v = pc.personalMm(next); ok(v > 5.3 && v < 7.6, '보정값 ' + v.toFixed(2)); // 예전 방식(단순 평균)이면 약 8.9 mm
+});
+
 const pass = results.filter(r => r[1] === 'PASS').length;
 for (const r of results) console.log(`${r[1]}  ${r[0]}${r[2] ? '  — ' + r[2] : ''}`);
 console.log(`\n${pass}/${results.length} 통과`);

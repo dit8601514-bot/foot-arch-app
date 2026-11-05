@@ -322,7 +322,7 @@ function createTracker(opts) {
   function trackOutline(rgb, fit, det) {
     if (!rgb || !det.landmarks) { st.snap = null; return null; }
     const dia = (det.quality && det.quality.diameterPx) || 20, avoid = ['P1', 'P2', 'P3'].map(n => ({ x: det.landmarks[n].x, y: det.landmarks[n].y, r: dia * 0.8 }));
-    let seg = null; try { st.segCache = st.segCache || {}; seg = C.segmentFoot(rgb, det.landmarks, dia, st.segCache); } catch (e) { seg = null; }
+    let seg = null; try { st.segCache = st.segCache || {}; seg = C.segmentFoot(rgb, det.landmarks, dia, st.segCache, det.sole && det.sole.ok ? det.sole : null); } catch (e) { seg = null; }
     let pts, score, conf;
     if (seg && seg.allIn && seg.pts.length > 20) {
       // 실제 발 분할 윤곽 + 발바닥 쪽만 색 경계에 한 번 더 붙이기
@@ -342,6 +342,7 @@ function createTracker(opts) {
   async function tick() {
     if (st.rot == null) st.rot = autoRotation();
     const rot = st.rot;
+    const tGrab = performance.now();
     const { img } = imageDataFromSource(video, 640, rot);
     const IW = img.width, IH = img.height, turned = rot === 90 || rot === 270, rawW = turned ? IH : IW, rawH = turned ? IW : IH;
 
@@ -364,13 +365,19 @@ function createTracker(opts) {
     const k = Math.min(wr.width / rawW, wr.height / rawH), ox = (wr.width - rawW * k) / 2, oy = (wr.height - rawH * k) / 2;
     const ar = rawW + ' / ' + rawH; if (wrap.style.aspectRatio !== ar) wrap.style.aspectRatio = ar;
     setRotatedTransform(g, rot, ox, oy, k, rawW, rawH);
+    // 스티커 표시 지연 보정(2026-11 사용자 화면: 앉는 동안 원이 실제 스티커보다 뒤처짐):
+    // 프레임을 잡은 뒤 분석·그리기까지 걸린 시간 + 화면 표시 1프레임만큼, 칼만 속도로 앞당겨 그린다. 거의 멈춰 있으면(흔들림 잡음) 보정하지 않음.
+    const lagS = Math.min(0.35, (performance.now() - tGrab) / 1000 + 0.033), sp = st.kf.speed(), diaPx = (det.quality && det.quality.diameterPx) || st.dia || 20;
+    const lead = st.kf.active && sp > 0.6 * diaPx ? Math.min(1, (sp - 0.6 * diaPx) / (1.4 * diaPx)) : 0;
+    const drawSmooth = lead > 0 ? st.kf.positionsAhead(lagS * lead, 1.5 * diaPx) : st.smooth;
+    let gdx = 0, gdy = 0; if (drawSmooth && st.smooth) { for (const n of ['P1', 'P2', 'P3']) { gdx += (drawSmooth[n].x - st.smooth[n].x) / 3; gdy += (drawSmooth[n].y - st.smooth[n].y) / 3; } }
     st.segTick = (st.segTick || 0) + 1;
     const snap = det.landmarks ? (st.segTick % 2 && st.snap ? st.snap : trackOutline(rgbS, a.guide.fit, det)) : (st.snap = null);
-    drawGuide(g, 0, 0, k, IW, IH, getToe(), { ready: a.ready, seen: !!det.landmarks, inP3: a.guide.inP3, inP1: a.guide.inP1, inP2: a.guide.inP2, fit: a.guide.fit, snap }, det.landmarks && !a.c.frame ? (a.c.frameMsg || '').replace(/ 주십시오| 주세요|십시오/g, '') : '', det.sole);
+    drawGuide(g, gdx * k, gdy * k, k, IW, IH, getToe(), { ready: a.ready, seen: !!det.landmarks, inP3: a.guide.inP3, inP1: a.guide.inP1, inP2: a.guide.inP2, fit: a.guide.fit, snap }, det.landmarks && !a.c.frame ? (a.c.frameMsg || '').replace(/ 주십시오| 주세요|십시오/g, '') : '', det.sole);
     { const cs = typeof convSettings === 'function' ? convSettings() : null, dia = det.quality && det.quality.diameterPx, P = st.smooth || (det.landmarks && det.landmarks);
       const hMm = det.landmarks && P && cs && cs.validated && dia ? C.distanceToLine(P.P2, P.P1, P.P3) * cs.stickerDiameterMm / dia : null;
       st.lockN = det.ok && st.kf.active ? (st.lockN || 0) + 1 : 0;
-      drawTrackHud(g, det, st.smooth, k, { locked: st.lockN >= 4, heightMm: hMm, n: det.landmarks ? 3 : Math.min(3, (det.stickers || []).length), fps: st.fpsT.length, sigma: det.quality && det.quality.fitRmsPx, h: IH * k }); }
+      drawTrackHud(g, det, drawSmooth, k, { locked: st.lockN >= 4, heightMm: hMm, n: det.landmarks ? 3 : Math.min(3, (det.stickers || []).length), fps: st.fpsT.length, sigma: det.quality && det.quality.fitRmsPx, h: IH * k }); }
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     orientUpdate(det);
     // 촬영 거리: 실시간(640px) 스티커 지름을 촬영 해상도로 환산 → 최근 9프레임 중앙값으로 흔들림 제거

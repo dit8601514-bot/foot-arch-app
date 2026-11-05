@@ -9,7 +9,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  const ALGORITHM_VERSION = 'ALG-2.5.0';
+  const ALGORITHM_VERSION = 'ALG-2.5.1';
 
   // 기본 검출 파라미터 (휴리스틱 값 — 실제 사진으로 검증 후 연구자가 조정해야 함)
   const DEFAULT_DETECT = {
@@ -139,7 +139,7 @@
    * cache(선택): 색 모델을 8프레임마다 다시 배워 휴대폰 부담을 줄인다
    * 반환 { pts(분석 좌표: 발등·발목 → 발바닥), nTop, score(0~1), area, allIn } 또는 null
    */
-  function segmentFoot(rgb, L, dia, cache) {
+  function segmentFoot(rgb, L, dia, cache, sole) {
     const { data, w, h, s } = rgb;
     // 특징: 색도 r, g, 채도, 밝기, 질감(카펫처럼 거친 면은 피부가 아님)
     const N = w * h, lum = new Float32Array(N), lap = new Float32Array(N), tex = new Float32Array(N);
@@ -226,8 +226,22 @@
     miss = 0; while (a1 < NU - 1 && miss < 3) { a1++; if (isNaN(topV[a1])) miss++; else miss = 0; } a1 -= miss;
     if (a1 - a0 < 10) return null;
     const sm = (A, i, k) => { const v = []; for (let j = -k; j <= k; j++) { const t = A[i + j]; if (i + j >= a0 && i + j <= a1 && !isNaN(t)) v.push(t); } v.sort((x, y) => x - y); return v.length ? v[v.length >> 1] : NaN; };
+    // 발바닥 쪽: 피부색과 비슷한 카펫으로 아래로 파고든 열을 바로잡는다 — 발바닥은 거의 직선이므로
+    // 아래로 튄 점을 빼고 직선을 맞춘 뒤(3회), 그 직선보다 0.3지름 넘게 아래로 내려가지 못하게 한다. 바닥선이 있으면 그 선이 하한.
+    const bu = [], bv = []; for (let iu = a0; iu <= a1; iu++) { const u = u0 + (iu + 0.5) * du, b = sm(botV, iu, 5); if (!isNaN(b) && u > -0.1 && u < 1.1) { bu.push(u); bv.push(b); } }
+    let la = 0, lb = null; // v = la + lb·u
+    if (bu.length >= 8) {
+      let keep = bu.map(() => true);
+      for (let it = 0; it < 3; it++) { const U = bu.filter((_, j) => keep[j]), V = bv.filter((_, j) => keep[j]); if (U.length < 6) break; const mu = mean(U), mv = mean(V);
+        let sxx = 0, sxy = 0; for (let j = 0; j < U.length; j++) { sxx += (U[j] - mu) ** 2; sxy += (U[j] - mu) * (V[j] - mv); } lb = sxx > 1e-9 ? sxy / sxx : 0; la = mv - lb * mu;
+        keep = bu.map((u, j) => bv[j] > la + lb * u - 0.25 * r); }
+    }
+    // 바닥선(분석 좌표 y = slope·x + intercept)이 있으면: 이 u에서 발바닥 방향으로 그 선과 만나는 v가 하한
+    const floorV = u => { if (!(sole && isFinite(sole.slope) && isFinite(sole.intercept))) return -Infinity; const p0 = toImg(u, 0), p1 = toImg(u, -1);
+      const f = t => (p0.y + (p1.y - p0.y) * t) / s - (sole.slope * (p0.x + (p1.x - p0.x) * t) / s + sole.intercept), fa = f(0), fb = f(1); return Math.abs(fb - fa) > 1e-9 ? -(fa / (fb - fa)) - 0.1 * r : -Infinity; };
     const top = [], bot = [];
-    for (let iu = a0; iu <= a1; iu++) { const u = u0 + (iu + 0.5) * du, t = sm(topV, iu, 3), b = sm(botV, iu, 3); if (!isNaN(t)) top.push(toImg(u, t)); if (!isNaN(b)) bot.push(toImg(u, Math.max(vMin, b))); }
+    for (let iu = a0; iu <= a1; iu++) { const u = u0 + (iu + 0.5) * du, t = sm(topV, iu, 3); let b = sm(botV, iu, 5); if (!isNaN(t)) top.push(toImg(u, t));
+      if (!isNaN(b)) { if (lb != null) b = Math.max(b, la + lb * u - 0.3 * r); b = Math.max(b, floorV(u), vMin); if (!isNaN(t)) b = Math.min(b, t - du); bot.push(toImg(u, b)); } }
     const pts = top.concat(bot.reverse()).map(p => ({ x: p.x / s, y: p.y / s }));
     const allIn = [L.P1, L.P2, L.P3].every(P => { const c = toUV(P.x * s, P.y * s), k = iuOf(c.u) * NV + ivOf(c.v); return lab[k]; });
     const capped = top.length ? top.filter((p, j) => { const c = toUV(p.x, p.y); return c.v < vMaxAt(c.u) * 1.08; }).length / top.length : 0;
@@ -1115,11 +1129,13 @@
     const kShr = (CARE.refSd * CARE.refSd) / (CARE.refTau * CARE.refTau);
     // ③-1 앉은 자세·선 자세 높이를 따로 배운다(실측 전·후 높이를 넣었을 때): 체중이 실리면 스티커 기준선도 함께
     //      내려앉는 등 '선 자세에서만' 생기는 오차가 있어서, 하강량 하나로 배우는 것보다 정확하다. 측정 방식(바닥선/기준선)별로 따로.
-    const cal = personalHeightCalib(refs, kShr);
+    const last0 = valid[valid.length - 1], protocolCm = opts.protocolCm !== undefined ? opts.protocolCm : (last0 && last0.distance && last0.distance.targetCm) || null;
+    const cal = personalHeightCalib(refs, kShr, protocolCm);
     const corrected = e => { const h = appHeights(e), c2 = h && cal[h.method]; return c2 && c2.n ? Math.max(0, (h.pre + c2.bPre) - (h.post + c2.bPost)) : null; };
     // ③-2 하강량만 넣은 기록(또는 높이 보정이 없는 측정 방식)은 하강량 잔차로 배운다
-    const res = refs.filter(e => !(isFinite(e.reference.preMm) && isFinite(e.reference.postMm) && appHeights(e))).map(e => e.reference.ndtMm - base(e));
-    const bias = res.length ? res.reduce((x, y) => x + y, 0) / (res.length + kShr) : 0;
+    const resRefs = refs.filter(e => !(isFinite(e.reference.preMm) && isFinite(e.reference.postMm) && appHeights(e))), RW = refWeights(resRefs, protocolCm);
+    const res = resRefs.map(e => e.reference.ndtMm - base(e)), rw = resRefs.map(e => RW.get(e)), rwSum = rw.reduce((x, y) => x + y, 0);
+    const bias = res.length ? res.reduce((x, y, i) => x + y * rw[i], 0) / (rwSum + Math.max(kShr, shrinkK(res, rw))) : 0;
     const nCal = Object.values(cal).reduce((n, c2) => n + c2.n, 0);
     const biasSe = res.length || nCal ? Math.sqrt(CARE.refSd * CARE.refSd / (res.length + nCal + kShr)) : null;
     const personal = e => { const c2 = corrected(e); return c2 != null ? c2 : base(e) + bias; };
@@ -1174,13 +1190,30 @@
     return null;
   }
   // 실측 전·후 높이와 앱 높이의 차이를 측정 방식별로 수축 평균(적을수록 조심스럽게)
-  function personalHeightCalib(refs, kShr) {
-    const out = {};
+  // 실측 기록 가중치(v3.3, 2026-11 사용자 사례: 예전 실측 오차 +4~5 mm로 배운 보정이 새 측정(실제 오차 +0.7 mm)을 9.0 mm로 과보정):
+  // ① 최근 실측일수록 크게(한 번 오래될 때마다 ×0.6) ② 촬영 조건(거리 고정)이 지금과 같은 실측만 온전히, 다르면(예전·거리 미기록) ×0.5
+  function refWeights(refs, protocolCm) {
+    const order = refs.slice().sort((a, b) => (b.reference.at || b.createdAt) - (a.reference.at || a.createdAt)), w = new Map();
+    order.forEach((e, i) => { const same = protocolCm == null ? true : !!(e.distance && e.distance.targetCm === protocolCm); w.set(e, Math.pow(0.6, i) * (same ? 1 : 0.5)); });
+    return w;
+  }
+  // 수축 정도: 실측끼리 서로 어긋날수록(오차가 들쭉날쭉) 보정을 덜 믿는다 — k = max(기본 분산, 가중 분산)/τ²
+  function shrinkK(vals, ws) {
+    const W = ws.reduce((x, y) => x + y, 0); if (!(W > 0)) return (CARE.refSd * CARE.refSd) / (CARE.refTau * CARE.refTau);
+    const m = vals.reduce((x, v, i) => x + v * ws[i], 0) / W, v2 = vals.reduce((x, v, i) => x + ws[i] * (v - m) ** 2, 0) / W;
+    return Math.max(CARE.refSd * CARE.refSd, vals.length >= 2 ? v2 : 0) / (CARE.refTau * CARE.refTau);
+  }
+  // 실측 전·후 높이와 앱 높이의 차이를 측정 방식별로 가중 수축 평균(적을수록·어긋날수록 조심스럽게)
+  function personalHeightCalib(refs, kShr, protocolCm) {
+    const out = {}, W = refWeights(refs, protocolCm), groups = {};
     for (const e of refs) {
       const r = e.reference, h = appHeights(e); if (!h || !isFinite(r.preMm) || !isFinite(r.postMm)) continue;
-      const o = out[h.method] || (out[h.method] = { sPre: 0, sPost: 0, n: 0 }); o.sPre += r.preMm - h.pre; o.sPost += r.postMm - h.post; o.n++;
+      (groups[h.method] = groups[h.method] || []).push({ dPre: r.preMm - h.pre, dPost: r.postMm - h.post, w: W.get(e) });
     }
-    for (const k of Object.keys(out)) { const o = out[k]; o.bPre = o.sPre / (o.n + kShr); o.bPost = o.sPost / (o.n + kShr); }
+    for (const [k, g] of Object.entries(groups)) {
+      const ws = g.map(x => x.w), sw = ws.reduce((x, y) => x + y, 0), kk = Math.max(kShr, shrinkK(g.map(x => x.dPre - x.dPost), ws));
+      out[k] = { n: g.length, wSum: sw, k: kk, bPre: g.reduce((x, y) => x + y.w * y.dPre, 0) / (sw + kk), bPost: g.reduce((x, y) => x + y.w * y.dPost, 0) / (sw + kk) };
+    }
     return out;
   }
   // ⑦ 개인 관리 계획(규칙 기반 · 연구 기준 분류 + 개인 추세·자가 확인·운동 기록)
@@ -1754,6 +1787,9 @@
       },
       miss() { misses++; if (misses > 6) st = null; },
       positions() { return st ? Object.fromEntries(keys.map(k => [k, { x: st[k].x.x, y: st[k].y.x }])) : null; },
+      // 화면 지연 보정: 분석하는 동안 영상은 이미 앞으로 가 있다 → 속도 × 지연만큼 앞당긴 위치(최대 maxPx 이동)
+      positionsAhead(dt, maxPx) { if (!st) return null; const m = maxPx > 0 ? maxPx : Infinity;
+        return Object.fromEntries(keys.map(k => { let dx = st[k].x.v * dt, dy = st[k].y.v * dt; const L = Math.hypot(dx, dy); if (L > m) { dx *= m / L; dy *= m / L; } return [k, { x: st[k].x.x + dx, y: st[k].y.x + dy }]; })); },
       speed() { return st ? Math.max(...keys.map(k => Math.hypot(st[k].x.v, st[k].y.v))) : Infinity; }, // px/s
       get active() { return !!st; },
       reset() { st = null; misses = 0; }

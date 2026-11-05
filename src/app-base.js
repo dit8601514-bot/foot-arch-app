@@ -1,7 +1,7 @@
 'use strict';
 /* ═════════════ 기본: 저장소 · 상태 · 유틸 · 라우터 ═════════════ */
 const C = window.FootCore;
-const APP_VERSION = '3.2.0';
+const APP_VERSION = '3.3.0';
 const STORES = ['settings', 'exams', 'exercises', 'logs', 'errors', 'models', 'blobs', 'validations'];
 
 const DB = (() => {
@@ -246,12 +246,31 @@ function registerSW() {
     navigator.serviceWorker.register('./sw.js').catch(() => {});
   } catch (e) { /* 지원 안 함 */ }
 }
-function showUpdateBar() {
+function showUpdateBar(ver) {
   if ($('#updBar')) return;
   const b = document.createElement('div'); b.id = 'updBar'; b.className = 'toast'; b.style.bottom = '140px';
-  b.innerHTML = '새 버전이 설치되었습니다. <button class="btn sm" style="margin-left:8px">새로고침</button>';
-  b.querySelector('button').onclick = () => location.reload(); document.body.appendChild(b);
+  b.innerHTML = `새 버전${ver ? ' v' + esc(ver) : ''}이 있습니다. <button class="btn sm" style="margin-left:8px">지금 업데이트</button>`;
+  b.querySelector('button').onclick = () => applyUpdate(); document.body.appendChild(b);
 }
+// 새 버전 확인: 홈 화면에 둔 앱은 닫지 않으면 옛 버전이 계속 떠 있다(아이폰). 앱을 열 때·다시 볼 때·5분마다 서버의 version.json과 비교.
+// 촬영 중이 아니면 바로 새로고침, 촬영 중이면 안내 막대만 띄운다.
+const BUILD_ID = (document.querySelector('meta[name="build"]') || {}).content || '';
+let updChecking = false;
+async function checkUpdate() {
+  if (updChecking || !/^https?:$/.test(location.protocol) || BUILD_ID.startsWith('__')) return; updChecking = true;
+  try {
+    const r = await fetch('./version.json?t=' + Date.now(), { cache: 'no-store' }); if (!r.ok) return;
+    const v = await r.json(); if (!v.build || v.build === BUILD_ID) return;
+    const busy = /^#\/(self|guide|capture|live)/.test(location.hash) || !!S.loopTimer;
+    if (busy) showUpdateBar(v.version); else applyUpdate();
+  } catch (e) { /* 오프라인 */ } finally { updChecking = false; }
+}
+async function applyUpdate() {
+  try { const reg = navigator.serviceWorker && await navigator.serviceWorker.getRegistration(); if (reg) await reg.update(); } catch (e) { }
+  location.reload();
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkUpdate(); });
+setInterval(checkUpdate, 5 * 60 * 1000); setTimeout(checkUpdate, 3000);
 // 설치 안내: 안드로이드 Chrome은 설치 버튼, iOS는 공유 → 홈 화면에 추가
 let installEvt = null;
 window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); installEvt = e; if (location.hash.startsWith('#/home') || !location.hash) render(); });

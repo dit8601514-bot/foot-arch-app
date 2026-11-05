@@ -13,8 +13,11 @@ self.addEventListener('fetch', e => {
     e.respondWith(fetch(req).then(r => { if (r.ok) { const copy = r.clone(); caches.open(CACHE).then(c => c.put(req, copy)); } return r; }).catch(() => caches.match(req)));
     return;
   }
+  // 새 버전 확인 파일은 캐시하지 않는다
+  if (u.pathname.endsWith('/version.json')) { e.respondWith(fetch(req.url, { cache: 'no-store' })); return; }
   if (req.mode === 'navigate') {
-    e.respondWith(fetch(req).then(r => { const copy = r.clone(); caches.open(CACHE).then(c => c.put('./index.html', copy)); return r; }).catch(() => caches.match('./index.html')));
+    // 화면은 항상 서버의 최신본(브라우저 HTTP 캐시도 건너뜀). 오프라인이면 저장본
+    e.respondWith(fetch(req.url, { cache: 'no-store', credentials: 'same-origin' }).then(r => { const copy = r.clone(); caches.open(CACHE).then(c => c.put('./index.html', copy)); return r; }).catch(() => caches.match('./index.html')));
     return;
   }
   e.respondWith(caches.match(req).then(hit => hit || fetch(req).then(r => { if (r.ok) { const copy = r.clone(); caches.open(CACHE).then(c => c.put(req, copy)); } return r; })));

@@ -20,4 +20,6 @@ const admin = r('admin.html').replace('<!--CORE-->', () => '<script>\n' + safe(c
 fs.mkdirSync(path.join(out, 'admin'), { recursive: true });
 fs.writeFileSync(path.join(out, 'admin', 'index.html'), admin);
 fs.writeFileSync(path.join(out, '.nojekyll'), '');
+// 새 버전 확인용(앱이 열려 있는 동안에도 몇 분마다 확인 → 홈 화면에 둔 앱이 옛 버전에 머무르지 않게)
+fs.writeFileSync(path.join(out, 'version.json'), JSON.stringify({ build, version: (r('app-base.js').match(/APP_VERSION = '([^']+)'/) || [])[1] || '', alg: (core.match(/ALGORITHM_VERSION = '([^']+)'/) || [])[1] || '' }));
 console.log('built', build, html.length, 'bytes');
