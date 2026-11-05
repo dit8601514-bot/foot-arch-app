@@ -412,14 +412,15 @@ t('정규화 지표: 발 길이 대비 하강률·NNH', () => {
 });
 
 t('촬영 거리 안내: 추정 거리로 멂·적당·가까움', () => {
-  const a = C.distanceAdvice(0.21, 1920); eq(a.code, 'OK'); near(a.estCm, 29.3, 0.1); eq(a.label, '적당'); eq(a.coarse, false);
-  eq(C.distanceAdvice(0.40, 1920).code, 'FAR'); ok(/가까이/.test(C.distanceAdvice(0.40).msg)); eq(C.distanceAdvice(0.11, 1920).code, 'NEAR'); ok(/멀리/.test(C.distanceAdvice(0.11).msg));
-  eq(C.distanceAdvice(0.30, 1920).label, '조금 멂'); eq(C.distanceAdvice(0.40, 1280).code, 'OK'); eq(C.distanceAdvice(0.40, 1280).coarse, true); eq(C.distanceAdvice(null), null);
+  const a = C.distanceAdvice(0.21, 1920, { fovK: 1.375 }); eq(a.code, 'OK'); near(a.estCm, 29.3, 0.1); eq(a.label, '적당'); eq(a.coarse, false); near(C.distanceAdvice(0.18, 1920).estCm, 0.18 * 1920 / 0.92 / 10, 1e-9);
+  eq(C.distanceAdvice(0.40, 1920, { fovK: 1.375 }).code, 'FAR'); ok(/가까이/.test(C.distanceAdvice(0.40, 1920, { fovK: 1.375 }).msg)); eq(C.distanceAdvice(0.11, 1920, { fovK: 1.375 }).code, 'NEAR'); ok(/멀리/.test(C.distanceAdvice(0.11, 1920, { fovK: 1.375 }).msg));
+  eq(C.distanceAdvice(0.30, 1920, { fovK: 1.375 }).label, '조금 멂'); eq(C.distanceAdvice(0.40, 1280, { fovK: 1.375 }).code, 'OK'); eq(C.distanceAdvice(0.40, 1280).coarse, true); eq(C.distanceAdvice(null), null);
 });
 
 t('거리 고정 25 cm: 목표 ±2.5 cm · 기기 보정', () => {
-  const o = { targetCm: 25 }; eq(C.distanceAdvice(0.18, 1920, o).code, 'OK'); // 약 25.1 cm
+  const o = { targetCm: 25, fovK: 1.375 }; eq(C.distanceAdvice(0.18, 1920, o).code, 'OK'); // 약 25.1 cm
   eq(C.distanceAdvice(0.21, 1920, o).code, 'FAR'); ok(/25센티미터에 맞춰/.test(C.distanceAdvice(0.21, 1920, o).msg)); eq(C.distanceAdvice(0.15, 1920, o).code, 'NEAR');
+  eq(C.distanceAdvice(0.12, 1920, { targetCm: 25 }).code, 'OK'); // 기본(아이폰 실측) 화각: 0.12 mm/px ≈ 25 cm
   const k = C.calibrateFovK(0.21, 1920, 25); near(C.distanceAdvice(0.21, 1920, { targetCm: 25, fovK: k }).estCm, 25, 1e-9); eq(C.distanceAdvice(0.21, 1920, { targetCm: 25, fovK: k }).code, 'OK');
 });
 t('발 윤곽 분할 v2: 범위 밖(뒤꿈치 뒤·발등 위)으로 새지 않음', () => {

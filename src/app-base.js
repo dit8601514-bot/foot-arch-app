@@ -1,7 +1,7 @@
 'use strict';
 /* ═════════════ 기본: 저장소 · 상태 · 유틸 · 라우터 ═════════════ */
 const C = window.FootCore;
-const APP_VERSION = '3.3.2';
+const APP_VERSION = '3.4.0';
 const STORES = ['settings', 'exams', 'exercises', 'logs', 'errors', 'models', 'blobs', 'validations'];
 
 const DB = (() => {
@@ -66,6 +66,8 @@ async function loadSettings() {
     const from = S.settings.stickerDiameterMm; S.settings.stickerDiameterMm = 19; S.settings.dia19 = Date.now();
     try { await saveSettings(); await rescaleExams(from, 19); } catch (e) { console.warn('dia19', e); }
   } else if (!S.settings.dia19) { S.settings.dia19 = Date.now(); try { await saveSettings(); } catch (e) { /* */ } }
+  // v3.4: 거리 추정 기본 화각을 실측으로 바꿨으므로, 예전에 저장된 거리 보정값은 한 번 지우고 다시 보정하게 한다
+  if (!S.settings.fovK2) { S.settings.fovK = null; S.settings.fovK2 = Date.now(); try { await saveSettings(); } catch (e) { /* */ } }
   if (typeof window !== 'undefined' && window.FOOTARCH_STICKER_MM > 0) { S.settings.stickerDiameterMm = window.FOOTARCH_STICKER_MM; S.settings.diameterSource = 'user'; } // 시험용
   S.settings.mapping = Object.assign({ normal: [], mild: [], moderate: [], severe: [] }, S.settings.mapping);
   if (!S.settings.seeded) await seedContent();

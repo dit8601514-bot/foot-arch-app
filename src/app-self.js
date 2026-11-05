@@ -80,7 +80,7 @@ route('/self/run', '측정하기', async (v) => {
     <div class="row" style="margin-top:-4px"><span class="badge b-info" id="footBadge"></span><span class="grow"></span><span class="badge" id="phaseBadge"></span></div>
     <div class="bracket" style="margin-top:6px"><i></i><div class="camwrap" id="camwrap"><video id="vid" playsinline muted autoplay></video><canvas id="ov"></canvas><div class="countdown" id="cd"></div></div></div>
     </div><div class="run-side">
-    <div class="statusline" id="status" aria-live="polite">카메라 준비 중…</div><div style="text-align:center;margin-top:4px"><span class="badge hide" id="distBadge"></span> <button class="btn ghost small hide" id="distCal" style="padding:4px 10px">자로 ${S.settings.targetDistCm || 25} cm 맞췄어요</button></div><div class="tiny" id="hud" style="text-align:center"></div>
+    <div class="statusline" id="status" aria-live="polite">카메라 준비 중…</div><div style="text-align:center;margin-top:4px"><div class="note warn small hide" id="calNote" style="margin:4px 0">처음 한 번: 자로 재서 휴대폰 렌즈를 발 안쪽에서 정확히 <b>${S.settings.targetDistCm || 25} cm</b>에 두고 아래 <b>“자로 ${S.settings.targetDistCm || 25} cm 맞췄어요”</b>를 눌러 주세요(휴대폰마다 화각이 달라요).</div><span class="badge hide" id="distBadge"></span> <button class="btn ghost small hide" id="distCal" style="padding:4px 10px">자로 ${S.settings.targetDistCm || 25} cm 맞췄어요</button></div><div class="tiny" id="hud" style="text-align:center"></div>
     <div class="checks compact" id="checks"></div>
     <div style="text-align:center"><button class="shutter hide" id="postNow" aria-label="지금 선 자세 촬영">${ICON.camera}</button><div class="tiny hide" id="postNowHint">지금 선 자세 촬영</div></div>
     <div class="iconbar"><button id="mute">${Voice.enabled ? ICON.vol : ICON.volOff}<span>${Voice.enabled ? '음성 켬' : '음성 끔'}</span></button><button id="cam">${ICON.camera}<span>카메라</span></button><button id="rot">${ICON.rotate}<span>방향 자동</span></button><button id="stop">${ICON.stop}<span>중지</span></button></div>
@@ -201,7 +201,7 @@ route('/self/run', '측정하기', async (v) => {
     paintChecksInto($('#checks', v), f.c);
     $('#hud', v).textContent = `${f.fps} fps · ${f.roi ? '추적 모드' : '전체 검색'} · 장면 움직임 ${f.sceneMotion.toFixed(1)}`;
     { const db = $('#distBadge', v), d = f.dist; lastDist = d || lastDist; if (db) { db.classList.toggle('hide', !d); if (d) { db.textContent = d.targetCm ? `거리 약 ${d.estCm.toFixed(0)} cm · 목표 ${d.targetCm} cm` : `거리 ${d.label}${d.estCm ? ` · 약 ${Math.round(d.estCm / 5) * 5} cm` : ''}`; db.className = 'badge ' + (d.label === '적당' ? 'b-good' : 'b-warn'); } }
-      const cb = $('#distCal', v); if (cb) cb.classList.toggle('hide', !(d && d.targetCm && phase === 'align')); }
+      const cb = $('#distCal', v); if (cb) cb.classList.toggle('hide', !(d && d.targetCm && phase === 'align')); const cn = $('#calNote', v); if (cn) cn.classList.toggle('hide', !(d && phase === 'align' && !S.settings.fovK)); }
     if (now < phaseStart) { $('#status', v).textContent = '음성 안내를 들어 주십시오…'; return; }
     if (phase === 'align') {
       const d = f.dist, off = d && d.code !== 'OK' && f.c.stickers, fixed = !!(d && d.targetCm);
