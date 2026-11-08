@@ -7,6 +7,7 @@ self.addEventListener('fetch', e => {
   const req = e.request; if (req.method !== 'GET' || new URL(req.url).origin !== location.origin) return;
   const u = new URL(req.url);
   if (!u.pathname.includes('/fixed/')) return; // 고정촬영판 주소 밖(기존 앱)은 건드리지 않음
+  if (u.pathname.includes('/admin/')) return; // 관리자 앱은 캐시하지 않음(항상 네트워크)
   // 서버 설정(config.js)은 바뀌면 바로 반영되도록 네트워크 우선
   if (u.pathname.endsWith('/config.js')) {
     e.respondWith(fetch(req).then(r => { if (r.ok) { const copy = r.clone(); caches.open(CACHE).then(c => c.put(req, copy)); } return r; }).catch(() => caches.match(req)));

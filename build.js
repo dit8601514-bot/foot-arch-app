@@ -37,5 +37,7 @@ console.log('built', build, html.length, 'bytes');
   for (const f of ['manifest.webmanifest', 'config.js']) fs.copyFileSync(pf(f), path.join(fo, f));
   for (const f of fs.readdirSync(pf('icons'))) fs.copyFileSync(path.join(pf('icons'), f), path.join(fo, 'icons', f));
   fs.writeFileSync(path.join(fo, 'version.json'), JSON.stringify({ build: fb, version: (rf('app-base.js').match(/APP_VERSION = '([^']+)'/) || [])[1] || '', alg: (fcore.match(/ALGORITHM_VERSION = '([^']+)'/) || [])[1] || '' }));
+  const fadmin = rf('admin.html').replace('<!--CORE-->', () => '<script>\n' + safe(fcore) + '\n</script>').replace('<!--ADMIN-->', () => '<script>\n' + safe(rf('admin.js')) + '\n</script>');
+  fs.mkdirSync(path.join(fo, 'admin'), { recursive: true }); fs.writeFileSync(path.join(fo, 'admin', 'index.html'), fadmin);
   console.log('built fixed', fb, fh.length, 'bytes');
 }
