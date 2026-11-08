@@ -864,8 +864,9 @@
   // 판정: 18 cm 미만 너무 가까움 · 45 cm 초과 멂(권장 25~35 cm). 1픽셀이 0.33 mm보다 크면 거리와 상관없이 '해상도 낮음' 표시
   // 거리 고정(v3.2, 연구자 결정): 기본 25 cm ± 2.5 cm. 25 cm와 30 cm에서 하강이 약 1 mm 달라 거리를 통일한다.
   // 기기마다 화각이 달라 추정이 어긋나면, 자로 25 cm를 맞춘 상태에서 '거리 보정'을 눌러 이 휴대폰의 계수(fovK)를 저장한다.
-  // fovK 기본값 0.92(v3.4): 사용자 실측(2026-11-05) — 앱이 '25 cm'라고 한 자리가 실제로는 약 37.5 cm였음(아이폰 웹 카메라 영상은 화각이 좁음, 약 49°)
-  const DIST = { nearCm: 18, farCm: 45, okCm: [20, 40], fovK: 0.92, coarseMmPx: 0.33, idealCm: [25, 35], targetCm: 25, tolCm: 2.5 };
+  // 고정촬영판(F1.0.0): 기존 앱에서 사용자 실측으로 맞춘 화각 계수(0.92)는 쓰지 않고 일반 기본값(1.375, 화각 약 69°)에서 시작한다.
+  // 휴대폰마다 다르므로 처음 한 번 자로 25 cm를 맞추고 '자로 25 cm 맞췄어요'로 이 기기 값을 저장한다.
+  const DIST = { nearCm: 18, farCm: 45, okCm: [20, 40], fovK: 1.375, coarseMmPx: 0.33, idealCm: [25, 35], targetCm: 25, tolCm: 2.5 };
   function distanceAdvice(mmPerPx, capSidePx, opt) {
     if (!(mmPerPx > 0)) return null;
     opt = opt || {};

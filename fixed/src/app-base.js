@@ -67,7 +67,8 @@ async function loadSettings() {
     try { await saveSettings(); await rescaleExams(from, 19); } catch (e) { console.warn('dia19', e); }
   } else if (!S.settings.dia19) { S.settings.dia19 = Date.now(); try { await saveSettings(); } catch (e) { /* */ } }
   // v3.4: 거리 추정 기본 화각을 실측으로 바꿨으므로, 예전에 저장된 거리 보정값은 한 번 지우고 다시 보정하게 한다
-  if (!S.settings.fovK2) { S.settings.fovK = null; S.settings.fovK2 = Date.now(); try { await saveSettings(); } catch (e) { /* */ } }
+  // 고정촬영판 F1.0.0: 기본 화각 계수를 일반값(1.375)으로 되돌렸으므로 이 기기에 저장된 거리 보정값을 한 번 지운다
+  if (!S.settings.fovKF1) { S.settings.fovK = null; S.settings.fovKF1 = Date.now(); try { await saveSettings(); } catch (e) { /* */ } }
   if (typeof window !== 'undefined' && window.FOOTARCH_STICKER_MM > 0) { S.settings.stickerDiameterMm = window.FOOTARCH_STICKER_MM; S.settings.diameterSource = 'user'; } // 시험용
   S.settings.mapping = Object.assign({ normal: [], mild: [], moderate: [], severe: [] }, S.settings.mapping);
   if (!S.settings.seeded) await seedContent();

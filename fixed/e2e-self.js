@@ -13,7 +13,7 @@ fs.mkdirSync(path.join(__dirname, '..', 'test', 'shots'), { recursive: true });
 async function scenario(tag, video, expectConfirmed, expectMm, opt) {
   opt = opt || {};
   expectMm = expectMm == null ? 7.14 : expectMm;
-  const b = await chromium.launch({ args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--use-file-for-fake-video-capture=' + path.join(__dirname, '..', 'test', 'img', video)] });
+  const b = await chromium.launch({ executablePath: process.env.CHROME || undefined, args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream', '--use-file-for-fake-video-capture=' + path.join(__dirname, '..', 'test', 'img', video)] });
   const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, permissions: ['camera'] });
   await ctx.addInitScript(d => { window.FOOTARCH_SHUTTER_DELAY = d.delay; window.FOOTARCH_POST_MODE = d.postMode; window.FOOTARCH_MMPX_SCALE = d.mmpxScale; if (d.posWait != null) window.FOOTARCH_POS_WAIT = d.posWait; window.FOOTARCH_STICKER_MM = 16; /* 합성 영상은 16 mm 스티커로 만들어짐 */ window.__workers = []; const OW = window.Worker; window.Worker = function (u, o) { const w = new OW(u, o); window.__workers.push(w); return w; }; window.__spoken = []; const sy = window.speechSynthesis; if (sy) { const orig = sy.speak.bind(sy); sy.speak = u => { if (u.text.trim()) window.__spoken.push(u.text); try { orig(u); } catch (e) {} }; } }, { delay: opt.delay == null ? 0 : opt.delay, postMode: opt.postMode || 'ai', mmpxScale: opt.mmpxScale || 0, posWait: opt.posWait });
   const pg = await ctx.newPage(); const errors = [];
