@@ -184,7 +184,7 @@ route('/posture', '촬영 자세 안내', async (v) => {
         <li>스마트폰을 바닥 가까이, 발 높이에 <b>고정</b>합니다(거치대·책 더미 등). 손으로 들고 찍지 않는 것이 좋습니다.</li>
         <li>카메라 렌즈가 발 <b>안쪽 면과 수직</b>이 되도록 놓습니다. 비스듬하면 스티커가 타원으로 보여 길이 환산이 불가합니다.</li>
         <li>반대쪽 발은 카메라 시야에서 비켜 둡니다.</li>
-        <li>휴대폰을 발 안쪽에서 25 cm 거리에 두고, 스티커 세 개(P1·P2·P3)가 화면에 보이게 합니다.</li>
+        <li>발 전체(발꿈치~엄지발가락)가 화면 가이드 안에 들어오도록 거리를 맞춥니다.</li>
         <li><b>체중부하 전·후 촬영 사이에 카메라를 움직이지 마세요.</b> 거리·각도가 달라지면 결과가 무효 처리됩니다.</li>
         <li>밝고 그림자가 적은 곳에서 촬영합니다.</li>
       </ol>
@@ -259,7 +259,7 @@ route('/capture/:phase', '촬영', async (v, p) => {
       return;
     }
     if (f.ready) { if (!readySince) readySince = now; $('#status', v).textContent = '준비 확인 중…'; if (now - readySince >= 500) { cdStart = Date.now(); cd.textContent = '3'; badFrames = 0; } }
-    else { readySince = 0; $('#status', v).textContent = '스티커 세 개가 보이고 움직이지 않으면 준비 완료'; }
+    else { readySince = 0; $('#status', v).textContent = '가이드 안에 발을 맞춰 주세요'; }
   }
   // 단일 이미지(파일) 분석
   async function analyzeSource(src, mode) {

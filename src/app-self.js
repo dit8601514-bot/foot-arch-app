@@ -29,7 +29,7 @@ route('/self', '측정하기', async (v, p) => {
       <p class="sub">휴대폰을 두 발 사이에 가로로 세우고 아래 순서대로 진행합니다. 음성이 단계마다 알려 드립니다.</p>
       <ol class="flow">
         <li><b>촬영 버튼</b><span>누르면 “준비해 주세요” 음성 안내가 나옵니다. 휴대폰을 놓고 앉습니다</span></li>
-        <li><b>스티커가 고정되면 촬영</b><span>25 cm 거리에서 P1·P2·P3가 움직이지 않으면 앉은 자세를 찍습니다</span></li>
+        <li><b>가이드에 맞추면 촬영</b><span>발 윤곽이 초록색이 되면 앉은 자세를 찍습니다</span></li>
         <li><b>일어서기</b><span>그대로 일어서면 AI가 체중부하를 확인하고 선 자세를 찍습니다</span></li>
       </ol>
       <div class="seg" id="feetSeg">${[['left', '왼발'], ['right', '오른발']].map(([k, l]) => `<button data-v="${k}" class="${feetSel === k ? 'on' : ''}">${l}</button>`).join('')}</div>
@@ -42,7 +42,7 @@ route('/self', '측정하기', async (v, p) => {
       <li>발 안쪽에 지름 ${esc(String(S.settings.stickerDiameterMm || 19))} mm 파란 스티커 3개를 붙입니다. <a href="#/stickers-info">부착 위치 보기</a></li>
       <li>의자에 앉아 두 발을 바닥에 편하게 둡니다.</li>
       <li>휴대폰을 <b>가로로 세워 두 발 사이 바닥</b>에 두고, <b>뒷면 카메라</b>가 검사할 발 안쪽을 향하게 합니다. 촬영 거리는 발 안쪽에서 <b>25 cm로 고정</b>합니다(±2.5 cm). 렌즈는 바닥에서 1~3 cm 띄우고 기본 1× 렌즈를 씁니다. 거리가 맞을 때까지 음성으로 안내하고, 맞으면 찍습니다. 처음 한 번은 자로 25 cm를 맞춘 뒤 촬영 화면의 <b>“자로 25 cm 맞췄어요”</b>를 눌러 이 휴대폰의 거리를 보정해 주세요.</li>
-      <li><b>촬영 버튼</b>을 누릅니다. “준비해 주세요” 음성 안내가 나오면 휴대폰을 놓고 의자에 앉습니다. 25 cm 거리에서 스티커 세 개(P1·P2·P3)가 움직이지 않을 때까지 기다렸다가 찍으므로 서두르지 않아도 됩니다.</li>
+      <li><b>촬영 버튼</b>을 누릅니다. “준비해 주세요” 음성 안내가 나오면 휴대폰을 놓고 의자에 앉습니다. 발이 가이드에 맞을 때까지 기다렸다가 찍으므로 서두르지 않아도 됩니다.</li>
       <li>AI가 스티커 3개의 색을 찾고, 실제 발 윤곽을 따라 선을 그립니다. 스티커가 모두 보이고 윤곽이 <b>초록색</b>이 되면 “발이 정확히 들어왔습니다 → 앉은 자세를 촬영합니다” 후 자동으로 찍습니다.</li>
       <li>“이제 일어서서, 체중부하 해주십시오” 안내가 나오면 <b>휴대폰은 그대로 두고</b> 일어섭니다. 앱이 일어서는 동작과 발 모양 변화를 확인한 뒤 “체중부하 확인했습니다. 촬영합니다”라고 말하고 선 자세를 찍습니다(타이머 없음).</li>
       <li>“검사가 끝났습니다” 안내 후 결과 화면이 열립니다. 다른 발도 검사하려면 결과 화면에서 따로 시작합니다.</li>
@@ -80,7 +80,7 @@ route('/self/run', '측정하기', async (v) => {
     <div class="row" style="margin-top:-4px"><span class="badge b-info" id="footBadge"></span><span class="grow"></span><span class="badge" id="phaseBadge"></span></div>
     <div class="bracket" style="margin-top:6px"><i></i><div class="camwrap" id="camwrap"><video id="vid" playsinline muted autoplay></video><canvas id="ov"></canvas><div class="countdown" id="cd"></div></div></div>
     </div><div class="run-side">
-    <div class="statusline" id="status" aria-live="polite">카메라 준비 중…</div><div style="text-align:center;margin-top:4px"><div class="note warn small hide" id="calNote" style="margin:4px 0">처음 한 번: 자로 재서 휴대폰 렌즈를 발 안쪽에서 정확히 <b>${TARGET_DIST_CM} cm</b>에 두고 아래 <b>“자로 ${TARGET_DIST_CM} cm 맞췄어요”</b>를 눌러 주세요(휴대폰마다 화각이 달라요).</div><span class="badge hide" id="distBadge"></span> <button class="btn ghost small hide" id="distCal" style="padding:4px 10px">자로 ${TARGET_DIST_CM} cm 맞췄어요</button></div><div class="tiny" id="hud" style="text-align:center"></div>
+    <div class="statusline" id="status" aria-live="polite">카메라 준비 중…</div><div style="text-align:center;margin-top:4px"><div class="note warn small hide" id="calNote" style="margin:4px 0">처음 한 번: 자로 재서 휴대폰 렌즈를 발 안쪽에서 정확히 <b>${S.settings.targetDistCm || 25} cm</b>에 두고 아래 <b>“자로 ${S.settings.targetDistCm || 25} cm 맞췄어요”</b>를 눌러 주세요(휴대폰마다 화각이 달라요).</div><span class="badge hide" id="distBadge"></span> <button class="btn ghost small hide" id="distCal" style="padding:4px 10px">자로 ${S.settings.targetDistCm || 25} cm 맞췄어요</button></div><div class="tiny" id="hud" style="text-align:center"></div>
     <div class="checks compact" id="checks"></div>
     <div style="text-align:center"><button class="shutter hide" id="postNow" aria-label="지금 선 자세 촬영">${ICON.camera}</button><div class="tiny hide" id="postNowHint">지금 선 자세 촬영</div></div>
     <div class="iconbar"><button id="mute">${Voice.enabled ? ICON.vol : ICON.volOff}<span>${Voice.enabled ? '음성 켬' : '음성 끔'}</span></button><button id="cam">${ICON.camera}<span>카메라</span></button><button id="rot">${ICON.rotate}<span>방향 자동</span></button><button id="stop">${ICON.stop}<span>중지</span></button></div>
@@ -91,15 +91,15 @@ route('/self/run', '측정하기', async (v) => {
   // 상태: align(앉은 자세 정렬) → stand(체중부하 요청, 일어서는 동작 감지) → settle(선 자세 안정·형태 근거 확인) → 촬영
   const PHASE_LABEL = { align: '1/2 앉은 자세', stand: '일어서기', settle: '2/2 선 자세' };
   // 선 자세 촬영: 타이머 없이 AI가 일어서는 동작·체중부하 형태를 인지하면 찍는다
-  let fi = 0, phase = 'align', phaseStart = 0, readySince = 0, busy = false, cur = null, lastHint = { t: 0, msg: '' }, announcedAlign = false, distSaid = 0, distCount = 0, lastDist = null, plateau = [], plateauSince = 0;
+  let fi = 0, phase = 'align', phaseStart = 0, readySince = 0, busy = false, cur = null, lastHint = { t: 0, msg: '' }, announcedAlign = false, distSaid = 0, distCount = 0, lastDist = null, plateau = [], plateauSince = 0, posSince = 0, posSaid = 0;
   let preLive = [], liveRef = null, lostFrames = 0, moveFrames = 0, transitionSeen = false, standPrompts = 0, settleWin = [], recheckAt = 0, reprompted = false, lastEv = null;
   const foot = () => run.feet[fi], toe = () => defaultToe(foot());
   let shapeFrames = 0, lastSpoke = 0;
-  const T = { preSteady: 0.04, preMaxWait: 6000, plateauMin: 2500, plateauMax: 9000, plateauEps: 0.02, alignHold: 1200, settleHold: 1500, sceneMove: 6, lostMove: 5, standRepeat: 8000, standGiveUp: 30000, recheck: 4500 };
+  const T = { posMaxWait: window.FOOTARCH_POS_WAIT != null ? window.FOOTARCH_POS_WAIT : 10000, preSteady: 0.04, preMaxWait: 6000, plateauMin: 2500, plateauMax: 9000, plateauEps: 0.02, alignHold: 1200, settleHold: 1500, sceneMove: 6, lostMove: 5, standRepeat: 8000, standGiveUp: 30000, recheck: 4500 };
   const setPhase = ph => { phase = ph; phaseStart = performance.now(); readySince = 0; $('#phaseBadge', v).textContent = PHASE_LABEL[ph] || ''; $('#loadCard', v).style.display = ph === 'align' ? 'none' : ''; };
   const say = (t, o) => Voice.say(t, o);
   { const cb = $('#distCal', v); if (cb) cb.onclick = () => { const d = lastDist; if (!d) return toast('스티커 3개가 보이게 한 뒤 눌러 주세요.', true);
-      const T = TARGET_DIST_CM, k = C.calibrateFovK(d.mmPerPx, d.side, T); if (!k) return;
+      const T = S.settings.targetDistCm || 25, k = C.calibrateFovK(d.mmPerPx, d.side, T); if (!k) return;
       S.settings.fovK = +k.toFixed(4); saveSettings(); toast(`거리 보정 완료: 이 휴대폰에서 지금 거리를 ${T} cm로 기억합니다.`); say(`거리를 보정했습니다. 지금 거리가 ${T}센티미터입니다.`, { interrupt: false }); }; }
   const tracker = createTracker({ video: vid, overlay: $('#ov', v), wrap: $('#camwrap', v), getToe: toe, onFrame });
   const median = a => { const q = a.slice().sort((x, y) => x - y), n = q.length; return n % 2 ? q[n >> 1] : (q[n / 2 - 1] + q[n / 2]) / 2; };
@@ -112,7 +112,8 @@ route('/self/run', '측정하기', async (v) => {
   function hint(f, now) {
     if (now - phaseStart < 2500 || now - lastHint.t < 5000) return;
     const c = f.c; let msg;
-    if (!c.stickers) msg = f.det.stickers.length === 0 ? `${FOOT[foot()]} 안쪽의 스티커 세 개가 화면에 보이게 해 주십시오` : c.stickersCode === 'EXTRA' ? '주변의 파란 물건을 치워 주십시오' : c.stickersCode === 'OCCLUDED' ? '스티커가 가려졌습니다. 바지나 손을 치워 주십시오' : '스티커 세 개가 모두 보이게 해 주십시오';
+    if (!c.stickers) msg = f.det.stickers.length === 0 ? `${FOOT[foot()]} 안쪽이 화면 가이드 안에 들어오게 해 주십시오` : c.stickersCode === 'EXTRA' ? '주변의 파란 물건을 치워 주십시오' : c.stickersCode === 'OCCLUDED' ? '스티커가 가려졌습니다. 바지나 손을 치워 주십시오' : '스티커 세 개가 모두 보이게 해 주십시오';
+    else if (!c.frame) msg = c.frameMsg;
     else if (!c.sharp) msg = '화면이 흐립니다. 조명을 밝게 하고 잠시 그대로 계십시오';
     else if (!c.still) msg = c.stillCode === 'PHONE' ? '휴대폰이 흔들리고 있습니다. 휴대폰을 고정해 주십시오' : '발을 움직이지 마십시오';
     if (!msg || (msg === lastHint.msg && now - lastHint.t < 12000)) return;
@@ -207,14 +208,24 @@ route('/self/run', '측정하기', async (v) => {
       // 고정 모드: 8초마다 계속 안내(횟수 제한 없음) · 자유 모드: 최대 3번
       if (off && (!distSaid || (now - distSaid > 8000 && (fixed || distCount < 3)))) { distSaid = now; distCount++; lastHint = { t: now, msg: d.msg }; say(d.msg + '.', { interrupt: false }); }
       if (off && fixed) { readySince = 0; $('#status', v).textContent = `${d.code === 'FAR' ? '조금 더 가까이' : '조금 더 멀리'} · ${d.targetCm} cm에 맞춰 주세요 (지금 약 ${d.estCm.toFixed(0)} cm)`; if (!f.ready) hint(f, now); return; }
+      if (f.ready && off && distSaid && now - distSaid < 6000) { readySince = 0; $('#status', v).textContent = d.code === 'FAR' ? '조금 더 가까이 (약 30 cm)' : '조금 더 멀리 (약 30 cm)'; return; }
+      const pc = f.guide && f.guide.posCode;
+      if (f.ready && pc) {
+        if (!posSince) posSince = now;
+        if (now - posSince < T.posMaxWait) {
+          readySince = 0; $('#status', v).textContent = f.guide.posMsg + ' (발배뼈가 화면 가운데에 오게)';
+          if (!posSaid || now - posSaid > 6000) { posSaid = now; lastHint = { t: now, msg: f.guide.posMsg }; say(f.guide.posMsg + '.', { interrupt: false }); }
+          return;
+        }
+      } else if (!pc) posSince = 0;
       if (f.ready) {
         preLive.push(C.shapeOf(f.det)); if (preLive.length > 20) preLive.shift();
-        if (!readySince) { readySince = now; if (!announcedAlign) { announcedAlign = true; say('스티커 세 개를 찾았습니다. 그대로 계십시오.'); } }
-        $('#status', v).textContent = '스티커 고정 확인 중… 그대로 계십시오';
+        if (!readySince) { readySince = now; if (!announcedAlign) { announcedAlign = true; say('발이 정확히 들어왔습니다. 그대로 계십시오.'); } }
+        $('#status', v).textContent = '정확히 들어왔습니다. 그대로 계십시오';
         const hs = preLive.slice(-10).map(s => s.heightPx / s.dia), steady = hs.length >= 8 && Math.max(...hs) - Math.min(...hs) <= T.preSteady;
         if (now - readySince >= T.alignHold && preLive.length >= 8 && (steady || now - readySince > T.preMaxWait)) { busy = true; guarded(shootPre, '앉은 자세 촬영'); }
         else if (now - readySince >= T.alignHold && !steady) $('#status', v).textContent = '발에 힘을 빼고 그대로 계십시오';
-      } else { readySince = 0; $('#status', v).textContent = (!f.c.stickers ? f.c.stickersMsg : !f.c.sharp ? f.c.sharpMsg : f.c.stillMsg) || '스티커 세 개가 보이게 해 주십시오'; hint(f, now); }
+      } else { readySince = 0; $('#status', v).textContent = (!f.c.stickers ? f.c.stickersMsg : !f.c.frame ? f.c.frameMsg : !f.c.sharp ? f.c.sharpMsg : f.c.stillMsg) || '가이드 안에 발을 맞춰 주십시오'; hint(f, now); }
       return;
     }
     if (phase === 'stand') {
@@ -285,9 +296,9 @@ route('/self/run', '측정하기', async (v) => {
   beginFoot();
   try {
     await tracker.start();
-    // 시작 타이머 없음: 음성으로 "준비해 주세요"라고 알리고 바로 추적한다(스티커가 고정될 때까지 기다렸다 찍으므로 앉을 시간은 충분)
+    // 시작 타이머 없음: 음성으로 "준비해 주세요"라고 알리고 바로 추적한다(가이드에 맞을 때까지 기다렸다 찍으므로 앉을 시간은 충분)
     $('#status', v).textContent = '준비해 주세요';
-    say(`준비해 주세요. 휴대폰을 다리 사이에 세워 두고, 의자에 앉아 주십시오. 휴대폰은 발 안쪽에서 25센티미터에 두고, 발에 힘을 빼 주십시오. 스티커 세 개가 움직이지 않으면 자동으로 찍습니다.`);
+    say(`준비해 주세요. 휴대폰을 다리 사이에 세워 두고, 의자에 앉아 주십시오. 발에 힘을 빼고, ${FOOT[foot()]} 안쪽을 가이드에 맞춰 주십시오. 가이드에 맞으면 자동으로 찍습니다.`);
     phaseStart = performance.now() + 2500;
   } catch (e) {
     if (e.name === 'Stale') return;
