@@ -49,7 +49,7 @@ async function scenario(tag, video, expectConfirmed, expectMm, opt) {
   const spoken = await pg.evaluate(() => window.__spoken), J = spoken.join(' ');
   log(`[${tag}] 손대지 않고 비체중부하·체중부하 자동 촬영 → 결과`, ok, secs + '초');
   log(`[${tag}] 시작: 타이머 없이 음성 "준비해 주세요"`, J.includes('준비해 주세요') && !J.includes('초 뒤에 시작합니다'));
-  log(`[${tag}] 음성: 정확한 정렬 안내`, spoken.some(s => s.includes('정확히 들어왔습니다')));
+  log(`[${tag}] 음성: 스티커 고정 안내`, spoken.some(s => s.includes('스티커 세 개를 찾았습니다')));
   log(`[${tag}] 음성: "앉은 자세를 촬영합니다"`, spoken.includes('앉은 자세를 촬영합니다.'));
   log(`[${tag}] 타이머 없음: 카운트다운 숫자·"초 뒤에" 안내 없음`, !(await pg.evaluate(() => window.__cdSeen)) && !/초 뒤에/.test(J));
   {

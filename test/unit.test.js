@@ -448,6 +448,7 @@ t('개인 오차 보정: 최근·같은 촬영 조건 실측을 더 믿고, 서�
 t('앞뒤 위치 안내: 발배뼈가 화면 가운데에서 벗어나면 P1(발가락) 쪽 기준 앞으로/뒤로', () => {
   const mk = (p2x) => ({ imageSize: [640, 360], landmarks: { P3: { x: p2x - 110, y: 230 }, P2: { x: p2x, y: 190 }, P1: { x: p2x + 160, y: 235 } }, quality: { diameterPx: 22 } });
   eq(C.guideCheck(mk(320), 'right').posCode, null);
+  // (v3.6.0: 촬영 흐름에서는 앞뒤 위치 안내를 쓰지 않지만 core 함수는 남겨 둠)
   eq(C.guideCheck(mk(250), 'right').posCode, 'FWD'); ok(/앞으로/.test(C.guideCheck(mk(250), 'right').posMsg)); // 발가락이 오른쪽, P2가 왼쪽(뒤꿈치 쪽) → 앞으로
   eq(C.guideCheck(mk(390), 'right').posCode, 'BACK');
 });
