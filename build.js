@@ -23,3 +23,19 @@ fs.writeFileSync(path.join(out, '.nojekyll'), '');
 // 새 버전 확인용(앱이 열려 있는 동안에도 몇 분마다 확인 → 홈 화면에 둔 앱이 옛 버전에 머무르지 않게)
 fs.writeFileSync(path.join(out, 'version.json'), JSON.stringify({ build, version: (r('app-base.js').match(/APP_VERSION = '([^']+)'/) || [])[1] || '', alg: (core.match(/ALGORITHM_VERSION = '([^']+)'/) || [])[1] || '' }));
 console.log('built', build, html.length, 'bytes');
+
+// ── 고정촬영판(별도 앱): fixed/src + fixed/public → dist/fixed/ (기존 앱과 코드·서버·기록 분리, 관리자 앱 없음) ──
+{
+  const FD = path.join(__dirname, 'fixed'), rf = f => fs.readFileSync(path.join(FD, 'src', f), 'utf8'), pf = f => path.join(FD, 'public', f);
+  const fcore = rf('core.js'), fapp = ['app-base.js', 'app-live.js', 'app-account.js', 'app-user.js', 'app-self.js', 'app-design.js', 'app-research.js'].map(rf).join('\n');
+  let fh = rf('index.html').replace('<!--CORE-->', () => '<script id="core-script">\n' + safe(fcore) + '\n</script>').replace('<!--APP-->', () => '<script>\n' + safe(fapp) + '\n</script>');
+  const fb = crypto.createHash('sha1').update(fh).update(fs.readFileSync(pf('config.js'))).update(fs.readFileSync(pf('sw.js'))).digest('hex').slice(0, 10);
+  fh = fh.replace('__BUILD__', fb);
+  const fo = path.join(out, 'fixed'); fs.mkdirSync(path.join(fo, 'icons'), { recursive: true });
+  fs.writeFileSync(path.join(fo, 'index.html'), fh);
+  fs.writeFileSync(path.join(fo, 'sw.js'), fs.readFileSync(pf('sw.js'), 'utf8').replace('__BUILD__', fb));
+  for (const f of ['manifest.webmanifest', 'config.js']) fs.copyFileSync(pf(f), path.join(fo, f));
+  for (const f of fs.readdirSync(pf('icons'))) fs.copyFileSync(path.join(pf('icons'), f), path.join(fo, 'icons', f));
+  fs.writeFileSync(path.join(fo, 'version.json'), JSON.stringify({ build: fb, version: (rf('app-base.js').match(/APP_VERSION = '([^']+)'/) || [])[1] || '', alg: (fcore.match(/ALGORITHM_VERSION = '([^']+)'/) || [])[1] || '' }));
+  console.log('built fixed', fb, fh.length, 'bytes');
+}
