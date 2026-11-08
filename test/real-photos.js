@@ -18,6 +18,10 @@ const C = require('../src/core.js'); const { chromium } = require('playwright');
     if (/^(A_|B_)/.test(f)) { n++; const det = C.detectStickers(img, { toeDirection: 'right' }), sole = det.sole, h = sole && sole.ok ? C.heightAboveSole(det.landmarks.P2, sole) / det.quality.diameterPx * 19 : null;
       const ok = !!(sole && sole.ok && h > 20 && h < 50); if (ok) pass++; console.log(ok ? 'PASS' : 'FAIL', f, '카펫 바닥선', sole && (sole.method || sole.reason), h && h.toFixed(1) + ' mm');
     }
+    // 사용자 카펫(U_, 2026-11): 휴대폰을 바닥 가까이 둔 사진 — 촘촘한 카펫 무늬 속에서도 발바닥 선을 찾아야 함(P2 바닥 높이 44~58 mm)
+    if (/^U_/.test(f)) { n++; const det = C.detectStickers(img, { toeDirection: 'left' }), sole = det.sole, h = sole && sole.ok ? C.heightAboveSole(det.landmarks.P2, sole) / det.quality.diameterPx * 19 : null;
+      const ok = !!(h > 44 && h < 58 && sole.rms < 1.2); if (ok) pass++; console.log(ok ? 'PASS' : 'FAIL', f, '카펫 바닥선(사용자)', sole && (sole.ok ? sole.method : sole.reason), h ? h.toFixed(1) + ' mm' : '');
+    }
     // 15번은 경계 잔차가 한계 근처(압축에 민감) → 거부도 허용
     // 표본 S_: 바닥에 선 사진은 바닥선을 찾고 P2 높이가 서로 일치, 발을 든 사진(11–14)은 바닥선을 거부해야 함
     if (/^S_/.test(f)) { n++; const k = +f.slice(2, 4), lifted = k >= 11 && k <= 14, det = C.detectStickers(img, { toeDirection: 'right' }), sole = det.sole;

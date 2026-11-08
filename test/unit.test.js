@@ -452,6 +452,16 @@ t('앞뒤 위치 안내: 발배뼈가 화면 가운데에서 벗어나면 P1(발
   eq(C.guideCheck(mk(390), 'right').posCode, 'BACK');
 });
 
+t('개인 보정 재현성: 같은 발을 두 번 재서 바닥선이 한 번만 잡혀도 같은 방식으로 보정(v3.5.1)', () => {
+  const D = 864e5, ref = { id: 'r', foot: 'right', createdAt: 1 * D, measurementConfidence: 0.9, distance: { targetCm: 25 },
+    comparison: { changeMm: 5.3, preMm: 24.3, postMm: 19, floor: { preMm: 45, postMm: 40.5 } }, reference: { ndtMm: 6, preMm: 24, postMm: 18, at: D } };
+  const a = { id: 'a', foot: 'right', createdAt: 2 * D, measurementConfidence: 0.9, distance: { targetCm: 25 }, comparison: { changeMm: 5.0, preMm: 24.2, postMm: 19.2, floor: { preMm: 45, postMm: 40.8 } } };
+  const b = { id: 'b', foot: 'right', createdAt: 2 * D + 6e4, measurementConfidence: 0.9, distance: { targetCm: 25 }, comparison: { changeMm: 5.0, preMm: 24.2, postMm: 19.2 } }; // 바닥선 못 찾음
+  const pc = C.personalCare([ref, a, b]); const va = pc.personalMm(a), vb = pc.personalMm(b);
+  ok(Math.abs(va - vb) < 0.3, `바닥선 있음 ${va.toFixed(2)} / 없음 ${vb.toFixed(2)}`);
+  ok(pc.heightCalib.line && pc.heightCalib.floor, '두 방식 모두 학습');
+});
+
 const pass = results.filter(r => r[1] === 'PASS').length;
 for (const r of results) console.log(`${r[1]}  ${r[0]}${r[2] ? '  — ' + r[2] : ''}`);
 console.log(`\n${pass}/${results.length} 통과`);
