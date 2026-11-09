@@ -1,7 +1,7 @@
 'use strict';
 /* ═════════════ 기본: 저장소 · 상태 · 유틸 · 라우터 ═════════════ */
 const C = window.FootCore;
-const APP_VERSION = 'F1.3.0'; // 고정촬영판(별도 앱, 기존 앱 v3.5.0에서 분리)
+const APP_VERSION = 'F1.4.0'; // 고정촬영판(별도 앱, 기존 앱 v3.5.0에서 분리)
 const STORES = ['settings', 'exams', 'exercises', 'logs', 'errors', 'models', 'blobs', 'validations'];
 
 const DB = (() => {
