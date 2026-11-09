@@ -112,11 +112,11 @@ const Account = (() => {
   // ───── AI 오차 보정 모델: 관리자가 배포한(active) 모델 1개를 내려받아 이 기기에 보관 ─────
   const AIM = 'footarchFixed.aimodel';
   // 고정촬영판 기본 오차 보정(사용자 실측, 앱 원래 값 = P1–P3 기준선 하강) — 2026-11-09, 주로 오른발
-  //   ① 실측 8.0 · 앱 3.7  ② 6.0 · 3.0  ③ 10.0 · 4.2 (18:04)  ④ 10.0 · 8.1 (18:19, ③과 같은 발·같은 실측)
-  //   ③④처럼 같은 발에서 앱 값이 4.2 ↔ 8.1로 흔들림(반복 측정 오차) → 곱하기(×2.18, F1.3.0)는 흔들림을 2배로 키워 ④가 17.6 mm.
-  //   흔들림을 키우지 않는 더하기로: 실측 − 앱 평균 = (4.3 + 3.0 + 5.8 + 1.9) / 4 = 3.75 ≈ +3.8 mm. 실측이 더 모이면 다시 계산.
+  //   실측 / 앱 → 차이: ① 8.0/3.7 +4.3  ② 6.0/3.0 +3.0  ③ 10.0/4.2 +5.8  ④ 10.0/8.1 +1.9  ⑤ 10.0/4.8 +5.2 (18:40)
+  //   ③④⑤는 같은 발·같은 실측 10 mm인데 ④만 앱 값이 튐 → 튀는 값에 덜 흔들리는 중간값 +4.3 mm (평균 4.04)
+  //   곱하기(×2.18, F1.3.0)는 반복 측정 흔들림을 키워서 쓰지 않음. 실측이 더 모이면 다시 계산.
   //   서버에 관리자가 배포한 모델이 있으면 그것을 우선 쓴다.
-  const BUILTIN_MODEL = { id: 'builtin-f4', version: '기본4(+3.8 mm)', builtin: true, data: { method: 'bias', bias: -3.8, piMm: null, cvMae: 1.3, source: '실측 4쌍 차이 평균: 8.0/3.7, 6.0/3.0, 10.0/4.2, 10.0/8.1 (2026-11-09)' } };
+  const BUILTIN_MODEL = { id: 'builtin-f5', version: '기본5(+4.3 mm)', builtin: true, data: { method: 'bias', bias: -4.3, piMm: null, cvMae: 1.22, source: '실측 5쌍 차이 중간값: 8.0/3.7, 6.0/3.0, 10.0/4.2, 10.0/8.1, 10.0/4.8 (2026-11-09)' } };
   function aiModel() { try { return JSON.parse(ls.get(AIM) || 'null') || BUILTIN_MODEL; } catch (e) { return BUILTIN_MODEL; } }
   async function fetchAiModel() {
     if (!configured()) return aiModel();
