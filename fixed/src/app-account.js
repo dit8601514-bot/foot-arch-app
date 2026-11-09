@@ -111,9 +111,10 @@ const Account = (() => {
   async function pendingCount() { const u = user(); if (!u) return 0; let n = 0; for (const st of ['exams', 'logs']) n += (await DB.all(st)).filter(r => !r.isTest && !r._syncedAt).length; return n; }
   // ───── AI 오차 보정 모델: 관리자가 배포한(active) 모델 1개를 내려받아 이 기기에 보관 ─────
   const AIM = 'footarchFixed.aimodel';
-  // 고정촬영판 기본 오차 보정(사용자 실측 2026-11-09): 실측 하강 8.0 mm · 앱 3.7 mm → 앱 값에 +4.3 mm
-  //   (모델 형식 bias = 앱 − 실측 = −4.3). 서버에 관리자가 배포한 모델이 있으면 그것을 우선 쓴다.
-  const BUILTIN_MODEL = { id: 'builtin-f1', version: '기본1(+4.3 mm)', builtin: true, data: { method: 'bias', bias: -4.3, piMm: null, cvMae: null, source: '실측 8.0 mm vs 앱 3.7 mm (2026-11-09)' } };
+  // 고정촬영판 기본 오차 보정(사용자 실측 평균, 앱 원래 값 기준 실측 − 앱):
+  //   2026-11-09 ① 실측 8.0 · 앱 3.7 → +4.3   ② 실측 6.0 · 앱 3.0 → +3.0   ⇒ 평균 +3.65 ≈ +3.7 mm
+  //   (모델 형식 bias = 앱 − 실측 = −3.7). 서버에 관리자가 배포한 모델이 있으면 그것을 우선 쓴다. 실측이 더 모이면 평균을 다시 계산.
+  const BUILTIN_MODEL = { id: 'builtin-f2', version: '기본2(+3.7 mm)', builtin: true, data: { method: 'bias', bias: -3.7, piMm: null, cvMae: null, source: '실측 2쌍 평균: 8.0/3.7, 6.0/3.0 (2026-11-09)' } };
   function aiModel() { try { return JSON.parse(ls.get(AIM) || 'null') || BUILTIN_MODEL; } catch (e) { return BUILTIN_MODEL; } }
   async function fetchAiModel() {
     if (!configured()) return aiModel();
