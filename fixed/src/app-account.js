@@ -111,14 +111,17 @@ const Account = (() => {
   async function pendingCount() { const u = user(); if (!u) return 0; let n = 0; for (const st of ['exams', 'logs']) n += (await DB.all(st)).filter(r => !r.isTest && !r._syncedAt).length; return n; }
   // ───── AI 오차 보정 모델: 관리자가 배포한(active) 모델 1개를 내려받아 이 기기에 보관 ─────
   const AIM = 'footarchFixed.aimodel';
-  function aiModel() { try { return JSON.parse(ls.get(AIM) || 'null'); } catch (e) { return null; } }
+  // 고정촬영판 기본 오차 보정(사용자 실측 2026-11-09): 실측 하강 8.0 mm · 앱 3.7 mm → 앱 값에 +4.3 mm
+  //   (모델 형식 bias = 앱 − 실측 = −4.3). 서버에 관리자가 배포한 모델이 있으면 그것을 우선 쓴다.
+  const BUILTIN_MODEL = { id: 'builtin-f1', version: '기본1(+4.3 mm)', builtin: true, data: { method: 'bias', bias: -4.3, piMm: null, cvMae: null, source: '실측 8.0 mm vs 앱 3.7 mm (2026-11-09)' } };
+  function aiModel() { try { return JSON.parse(ls.get(AIM) || 'null') || BUILTIN_MODEL; } catch (e) { return BUILTIN_MODEL; } }
   async function fetchAiModel() {
     if (!configured()) return aiModel();
     try {
       const rows = await call('/rest/v1/calibration_models?select=id,version,data&active=eq.true&limit=1', { auth: !!user() });
       const m = rows && rows[0] ? { id: rows[0].id, version: rows[0].version, data: rows[0].data, fetchedAt: Date.now() } : null;
       if (m) ls.set(AIM, JSON.stringify(m)); else ls.del(AIM);
-      return m;
+      return m || BUILTIN_MODEL;
     } catch (e) { return aiModel(); } // 오프라인: 마지막으로 받은 모델 사용
   }
   // ───── 운동(중재) 영상: 관리자가 서버에 올린 콘텐츠를 이 기기에 반영 ─────

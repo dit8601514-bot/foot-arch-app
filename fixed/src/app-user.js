@@ -400,8 +400,9 @@ route('/result/:id', '측정 결과', async (v, p) => {
       <span class="feet">${footprintsSvg('r')}</span>
       <div class="grow">
         <div class="tiny" style="font-weight:700;color:var(--ink-2)">발배뼈 하강 ${c.primary === 'floor' ? '(바닥 기준)' : ''}</div>
-        <div class="result-big">${c.changeMm != null ? mm(c.changeMm) : '—'}</div>
-        <div>${catBadge(cat)}</div>
+        ${(() => { const ac = e.aiCorrection && isFinite(e.aiCorrection.mm) ? e.aiCorrection : null; // 고정촬영판: 보정값을 큰 숫자로, 앱 원래 값은 아래 작게
+          return ac ? `<div class="result-big">${mm(Math.max(0, ac.mm))}</div><div>${catBadge(ac.category || cat)}</div><div class="tiny" style="font-weight:600">보정 적용 · 앱 측정 ${mm(c.changeMm)} ${ac.mm - c.changeMm >= 0 ? '+' : '−'} ${Math.abs(ac.mm - c.changeMm).toFixed(1)} mm (${esc(String(ac.version))})</div>`
+            : `<div class="result-big">${c.changeMm != null ? mm(c.changeMm) : '—'}</div><div>${catBadge(cat)}</div>`; })()}
         ${c.changeMm == null && c.changePx != null ? `<div class="tiny">픽셀 변화량 ${px(c.changePx)} (mm 아님)</div>` : ''}
       </div>
     </div>
@@ -414,7 +415,7 @@ route('/result/:id', '측정 결과', async (v, p) => {
       ${metric(ICON.height, '발배뼈 높이(바닥 기준)', '앉음 → 섬 · 표준 NDT 방식', fl ? `${mm(fl.preMm)} → ${mm(fl.postMm)}` : '<span class="tiny">바닥선 미확인</span>')}
       ${fl ? metric(ICON.drop, '바닥 기준 하강', '', mm(fl.dropMm)) : ''}
       ${metric(ICON.angle, '스티커 발활 각도', 'P3–P2–P1 · 앉음 → 섬', ang ? `${deg(ang.pre)} → ${deg(ang.post)}` : '—')}
-      ${e.aiCorrection ? metric(ICON.chart, 'AI 보정 (임상 NDT 추정)', `모델 v${e.aiCorrection.version} · 예상 오차 ±${cmTxt(e.aiCorrection.piMm || 0)}${e.aiCorrection.category ? ' · ' + e.aiCorrection.category.label : ''}`, mm(e.aiCorrection.mm)) : ''}
+      ${e.aiCorrection ? metric(ICON.chart, 'AI 보정 (임상 NDT 추정)', `모델 ${e.aiCorrection.version}${e.aiCorrection.piMm ? ` · 예상 오차 ±${cmTxt(e.aiCorrection.piMm)}` : ''}${e.aiCorrection.category ? ' · ' + e.aiCorrection.category.label : ''}`, mm(e.aiCorrection.mm)) : ''}
       ${metric(ICON.check, '측정 신뢰도', '검출·선명도 기반 휴리스틱', pct(e.measurementConfidence))}
     </div>
     ${normCardHtml(c)}
