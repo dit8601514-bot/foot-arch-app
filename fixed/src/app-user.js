@@ -357,7 +357,7 @@ async function finalizeExam(ex, log) {
     const feat = am && cmp.status === '측정 가능' ? C.errorFeatures(rec) : null;
     if (feat && am.data && am.data.method && am.data.method !== 'identity') {
       const v2 = C.applyErrorModel(am.data, feat);
-      if (isFinite(v2)) { rec.aiCorrection = { mm: v2, version: am.version, modelId: am.id, method: am.data.method, piMm: am.data.piMm, cvMae: am.data.cvMae, category: C.classify(Math.max(0, v2)) }; log(`AI 오차 보정(v${am.version}): 임상 NDT 추정 ${mm(v2)}`); }
+      if (isFinite(v2)) { rec.aiCorrection = { mm: v2, version: am.version, modelId: am.id, method: am.data.method, slope: am.data.method === 'linear' && !am.data.intercept ? am.data.slope : null, piMm: am.data.piMm, cvMae: am.data.cvMae, category: C.classify(Math.max(0, v2)) }; log(`AI 오차 보정(v${am.version}): 임상 NDT 추정 ${mm(v2)}`); }
     }
   } catch (e) { console.warn('ai', e); }
   for (const ph of ['pre', 'post']) if (ex[ph]._blob) {
@@ -401,7 +401,7 @@ route('/result/:id', '측정 결과', async (v, p) => {
       <div class="grow">
         <div class="tiny" style="font-weight:700;color:var(--ink-2)">발배뼈 하강 ${c.primary === 'floor' ? '(바닥 기준)' : ''}</div>
         ${(() => { const ac = e.aiCorrection && isFinite(e.aiCorrection.mm) ? e.aiCorrection : null; // 고정촬영판: 보정값을 큰 숫자로, 앱 원래 값은 아래 작게
-          return ac ? `<div class="result-big">${mm(Math.max(0, ac.mm))}</div><div>${catBadge(ac.category || cat)}</div><div class="tiny" style="font-weight:600">보정 적용 · 앱 측정 ${mm(c.changeMm)} ${ac.mm - c.changeMm >= 0 ? '+' : '−'} ${Math.abs(ac.mm - c.changeMm).toFixed(1)} mm (${esc(String(ac.version))})</div>`
+          return ac ? `<div class="result-big">${mm(Math.max(0, ac.mm))}</div><div>${catBadge(ac.category || cat)}</div><div class="tiny" style="font-weight:600">보정 적용 · 앱 측정 ${mm(c.changeMm)} ${ac.slope ? `× ${ac.slope}` : `${ac.mm - c.changeMm >= 0 ? '+' : '−'} ${Math.abs(ac.mm - c.changeMm).toFixed(1)} mm`} (${esc(String(ac.version))})</div>`
             : `<div class="result-big">${c.changeMm != null ? mm(c.changeMm) : '—'}</div><div>${catBadge(cat)}</div>`; })()}
         ${c.changeMm == null && c.changePx != null ? `<div class="tiny">픽셀 변화량 ${px(c.changePx)} (mm 아님)</div>` : ''}
       </div>

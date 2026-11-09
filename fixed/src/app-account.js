@@ -111,10 +111,14 @@ const Account = (() => {
   async function pendingCount() { const u = user(); if (!u) return 0; let n = 0; for (const st of ['exams', 'logs']) n += (await DB.all(st)).filter(r => !r.isTest && !r._syncedAt).length; return n; }
   // ───── AI 오차 보정 모델: 관리자가 배포한(active) 모델 1개를 내려받아 이 기기에 보관 ─────
   const AIM = 'footarchFixed.aimodel';
-  // 고정촬영판 기본 오차 보정(사용자 실측 평균, 앱 원래 값 기준 실측 − 앱):
-  //   2026-11-09 ① 실측 8.0 · 앱 3.7 → +4.3   ② 실측 6.0 · 앱 3.0 → +3.0   ⇒ 평균 +3.65 ≈ +3.7 mm
-  //   (모델 형식 bias = 앱 − 실측 = −3.7). 서버에 관리자가 배포한 모델이 있으면 그것을 우선 쓴다. 실측이 더 모이면 평균을 다시 계산.
-  const BUILTIN_MODEL = { id: 'builtin-f2', version: '기본2(+3.7 mm)', builtin: true, data: { method: 'bias', bias: -3.7, piMm: null, cvMae: null, source: '실측 2쌍 평균: 8.0/3.7, 6.0/3.0 (2026-11-09)' } };
+  // 고정촬영판 기본 오차 보정(사용자 실측, 앱 원래 값 기준) — 2026-11-09 오른발 등
+  //   ① 실측 8.0 · 앱 3.7  ② 실측 6.0 · 앱 3.0  ③ 실측 10.0 · 앱 4.2
+  //   앱 값이 실측의 약 절반으로 일정하게 작게 나옴(더하기보다 곱하기가 잘 맞음: 평균 오차 0.5 mm vs 1.0 mm)
+  //   ⇒ 실측/앱 비율 평균 2.18 → 보정값 = 앱 값 × 2.18 (하강 0이면 보정도 0). 실측이 더 모이면 다시 계산.
+  //   (큰 숫자는 P1–P3 기준선 방식. 실제 발은 서면 P1·P3 자리도 내려앉아 기준선 하강이 실측보다 작게 나오는 것으로 보임.
+  //    가상 시험 사진은 이 내려앉음이 없어 앱 값이 이미 정확하므로 시험에서는 ×2.18로 부풀어 보임 — 정상)
+  //   서버에 관리자가 배포한 모델이 있으면 그것을 우선 쓴다.
+  const BUILTIN_MODEL = { id: 'builtin-f3', version: '기본3(×2.18)', builtin: true, data: { method: 'linear', slope: 2.18, intercept: 0, piMm: null, cvMae: 0.48, source: '실측 3쌍 비율 평균: 8.0/3.7, 6.0/3.0, 10.0/4.2 (2026-11-09)' } };
   function aiModel() { try { return JSON.parse(ls.get(AIM) || 'null') || BUILTIN_MODEL; } catch (e) { return BUILTIN_MODEL; } }
   async function fetchAiModel() {
     if (!configured()) return aiModel();
