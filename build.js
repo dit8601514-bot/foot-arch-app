@@ -28,7 +28,15 @@ console.log('built', build, html.length, 'bytes');
 {
   const FD = path.join(__dirname, 'fixed'), rf = f => fs.readFileSync(path.join(FD, 'src', f), 'utf8'), pf = f => path.join(FD, 'public', f);
   const fcore = rf('core.js'), fapp = ['app-base.js', 'app-live.js', 'app-account.js', 'app-user.js', 'app-self.js', 'app-design.js', 'app-research.js'].map(rf).join('\n');
-  let fh = rf('index.html').replace('<!--CORE-->', () => '<script id="core-script">\n' + safe(fcore) + '\n</script>').replace('<!--APP-->', () => '<script>\n' + safe(fapp) + '\n</script>');
+  // 기본 보정 학습: 표본 파일 → learnSeedCorrection → 앱(BUILTIN_MODEL)·관리자(SEED_SAMPLES)에 넣기
+  const seed = JSON.parse(fs.readFileSync(path.join(FD, 'calib', 'samples.json'), 'utf8')).samples;
+  const L = require(path.join(FD, 'src', 'core.js')).learnSeedCorrection(seed);
+  const sh = crypto.createHash('sha1').update(JSON.stringify(seed)).digest('hex').slice(0, 6);
+  const seedModel = L.ok && L.chosen !== 'identity' ? { id: 'seed-' + sh, version: `학습(${L.model.label} · 표본 ${L.model.n}개)`, builtin: true, data: L.model } : null;
+  const fapp2 = fapp.replace('/*__SEED_MODEL__*/null', () => JSON.stringify(seedModel));
+  if (fapp2 === fapp) throw new Error('fixed: __SEED_MODEL__ 자리를 찾지 못함');
+  console.log('fixed seed model:', L.ok ? `${L.chosen} ${L.model.label} · 표본 ${L.model.n}/${L.model.nAll} · ${L.model.participants}명 · ${L.validation} MAE ${L.model.baseMae.toFixed(2)} → ${L.model.cvMae.toFixed(2)} mm` : L.reason);
+  let fh = rf('index.html').replace('<!--CORE-->', () => '<script id="core-script">\n' + safe(fcore) + '\n</script>').replace('<!--APP-->', () => '<script>\n' + safe(fapp2) + '\n</script>');
   const fb = crypto.createHash('sha1').update(fh).update(fs.readFileSync(pf('config.js'))).update(fs.readFileSync(pf('sw.js'))).digest('hex').slice(0, 10);
   fh = fh.replace('__BUILD__', fb);
   const fo = path.join(out, 'fixed'); fs.mkdirSync(path.join(fo, 'icons'), { recursive: true });
@@ -36,8 +44,9 @@ console.log('built', build, html.length, 'bytes');
   fs.writeFileSync(path.join(fo, 'sw.js'), fs.readFileSync(pf('sw.js'), 'utf8').replace('__BUILD__', fb));
   for (const f of ['manifest.webmanifest', 'config.js']) fs.copyFileSync(pf(f), path.join(fo, f));
   for (const f of fs.readdirSync(pf('icons'))) fs.copyFileSync(path.join(pf('icons'), f), path.join(fo, 'icons', f));
+  fs.writeFileSync(path.join(fo, 'calib-model.json'), JSON.stringify({ trainedFrom: 'fixed/calib/samples.json', samples: seed.length, result: L }, null, 1));
   fs.writeFileSync(path.join(fo, 'version.json'), JSON.stringify({ build: fb, version: (rf('app-base.js').match(/APP_VERSION = '([^']+)'/) || [])[1] || '', alg: (fcore.match(/ALGORITHM_VERSION = '([^']+)'/) || [])[1] || '' }));
-  const fadmin = rf('admin.html').replace('<!--CORE-->', () => '<script>\n' + safe(fcore) + '\n</script>').replace('<!--ADMIN-->', () => '<script>\n' + safe(rf('admin.js')) + '\n</script>');
+  const fadmin = rf('admin.html').replace('<!--CORE-->', () => '<script>\n' + safe(fcore) + '\n</script>').replace('<!--ADMIN-->', () => '<script>\n' + safe(rf('admin.js').replace('/*__SEED_SAMPLES__*/[]', () => JSON.stringify(seed.map(x => ({ id: x.id, participant: x.participant, ai: x.ai, ref: x.ref, floorDrop: x.floorDrop }))))) + '\n</script>');
   fs.mkdirSync(path.join(fo, 'admin'), { recursive: true }); fs.writeFileSync(path.join(fo, 'admin', 'index.html'), fadmin);
   console.log('built fixed', fb, fh.length, 'bytes');
 }

@@ -1,0 +1,13 @@
+{
+  "설명": "고정촬영판 기본 보정 학습 표본. 같은 측정을 앱(원래 값 = 결과 화면 '앱 측정 x mm' = P1–P3 기준선 하강)과 자(실측 발배뼈 하강)로 함께 잰 짝. 단위 mm. 새 표본은 맨 아래에 한 줄씩 추가하면 빌드할 때 자동으로 다시 학습됩니다.",
+  "필드": { "participant": "참여자 가명(사람마다 다르게)", "foot": "right/left/null", "date": "측정 시각", "ai": "앱 원래 값(보정 전)", "ref": "자로 잰 실측 하강", "floorDrop": "바닥 기준 하강(있으면)", "note": "메모" },
+  "samples": [
+    { "id": "S01", "participant": "U01", "foot": null,    "date": "2026-11-09",       "ai": 3.7, "ref": 8.0,  "floorDrop": null, "note": "첫 보고" },
+    { "id": "S02", "participant": "U01", "foot": "right", "date": "2026-11-09 13:42", "ai": 3.0, "ref": 6.0,  "floorDrop": null, "note": "바닥선 미확인" },
+    { "id": "S03", "participant": "U01", "foot": "right", "date": "2026-11-09 18:04", "ai": 4.2, "ref": 10.0, "floorDrop": null, "note": "" },
+    { "id": "S04", "participant": "U01", "foot": "right", "date": "2026-11-09 18:19", "ai": 8.1, "ref": 10.0, "floorDrop": null, "note": "같은 발·같은 실측인데 앱 값이 튐" },
+    { "id": "S05", "participant": "U01", "foot": "right", "date": "2026-11-09 18:40", "ai": 4.8, "ref": 10.0, "floorDrop": null, "note": "바닥선 미확인" },
+    { "id": "S06", "participant": "U01", "foot": "right", "date": "2026-11-09 18:54", "ai": 5.5, "ref": 10.5, "floorDrop": null, "note": "" },
+    { "id": "S07", "participant": "U01", "foot": "right", "date": "2026-11-09 18:58", "ai": 3.6, "ref": 7.0,  "floorDrop": null, "note": "" }
+  ]
+}

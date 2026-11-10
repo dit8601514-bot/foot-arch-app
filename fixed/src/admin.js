@@ -83,7 +83,13 @@ const refOf = examId => D.refs.find(r => r.exam_id === examId) || (() => { const
 const userOf = id => D.profiles.find(p => p.id === id);
 // 참여자 코드: 사용자 ID에서 만든 가명(내보내기·학습에 이름 대신 사용)
 const pcode = id => 'P-' + String(id).replace(/-/g, '').slice(0, 8).toUpperCase();
+// 고정촬영판: 저장소 표본 파일(fixed/calib/samples.json)을 빌드할 때 넣음 → 서버 자료와 합쳐 학습(참여자 이름 앞에 seed:)
+const SEED_SAMPLES = /*__SEED_SAMPLES__*/[];
+function seedRows() { return SEED_SAMPLES.map(s => ({ participantId: 'seed:' + s.participant, examId: 'seed:' + s.id, f: { ai: s.ai, floorDrop: s.floorDrop == null ? null : s.floorDrop }, ref: s.ref, seed: true })); }
 function trainingRows() {
+  return serverRows().concat(seedRows());
+}
+function serverRows() {
   const userRefs = D.exams.filter(e => !D.refs.some(r => r.exam_id === e.id)).map(e => refOf(e.id)).filter(Boolean); // 사용자가 직접 넣은 실측값도 학습에 포함
   return D.refs.concat(userRefs).map(r => { const e = D.exams.find(x => x.id === r.exam_id); const f = e && C.errorFeatures(e.data); return f ? { participantId: e.user_id, examId: e.id, f, ref: Number(r.clinical_mm) } : null; }).filter(Boolean);
 }
@@ -236,10 +242,18 @@ route('ai', 'AI 보정 모델', async (v) => {
       <p>앱이 재는 값 9가지(앱 NDT, 바닥 기준 하강, 앉은 자세 높이, 발활 각도 변화, 발 길이 변화, 촬영 거리, 발 기울기, 원근 왜곡, 스티커 부착 높이 오차)로 <b>임상 NDT를 예측</b>하는 모델을 학습합니다. 후보: 보정 없음 · 평균 차이 보정 · 선형 보정 · 다변량 릿지 회귀.</p>
       <p>성능은 <b>참여자 한 명씩 빼고 학습해 그 사람을 예측</b>하는 교차검증(LOPO)으로만 판단합니다. 보정 없음보다 평균 오차가 10% 이상 줄고, 참여자 재표집(2,000회) 95% 기준으로도 개선이 유지될 때만 배포를 권합니다.</p></div>
     <div class="card"><div class="row"><span class="grow">학습 자료: 짝 <b>${rows.length}건</b> · 참여자 <b>${nP}명</b> (최소 16건 · 8명)</span><button class="btn primary" id="train" ${rows.length ? '' : 'disabled'}>학습하기</button></div><div id="res"></div></div>
+    <div class="card small"><b>기본 보정 표본(저장소 fixed/calib/samples.json)</b>
+      <p>앱에 기본으로 들어가는 보정은 이 표본으로 빌드할 때 자동 학습됩니다: <b>${SEED_SAMPLES.length}개</b> · ${new Set(SEED_SAMPLES.map(x => x.participant)).size}명 (위 학습 자료에도 seed: 참여자로 포함).</p>
+      <p>서버에 쌓인 실측 짝(다른 사용자 포함)을 표본 파일 형식으로 내려받아 samples.json에 붙이면, 다음 배포부터 모든 사용자의 기본 보정에 반영됩니다. 참여자는 가명 코드로 나갑니다.</p>
+      <div class="row"><span class="grow">서버 실측 짝: <b>${serverRows().length}건</b></span><button class="btn sm" id="seedExport" ${serverRows().length ? '' : 'disabled'}>표본 파일 형식으로 내려받기</button></div></div>
     <h2>모델 버전</h2>
     <div class="card scroll"><table><thead><tr><th>버전</th><th>방법</th><th>학습 자료</th><th>교차검증 MAE (보정 없음 → 보정)</th><th>예측 구간</th><th>상태</th><th></th></tr></thead><tbody>
     ${D.models.map(m => `<tr><td>v${m.version}</td><td>${esc(m.data.method)}</td><td>${m.data.n}건 · ${m.data.participants}명</td><td>${f2(m.data.baseMae)} → <b>${f2(m.data.cvMae)}</b> mm</td><td>±${f1(m.data.piMm)} mm</td><td>${m.active ? '<span class="badge b-good">배포 중</span>' : '<span class="badge">보관</span>'}</td><td>${m.active ? '<button class="btn sm danger" id="deact">배포 중지</button>' : `<button class="btn sm act" data-id="${esc(m.id)}">다시 배포</button>`}</td></tr>`).join('') || '<tr><td colspan="7" class="muted">아직 모델이 없습니다.</td></tr>'}
     </tbody></table></div>`;
+  const se = $('#seedExport', v); if (se) se.onclick = () => {
+    const out = serverRows().map((r, i) => { const e = D.exams.find(x => x.id === r.examId) || {}; return { id: 'R' + String(r.examId).replace(/-/g, '').slice(0, 8), participant: pcode(r.participantId), foot: e.foot || null, date: e.created_at || null, ai: +Number(r.f.ai).toFixed(2), ref: +Number(r.ref).toFixed(2), floorDrop: r.f.floorDrop == null ? null : +Number(r.f.floorDrop).toFixed(2), note: '서버 실측 짝' }; });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([out.map(x => '    ' + JSON.stringify(x)).join(',\n')], { type: 'application/json' })); a.download = `footarch-fixed-samples-${Date.now()}.json`; a.click();
+  };
   $('#train', v).onclick = () => {
     const r = C.trainErrorModel(rows), out = $('#res', v);
     if (!r.ok) { out.innerHTML = `<div class="note warn">${esc(r.reason)}</div>`; return; }

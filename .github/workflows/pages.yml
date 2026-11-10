@@ -30,6 +30,8 @@ jobs:
           BENCH_DIR=ci BENCH_MIN_SUCCESS=0.97 BENCH_MAX_WRONG=0 BENCH_MAX_P95=1.0 BENCH_MAX_FLOOR_P95=0.8 BENCH_MIN_STD_SOLE=0.6 node bench/run.js src/core.js ALG-CI
       - name: 단일 HTML 빌드
         run: node build.js
+      - name: 고정촬영판 기본 보정 학습 시험(표본 파일)
+        run: node fixed/calib/test.js
       - uses: actions/configure-pages@v5
         with:
           enablement: true

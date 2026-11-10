@@ -1347,6 +1347,67 @@
     };
   }
 
+  // ───────────────────────── 기본 보정 학습(표본 파일 → 모든 사용자) ─────────────────────────
+  /**
+   * 고정촬영판 기본 보정 학습. 사진 한 장·한 번의 차이에 맞추지 않고, 쌓인 표본 전체에서 '새 사람에게도 덜 틀리는' 보정을 고른다.
+   * samples: [{ participant, ai: 앱 원래 값(mm), ref: 실측(mm), id? }]
+   *  ① 이상치 제외: 차이(실측−앱)가 중간값에서 3×MAD(정규 환산) 넘게 벗어난 표본은 학습에서 뺀다(표시는 함)
+   *  ② 사람 단위 공정성: 참여자별 중간값을 먼저 구하고 그 중간값을 쓴다 → 한 사람이 표본을 많이 보내도 전체를 끌고 가지 못함
+   *  ③ 수축: 표본이 적거나 흔들림이 클수록(중간값의 표준오차가 클수록) 보정을 0(보정 없음) 쪽으로 당긴다
+   *  ④ 후보: 보정 없음 · 더하기(중간값) · 선형(Theil–Sen 기울기를 1 쪽으로 수축) → 학습에 안 쓴 자료로 평균 오차 비교
+   *     참여자 3명 이상: 한 사람씩 빼고 검증(LOPO = 다른 사람에게 쓸 때의 오차), 그 미만: 표본 하나씩 빼고 검증(LOO, 같은 사람 안에서만 검증됨)
+   *  ⑤ 보정 없음보다 평균 오차가 10% 이상 줄 때만 보정, 선형은 더하기보다 5% 이상 나을 때만(흔들림을 키울 수 있음)
+   */
+  function learnSeedCorrection(samples, options) {
+    const o = Object.assign({ outlierK: 3, slopeShrinkN: 3, minGain: 0.10, methods: ['identity', 'bias', 'linear'] }, options || {});
+    const all = (samples || []).filter(s => s && fin(s.ai) != null && fin(s.ref) != null).map((s, i) => Object.assign({ participant: 'P' + i }, s, { d: s.ref - s.ai }));
+    if (all.length < 2) return { ok: false, reason: `표본이 부족합니다(${all.length}개, 최소 2개).`, n: all.length };
+    const md = median(all.map(s => s.d)), mad = median(all.map(s => Math.abs(s.d - md))) * 1.4826;
+    for (const s of all) s.outlier = mad > 0 && Math.abs(s.d - md) > o.outlierK * mad;
+    const use = all.filter(s => !s.outlier);
+    const groups = rows => { const g = {}; for (const r of rows) (g[r.participant] = g[r.participant] || []).push(r); return Object.values(g); };
+    const fit = (method, rows) => {
+      if (method === 'identity' || !rows.length) return { method: 'identity' };
+      const gs = groups(rows), nP = gs.length, k = nP >= 3 ? nP : rows.length; // 수축 정도: 사람이 3명 이상이면 사람 수, 아니면 표본 수
+      if (method === 'bias') {
+        const b = median(gs.map(g => median(g.map(r => r.d))));
+        // 수축(경험적 베이즈): 중간값의 표준오차(se)가 차이 크기에 비해 클수록 0 쪽으로 당김. 흔들림이 작고 차이가 뚜렷하면 거의 그대로
+        const vals = nP >= 3 ? gs.map(g => median(g.map(r => r.d))) : rows.map(r => r.d);
+        const sd = vals.length > 1 ? 1.4826 * median(vals.map(v => Math.abs(v - b))) : Infinity;
+        const se = 1.2533 * sd / Math.sqrt(k), f = isFinite(se) ? b * b / (b * b + se * se) : 0;
+        return { method: 'bias', bias: -(b * f), shrink: f }; // applyErrorModel 형식: 앱 − 실측
+      }
+      const pts = rows.map(r => ({ t: r.ai, y: r.ref }));
+      const ts = new Set(pts.map(p => p.t)).size >= 2 ? theilSen(pts) : 1;
+      const slope = 1 + (ts - 1) * k / (k + o.slopeShrinkN);
+      const intercept = median(gs.map(g => median(g.map(r => r.ref - slope * r.ai))));
+      return { method: 'linear', slope, intercept };
+    };
+    const nP = groups(use).length, validation = nP >= 3 ? 'LOPO' : 'LOO';
+    const folds = validation === 'LOPO' ? groups(use).map(g => g[0].participant) : use.map((_, i) => i);
+    const preds = Object.fromEntries(o.methods.map(m => [m, []]));
+    folds.forEach((f, i) => {
+      const te = validation === 'LOPO' ? use.filter(r => r.participant === f) : [use[i]];
+      const tr = validation === 'LOPO' ? use.filter(r => r.participant !== f) : use.filter((_, j) => j !== i);
+      for (const m of o.methods) { const mod = fit(m, tr); for (const r of te) preds[m].push({ ai: applyErrorModel(mod, { ai: r.ai }), ref: r.ref }); }
+    });
+    const cv = Object.fromEntries(o.methods.map(m => [m, errorMetrics(preds[m])]));
+    // 단순한 쪽 우선: 보정 없음 → 더하기 → 선형 순으로, 앞의 것보다 확실히(보정 없음 대비 10%, 더하기 대비 5%) 나을 때만 다음 것을 고른다
+    const base = cv.identity; let chosen = 'identity';
+    if (cv.bias && cv.bias.mae <= base.mae * (1 - o.minGain)) chosen = 'bias';
+    if (cv.linear && cv.linear.mae <= base.mae * (1 - o.minGain) && cv.linear.mae <= (chosen === 'bias' ? cv.bias.mae * 0.95 : Infinity)) chosen = 'linear';
+    const model = fit(chosen, use);
+    const absRes = preds[chosen].map(p => Math.abs(p.ai - p.ref)).sort((a, b) => a - b);
+    const q90 = absRes.length ? absRes[Math.min(absRes.length - 1, Math.ceil(0.9 * absRes.length) - 1)] : null;
+    const label = chosen === 'bias' ? `${-model.bias >= 0 ? '+' : '−'}${Math.abs(model.bias).toFixed(1)} mm` : chosen === 'linear' ? `×${model.slope.toFixed(2)} ${model.intercept >= 0 ? '+' : '−'} ${Math.abs(model.intercept).toFixed(1)} mm` : '보정 없음';
+    return {
+      ok: true, chosen, cv, validation,
+      outliers: all.filter(s => s.outlier).map(s => s.id || `${s.ai}/${s.ref}`),
+      model: Object.assign(model, { kind: 'seed', n: use.length, nAll: all.length, participants: nP, validation, cvMae: cv[chosen].mae, baseMae: base.mae, piMm: q90, label }),
+      warning: nP < 3 ? `표본이 ${nP}명에게서만 나왔습니다. 같은 사람 안에서만 검증됐으므로, 다른 사람에게도 잘 맞는지는 여러 사람(3명 이상, 권장 8명 이상)의 표본이 모여야 확인됩니다.` : null
+    };
+  }
+
   // ───────────────────────── 촬영 준비 상태(실시간) ─────────────────────────
   /** 연속 프레임의 검출 결과로 움직임을 판정한다. */
   function motionBetween(a, b) {
@@ -1815,6 +1876,6 @@
     rgbToHsv, detectStickers, labelLandmarks, signedDistanceToLine, distanceToLine, projectionT,
     measureImage, comparePrePost, classify, roundMm, errorMetrics,
     splitByParticipant, trainCalibration, applyCalibration, fitMethod, validateConversion,
-    motionBetween, framingCheck, laplacianVariance, archAngle, cropImage, detectInRoi, labelsConsistent, combineDetections, shapeDelta, AI_FEATURES, errorFeatures, trainErrorModel, applyErrorModel, fitRidge, createLandmarkKalman, chromaMap, ALIGN, alignmentCheck, LOAD, loadEvidence, shapeOf, FOOT_MODEL, GUIDE_LAYOUT, guideGeometry, guideCheck, fitFootModel, snapOutline, densify, segmentFoot, appHeights, EXERCISE_DRAFTS, EXERCISE_CATEGORIES, youtubeId, resampleClosed, personalCare, measurementWeight, CARE, detectSoleLine, heightAboveSole, reliabilityStats, retestPairs, normalizedIndices, NNH_REF, distanceAdvice, calibrateFovK, DIST
+    motionBetween, framingCheck, laplacianVariance, archAngle, cropImage, detectInRoi, labelsConsistent, combineDetections, shapeDelta, AI_FEATURES, errorFeatures, trainErrorModel, applyErrorModel, learnSeedCorrection, fitRidge, createLandmarkKalman, chromaMap, ALIGN, alignmentCheck, LOAD, loadEvidence, shapeOf, FOOT_MODEL, GUIDE_LAYOUT, guideGeometry, guideCheck, fitFootModel, snapOutline, densify, segmentFoot, appHeights, EXERCISE_DRAFTS, EXERCISE_CATEGORIES, youtubeId, resampleClosed, personalCare, measurementWeight, CARE, detectSoleLine, heightAboveSole, reliabilityStats, retestPairs, normalizedIndices, NNH_REF, distanceAdvice, calibrateFovK, DIST
   };
 });
