@@ -40,9 +40,9 @@ ok('표본 1개 → 학습 안 함', C.learnSeedCorrection([{ ai: 3, ref: 7 }]).
 // 7) 빌드 결과에 학습 모델이 들어갔는지
 { const d = path.join(__dirname, '..', '..', 'dist', 'fixed');
   if (fs.existsSync(path.join(d, 'index.html'))) {
-    const h = fs.readFileSync(path.join(d, 'index.html'), 'utf8'), a = fs.readFileSync(path.join(d, 'admin', 'index.html'), 'utf8');
+    const h = fs.readFileSync(path.join(d, 'index.html'), 'utf8');
     ok('빌드: 앱에 학습 모델', /const BUILTIN_MODEL = \{"id":"seed-/.test(h));
-    ok('빌드: 관리자에 표본', a.includes('const SEED_SAMPLES = [{"id":"S01"'));
+    ok('빌드: 관리자 앱 없음', !fs.existsSync(path.join(d, 'admin')));
   } else console.log('(dist 없음 — node build.js 후 빌드 확인)'); }
 
 console.log(`\n${pass}/${pass + fail} 통과`); if (fail) process.exit(1);

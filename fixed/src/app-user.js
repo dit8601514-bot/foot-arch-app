@@ -642,13 +642,15 @@ route('/settings', '설정 및 개인정보', async (v) => {
       <label class="chk"><input type="checkbox" id="photos" ${S.settings.savePhotos ? 'checked' : ''}><span class="small"><b>촬영 사진을 이 기기에 저장</b><br>끄면 사진은 분석 직후 버려지고 스티커 좌표·측정값만 저장됩니다. 연구자 검토(이미지 참조)를 위해서는 켜야 합니다.</span></label>
       <button class="btn primary block" id="saveS">저장</button></div>
     <div class="card"><b>데이터 보관 방식</b>
-      <p class="small">기록은 먼저 이 기기(브라우저)에 저장됩니다. 로그인하면 측정값이 서버와 동기화되고, 사진은 올리지 않습니다. 로그인하지 않으면 브라우저 데이터를 지울 때 기록도 삭제됩니다.</p>
+      <p class="small">기록은 먼저 이 기기(브라우저)에 저장됩니다. 서버 저장에 동의했으면 측정값이 이름 없는 계정으로 서버와 동기화되고, 사진은 올리지 않습니다. 브라우저 데이터를 지우면 이 기기 기록도 삭제됩니다.</p>
       ${est ? `<p class="tiny">사용 중 ${(est.usage / 1048576).toFixed(1)}MB / 허용 ${(est.quota / 1048576).toFixed(0)}MB</p>` : ''}
       <button class="btn block" id="exp">내 데이터 내보내기(JSON)</button>
+      <button class="btn block" id="expSeed">실측 표본 내보내기(보정 학습용)</button>
+      <p class="tiny">자로 잰 값을 넣은 측정만 모아 보정 학습 표본 형식(앱 원래 값·실측)으로 저장합니다. 이 파일을 보내 주면 모든 사용자의 기본 보정 학습에 추가됩니다.</p>
       <button class="btn danger block" id="wipe">내 검사·운동 기록 모두 삭제</button></div>
     <div class="card small"><dl class="kv"><dt>앱 버전</dt><dd>${APP_VERSION}</dd><dt>측정 알고리즘</dt><dd>${C.ALGORITHM_VERSION}</dd><dt>스티커 지름 설정</dt><dd>${S.settings.stickerDiameterMm ? S.settings.stickerDiameterMm + ' mm' : '미설정'}</dd><dt>길이 환산</dt><dd>${esc(convBasisText())}</dd></dl></div>
     <a class="btn ghost block" href="#/r/home">기기 내 연구 도구(오프라인)</a>
-    <p class="tiny" style="text-align:center">고정촬영판: 기존 앱과 서버·기록이 분리된 별도 앱입니다(기록은 이 기기에만 저장).</p>`;
+    <p class="tiny" style="text-align:center">고정촬영판: 기존 앱과 서버·기록이 분리된 별도 앱입니다(로그인 없음).</p>`;
   bindAccountCard(v);
   $('#saveS', v).onclick = async () => {
     const pid = $('#pid', v).value.trim();
@@ -659,11 +661,18 @@ route('/settings', '설정 및 개인정보', async (v) => {
     S.settings.participantId = pid; S.settings.savePhotos = $('#photos', v).checked;
     if (await saveSettings()) toast('설정을 저장했습니다.');
   };
+  $('#expSeed', v).onclick = async () => {
+    const pid = 'D' + String((Account.user() && Account.user().id) || S.settings.participantId || 'device').replace(/[^A-Za-z0-9]/g, '').slice(0, 8);
+    const rows = (await DB.all('exams')).filter(e => !e.isTest && e.reference && isFinite(e.reference.ndtMm) && e.comparison && isFinite(e.comparison.changeMm)).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))
+      .map((e, i) => ({ id: pid + '-' + (i + 1), participant: pid, foot: e.foot || null, date: new Date(e.createdAt || e.date || Date.now()).toISOString().slice(0, 16).replace('T', ' '), ai: +e.comparison.changeMm.toFixed(2), ref: +e.reference.ndtMm.toFixed(2), floorDrop: e.comparison.floor && isFinite(e.comparison.floor.dropMm) ? +e.comparison.floor.dropMm.toFixed(2) : null, note: '앱 실측 입력' }));
+    if (!rows.length) return toast('자로 잰 값(실측)을 넣은 측정이 없습니다. 측정 결과 화면의 "자로 실제 잰 값 입력"으로 먼저 넣어 주세요.', true);
+    download(`footarch-fixed-samples-${Date.now()}.json`, JSON.stringify({ samples: rows }, null, 1)); toast(`표본 ${rows.length}개를 저장했습니다.`);
+  };
   $('#exp', v).onclick = async () => { const data = { exportedAt: new Date().toISOString(), app: APP_VERSION, exams: await DB.all('exams'), logs: await DB.all('logs') }; download(`footarch-fixed-my-data-${Date.now()}.json`, JSON.stringify(data, null, 1)); };
   $('#wipe', v).onclick = async () => {
     if (!await confirmModal('이 기기에 저장된 모든 검사 결과, 사진, 운동 기록을 삭제합니다. 되돌릴 수 없습니다.', '모두 삭제', true)) return;
     for (const e of await DB.all('exams')) await deleteExam(e, true);
-    await DB.clear('logs'); S.lastResult = null; toast(Account.loggedIn ? '이 기기의 기록을 삭제했습니다(서버 기록은 회원 탈퇴 시 삭제).' : '삭제했습니다.'); render();
+    await DB.clear('logs'); S.lastResult = null; toast(Account.loggedIn ? '이 기기의 기록을 삭제했습니다(서버 기록은 위 "서버 기록 삭제"로 지울 수 있음).' : '삭제했습니다.'); render();
   };
 });
 

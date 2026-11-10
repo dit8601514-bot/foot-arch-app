@@ -1,7 +1,7 @@
 'use strict';
 /* ═════════════ 기본: 저장소 · 상태 · 유틸 · 라우터 ═════════════ */
 const C = window.FootCore;
-const APP_VERSION = 'F1.6.0'; // 고정촬영판(별도 앱, 기존 앱 v3.5.0에서 분리)
+const APP_VERSION = 'F1.7.0'; // 고정촬영판(별도 앱, 기존 앱 v3.5.0에서 분리)
 const STORES = ['settings', 'exams', 'exercises', 'logs', 'errors', 'models', 'blobs', 'validations'];
 
 const DB = (() => {
@@ -214,7 +214,7 @@ async function render() {
   if (!match) { match = routes['/home']; }
   params.q = Object.fromEntries(new URLSearchParams(query || ''));
   if (match.opts.researcher && !S.researcherUnlocked) { location.hash = '#/r/login?next=' + encodeURIComponent(h); return; }
-  // 서버가 설정되어 있으면 로그인(또는 '로그인 없이 둘러보기' 선택) 후 이용
+  // 서버가 설정되어 있으면 처음 한 번 동의 화면(로그인 없음 — 동의하면 이름 없는 계정 자동 생성, 아니면 이 기기에만 저장)
   if (typeof Account !== 'undefined' && Account.configured() && !Account.loggedIn && !Account.isGuest() && parts[0] !== 'auth' && parts[0] !== 'r') { location.hash = '#/auth'; return; }
   document.body.dataset.route = parts[0] === 'self' && parts[1] === 'run' ? 'self-run' : (parts[0] || 'home');
   $('#title').textContent = match.title;
