@@ -4,7 +4,7 @@
 function convSettings() {
   const v = S.settings.validation, D = S.settings.stickerDiameterMm;
   const sheet = !!(v && v.pass && v.diameterMm === D);
-  return { stickerDiameterMm: D, validated: D > 0 && (sheet || !!S.settings.diameterSource), basis: sheet ? 'sheet' : 'diameter', primaryMeasure: S.settings.primaryMeasure || 'line' };
+  return { stickerDiameterMm: D, validated: D > 0 && (sheet || !!S.settings.diameterSource), basis: sheet ? 'sheet' : 'diameter', primaryMeasure: 'floor' /* 고정촬영판: 치료사 방식(바닥에서 잰 P2 높이 차이)으로 고정 */ };
 }
 function convBasisText() { const c = convSettings(); return `스티커 지름 ${c.stickerDiameterMm} mm 기준${c.basis === 'sheet' ? ' · 테스트 시트 검증 통과' : ''}`; }
 function defaultToe(foot) { return foot === 'left' ? 'right' : 'left'; } // 안쪽 면 촬영 시 자연스러운 발가락 방향
@@ -393,8 +393,12 @@ route('/result/:id', '측정 결과', async (v, p) => {
       <span class="feet">${footprintsSvg('r')}</span>
       <div class="grow">
         <div class="tiny" style="font-weight:700;color:var(--ink-2)">발배뼈 하강 ${c.primary === 'floor' ? '(바닥 기준)' : ''}</div>
-        ${(() => { const pc = c.calib; if (pc && c.changeMm != null) // ALG-2.8.0: 알고리즘 안의 공통 보정계수가 이미 적용된 값
-            return `<div class="result-big">${mm(c.changeMm)}</div><div>${catBadge(cat)}</div><div class="tiny" style="font-weight:600">공통 보정계수 적용 · ${pc.method === 'floor' ? '바닥 기준' : '기준선'} ${mm(pc.rawMm)} → ${mm(c.changeMm)} (${esc(pc.label)} · 표본 ${pc.n}개 · ${esc(pc.id || '')})</div>`;
+        ${(() => { const pc = c.calib; if (pc && c.changeMm != null) { // 치료사 방식(바닥에서 잰 P2 높이: 앉음 − 섬) / 바닥선 미확인 시 기준선+공통 보정계수 추정
+            const fl0 = c.floor, coef = pc.label && !/보정 없음/.test(pc.label);
+            const sub = pc.method === 'floor'
+              ? `치료사 방식 · 바닥에서 잰 P2 높이 앉음 ${mm(fl0.preMm)} → 섬 ${mm(fl0.postMm)}${coef ? ` · 공통 보정계수 ${esc(pc.label)}` : ''}`
+              : `<span style="color:var(--warn)">바닥선 미확인 → 추정값</span> · 기준선 ${mm(pc.rawMm)} + 공통 보정계수 ${esc(pc.label)} (표본 ${pc.n}개)`;
+            return `<div class="result-big">${mm(c.changeMm)}</div><div>${catBadge(cat)}</div><div class="tiny" style="font-weight:600">${sub}</div>`; }
           const ac = e.aiCorrection && isFinite(e.aiCorrection.mm) ? e.aiCorrection : null; // 예전 기록(F1.1~F1.7): 별도 보정값
           return ac ? `<div class="result-big">${mm(Math.max(0, ac.mm))}</div><div>${catBadge(ac.category || cat)}</div><div class="tiny" style="font-weight:600">보정 적용 · 앱 측정 ${mm(c.changeMm)} ${ac.slope ? `× ${ac.slope}` : `${ac.mm - c.changeMm >= 0 ? '+' : '−'} ${Math.abs(ac.mm - c.changeMm).toFixed(1)} mm`} (${esc(String(ac.version))})</div>`
             : `<div class="result-big">${c.changeMm != null ? mm(c.changeMm) : '—'}</div><div>${catBadge(cat)}</div>`; })()}
@@ -406,9 +410,9 @@ route('/result/:id', '측정 결과', async (v, p) => {
     ${c.notes && c.notes.length ? `<div class="note ${c.status === '측정 가능' ? 'info' : 'warn'}"><ul class="list">${c.notes.map(n => `<li>${esc(n)}</li>`).join('')}</ul></div>` : ''}
     <h3>분석 결과</h3>
     <div class="card" style="padding:6px 16px">
-      ${metric(ICON.drop, 'P1–P3 기준선 하강', '연구 정의 · Nielsen 등 2009', c.lineChangeMm != null ? mm(c.lineChangeMm) : c.changePx != null ? px(c.changePx) : '—')}
-      ${metric(ICON.height, '발배뼈 높이(바닥 기준)', '앉음 → 섬 · 표준 NDT 방식', fl ? `${mm(fl.preMm)} → ${mm(fl.postMm)}` : '<span class="tiny">바닥선 미확인</span>')}
-      ${fl ? metric(ICON.drop, '바닥 기준 하강', '', mm(fl.dropMm)) : ''}
+      ${metric(ICON.height, 'P2 높이(바닥에서)', '앉음 → 섬 · 치료사 측정 방식', fl ? `${mm(fl.preMm)} → ${mm(fl.postMm)}` : '<span class="tiny">바닥선 미확인</span>')}
+      ${fl ? metric(ICON.drop, 'P2 높이 차이(바닥 기준 하강)', '앉음 − 섬', mm(fl.dropMm)) : ''}
+      ${metric(ICON.drop, 'P1–P3 기준선 하강', '참고 · 바닥선이 없을 때 추정에 사용', c.lineChangeMm != null ? mm(c.lineChangeMm) : c.changePx != null ? px(c.changePx) : '—')}
       ${metric(ICON.angle, '스티커 발활 각도', 'P3–P2–P1 · 앉음 → 섬', ang ? `${deg(ang.pre)} → ${deg(ang.post)}` : '—')}
       ${e.aiCorrection ? metric(ICON.chart, 'AI 보정 (임상 NDT 추정)', `모델 ${e.aiCorrection.version}${e.aiCorrection.piMm ? ` · 예상 오차 ±${cmTxt(e.aiCorrection.piMm)}` : ''}${e.aiCorrection.category ? ' · ' + e.aiCorrection.category.label : ''}`, mm(e.aiCorrection.mm)) : ''}
       ${metric(ICON.check, '측정 신뢰도', '검출·선명도 기반 휴리스틱', pct(e.measurementConfidence))}
@@ -659,7 +663,7 @@ route('/settings', '설정 및 개인정보', async (v) => {
   $('#expSeed', v).onclick = async () => {
     const pid = 'D' + String((Account.user() && Account.user().id) || S.settings.participantId || 'device').replace(/[^A-Za-z0-9]/g, '').slice(0, 8);
     const rows = (await DB.all('exams')).filter(e => !e.isTest && e.reference && isFinite(e.reference.ndtMm) && e.comparison && isFinite(e.comparison.changeMm)).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))
-      .map((e, i) => ({ id: pid + '-' + (i + 1), participant: pid, foot: e.foot || null, date: new Date(e.createdAt || e.date || Date.now()).toISOString().slice(0, 16).replace('T', ' '), ai: +(e.comparison.raw ? e.comparison.raw.lineMm : (e.comparison.lineChangeMm != null ? e.comparison.lineChangeMm : e.comparison.changeMm)).toFixed(2), ref: +e.reference.ndtMm.toFixed(2), floorDrop: e.comparison.floor && isFinite(e.comparison.floor.dropMm) ? +Math.abs(e.comparison.floor.dropMm).toFixed(2) : null, alg: e.algorithmVersion || null, note: '앱 실측 입력' }));
+      .map((e, i) => ({ id: pid + '-' + (i + 1), participant: pid, foot: e.foot || null, date: new Date(e.createdAt || e.date || Date.now()).toISOString().slice(0, 16).replace('T', ' '), ai: +(e.comparison.raw ? e.comparison.raw.lineMm : (e.comparison.lineChangeMm != null ? e.comparison.lineChangeMm : e.comparison.changeMm)).toFixed(2), ref: +e.reference.ndtMm.toFixed(2), floorDrop: e.comparison.floor && isFinite(e.comparison.floor.dropMm) ? +Math.abs(e.comparison.floor.dropMm).toFixed(2) : null, alg: e.algorithmVersion || null, floorPre: e.comparison.floor ? +e.comparison.floor.preMm.toFixed(2) : null, floorPost: e.comparison.floor ? +e.comparison.floor.postMm.toFixed(2) : null, refPre: isFinite(e.reference.preMm) ? e.reference.preMm : null, refPost: isFinite(e.reference.postMm) ? e.reference.postMm : null, note: '앱 실측 입력' }));
     if (!rows.length) return toast('자로 잰 값(실측)을 넣은 측정이 없습니다. 측정 결과 화면의 "자로 실제 잰 값 입력"으로 먼저 넣어 주세요.', true);
     download(`footarch-fixed-samples-${Date.now()}.json`, JSON.stringify({ samples: rows }, null, 1)); toast(`표본 ${rows.length}개를 저장했습니다.`);
   };

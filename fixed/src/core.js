@@ -9,7 +9,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  const ALGORITHM_VERSION = 'ALG-2.8.0'; // 고정촬영판: 바닥선 개선(v3.5.1 이식) + 모든 사용자 공통 보정계수
+  const ALGORITHM_VERSION = 'ALG-2.9.0'; // 고정촬영판: 치료사 방식(바닥에서 잰 P2 높이 차이) 기본 + 바닥선 개선(v3.5.1 이식) + 공통 보정계수
 
   // 기본 검출 파라미터 (휴리스틱 값 — 실제 사진으로 검증 후 연구자가 조정해야 함)
   const DEFAULT_DETECT = {
@@ -39,6 +39,7 @@
   };
 
   const DEFAULT_CONVERSION = {
+    primaryMeasure: 'floor',       // 고정촬영판: 치료사 방식(바닥에서 잰 P2 높이: 앉음 − 섬)
     minAxisRatioForMm: 0.75,       // 이 미만이면 촬영 각도 기울어짐 → 보정 필요(지름은 장축으로 재므로 곡면의 약한 타원은 허용)
     maxSizeCv: 0.06,               // 3개 스티커 지름 변동계수 상한(원근/회전)
     minDiameterPx: 20,             // 해상도 하한
@@ -844,7 +845,7 @@
       r.floor.dropMm = r.floor.preMm - r.floor.postMm;
       r.floor.lineHeightChangeMm = ((pre.floor.P1Px + pre.floor.P3Px) - (post.floor.P1Px + post.floor.P3Px)) / 2 * common; // 스티커 기준선 자체의 내려앉음
       if (c.primaryMeasure === 'floor') { r.changeMm = Math.abs(r.floor.dropMm); r.primary = 'floor'; }
-    } else if (c.primaryMeasure === 'floor') r.notes.push('바닥선이 확인되지 않아 P1–P3 기준선 방식으로 분류했습니다.');
+    }
     r.scaleDiff = sd;
     // 발 길이로 정규화한 지표(문헌: 정규화 발배뼈 높이 NNHt = 발배뼈 높이 ÷ 잘린 발 길이, Murley 등 2009)
     // 이 앱은 P1(첫째발허리뼈머리)–P3(발꿈치뼈) 스티커 거리로 발 길이를 근사한다 → 참고용
@@ -859,7 +860,9 @@
     // 개인별 보정이 아님 — 처음 재는 사람에게도 똑같이 적용. 원래 값은 r.raw에 남겨 표본·검증에 쓴다.
     r.raw = { lineMm: r.lineChangeMm, floorMm: r.floor && isFinite(r.floor.dropMm) ? Math.abs(r.floor.dropMm) : null };
     const pc = populationCorrect(r.raw, (options && options.popCalib !== undefined) ? options.popCalib : POP_CALIB);
-    if (pc) { r.changeMm = pc.mm; r.primary = pc.method; r.calib = pc; r.notes.push(`모든 사용자 공통 보정계수 적용(${pc.method === 'floor' ? '바닥 기준' : 'P1–P3 기준선'} ${pc.rawMm.toFixed(1)} mm → ${pc.mm.toFixed(1)} mm · ${pc.label} · 표본 ${pc.n}개 ${pc.participants}명)`); }
+    if (pc) { r.changeMm = pc.mm; r.primary = pc.method; r.calib = pc;
+      if (pc.method === 'line') r.notes.push(`바닥선이 확인되지 않아 치료사 방식(바닥에서 잰 P2 높이 차이) 대신 P1–P3 기준선 ${pc.rawMm.toFixed(1)} mm에 공통 보정계수(${pc.label} · 표본 ${pc.n}개)를 적용한 추정값입니다. 발 아래 바닥 경계가 화면에 보이게 다시 찍으면 치료사 방식으로 잽니다.`);
+      else if (pc.label && !/보정 없음/.test(pc.label)) r.notes.push(`치료사 방식(바닥 기준) ${pc.rawMm.toFixed(1)} mm에 공통 보정계수 ${pc.label}(표본 ${pc.n}개)를 적용했습니다.`); }
     r.status = '측정 가능';
     return r;
   }
@@ -1373,24 +1376,19 @@
     if (!m || !isFinite(v) || (m.method === 'identity' && !useFloor)) return null; // 바닥 기준은 계수가 필요 없어도(identity) 방식 전환 자체가 개선
     return { mm: Math.max(0, applyErrorModel(m, { ai: v })), rawMm: v, method, label: m.label, id: P.id, n: P.n, participants: P.participants, cvMae: m.cvMae, baseMae: m.baseMae, piMm: m.piMm };
   }
-  // 방식별로 보정계수를 학습하고 어느 방식을 쓸지 고른다.
-  //  · 기준선(line): 서면 P1·P3 자리도 내려앉아 실측(바닥에서 잰 값)보다 작게 나옴 → 계수로 보정
-  //  · 바닥 기준(floor): 정의상 자로 잰 실측과 같은 양. 바닥 기준 값이 있는 표본이 minFloor개 이상 모이고,
-  //    같은 표본에서 기준선 방식보다 오차가 작다고 검증되면 바닥 기준을 쓴다(바닥선이 안 잡힌 측정은 계속 기준선).
+  // 방식별 보정계수 학습. 측정 정의는 치료사 방식(사용자 결정 2026-11-12):
+  //   '바닥에서 잰 P2(발배뼈거친면) 높이'의 앉은 자세 − 선 자세 차이 = 바닥 기준(floor). 바닥선이 잡히면 항상 이 방식.
+  //  · 바닥 기준: 정의상 자로 잰 값과 같은 양 → 처음엔 보정 없음. 바닥 기준 표본이 minFloor개 이상 모이면 계통 오차가 있는지 학습해 계수 적용
+  //  · 기준선(line): 바닥선이 안 잡혔을 때만 쓰는 대체 추정. 서면 P1·P3 자리도 내려앉아 작게 나오므로 표본으로 학습한 계수로 보정
   function learnPopulationCalib(samples, options) {
     const o = Object.assign({ minFloor: 5 }, options || {});
     const S = (samples || []).filter(x => x && isFinite(x.ref));
     const line = learnSeedCorrection(S.filter(x => isFinite(x.ai)), o);
     const fs2 = S.filter(x => x.floorDrop != null && isFinite(x.floorDrop));
-    let floor = null, lineOnFloorSet = null, prefer = 'line';
-    if (fs2.length >= o.minFloor) {
-      floor = learnSeedCorrection(fs2.map(x => Object.assign({}, x, { ai: Math.abs(x.floorDrop) })), o);
-      lineOnFloorSet = learnSeedCorrection(fs2.filter(x => isFinite(x.ai)), o);
-      if (floor.ok && lineOnFloorSet.ok && floor.model.cvMae < lineOnFloorSet.model.cvMae) prefer = 'floor';
-    }
-    const mdl = r => (r && r.ok ? r.model : null);
+    const floor = fs2.length >= o.minFloor ? learnSeedCorrection(fs2.map(x => Object.assign({}, x, { ai: Math.abs(x.floorDrop) })), o) : null;
+    const floorModel = floor && floor.ok ? floor.model : { method: 'identity', label: '보정 없음(치료사 방식과 같은 정의)', n: fs2.length, participants: new Set(fs2.map(x => x.participant)).size, cvMae: null, baseMae: null, piMm: null };
     const parts = new Set(S.map(x => x.participant)).size;
-    return { line, floor, lineOnFloorSet, prefer, calib: { prefer, line: mdl(line), floor: mdl(floor), n: S.length, nFloor: fs2.length, participants: parts } };
+    return { line, floor, prefer: 'floor', calib: { prefer: 'floor', line: line && line.ok ? line.model : null, floor: floorModel, n: S.length, nFloor: fs2.length, participants: parts } };
   }
 
   // ───────────────────────── 기본 보정 학습(표본 파일 → 모든 사용자) ─────────────────────────

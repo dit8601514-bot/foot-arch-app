@@ -37,13 +37,15 @@ const gauss = () => { let u = 0; for (let i = 0; i < 6; i++) u += rnd(); return 
 // 6) 표본 부족
 ok('표본 1개 → 학습 안 함', C.learnSeedCorrection([{ ai: 3, ref: 7 }]).ok === false);
 
-// 7) 방식 선택: 바닥 기준 표본이 5개 미만이면 기준선, 바닥 기준이 더 정확한 표본이 모이면 바닥 기준으로 전환
-{ const L0 = C.learnPopulationCalib(S); ok('바닥 표본 부족 → 기준선 방식', L0.prefer === 'line' && L0.calib.floor === null);
-  const rows = []; for (let p = 0; p < 8; p++) for (let i = 0; i < 2; i++) { const ref = 5 + 6 * rnd(), sink = 3 + 2.5 * rnd(); rows.push({ participant: 'F' + p, ref, ai: ref - sink + 0.4 * gauss(), floorDrop: ref + 0.4 * gauss() }); }
-  const L = C.learnPopulationCalib(rows); ok('바닥 기준이 더 정확 → 바닥 기준으로 전환', L.prefer === 'floor' && L.calib.floor && L.calib.floor.cvMae < L.lineOnFloorSet.model.cvMae, `바닥 ${L.calib.floor && L.calib.floor.cvMae.toFixed(2)} vs 기준선 ${L.lineOnFloorSet.model.cvMae.toFixed(2)} mm`);
-  const P = Object.assign({ id: 't' }, L.calib);
-  const a = C.populationCorrect({ lineMm: 4, floorMm: 8 }, P), b = C.populationCorrect({ lineMm: 4, floorMm: null }, P);
-  ok('바닥선 잡힌 측정 → 바닥 기준, 안 잡힌 측정 → 기준선+계수', a && a.method === 'floor' && b && b.method === 'line' && b.mm > 4, `${a && a.mm.toFixed(1)} / ${b && b.mm.toFixed(1)}`); }
+// 7) 측정 정의 = 치료사 방식(바닥에서 잰 P2 높이 차이). 바닥선 있으면 바닥 기준(표본 적으면 보정 없음), 없으면 기준선+계수
+{ const L0 = C.learnPopulationCalib(S); const P0 = Object.assign({ id: 't' }, L0.calib);
+  ok('기본 = 바닥 기준(치료사 방식), 표본 부족 시 보정 없음', L0.prefer === 'floor' && L0.calib.floor.method === 'identity');
+  const a = C.populationCorrect({ lineMm: 4, floorMm: 8.3 }, P0), b = C.populationCorrect({ lineMm: 3.6, floorMm: null }, P0);
+  ok('바닥선 있음 → 바닥에서 잰 P2 높이 차이 그대로', a && a.method === 'floor' && Math.abs(a.mm - 8.3) < 1e-9, a && a.mm.toFixed(1));
+  ok('바닥선 없음 → 기준선 + 공통 계수 추정', b && b.method === 'line' && b.mm > 7.4 && b.mm < 8.2, b && b.mm.toFixed(1));
+  const rows = []; for (let p = 0; p < 8; p++) for (let i = 0; i < 2; i++) { const ref = 5 + 6 * rnd(); rows.push({ participant: 'F' + p, ref, ai: ref - 4 + 0.4 * gauss(), floorDrop: ref - 1.5 + 0.3 * gauss() }); }
+  const L = C.learnPopulationCalib(rows), c2 = C.populationCorrect({ lineMm: 3, floorMm: 6 }, Object.assign({ id: 't' }, L.calib));
+  ok('바닥 기준에 계통 오차가 있으면 표본으로 학습해 보정', L.calib.floor.method === 'bias' && c2.method === 'floor' && Math.abs(c2.mm - 7.5) < 0.6, `${L.calib.floor.label} → ${c2.mm.toFixed(1)}`); }
 
 // 8) 측정 알고리즘 안에서 적용: 같은 입력이면 누구에게나 같은 값(개인 기록과 무관)
 { const P = Object.assign({ id: 't' }, C.learnPopulationCalib(S).calib);
