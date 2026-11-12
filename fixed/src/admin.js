@@ -100,14 +100,14 @@ const routes = {};
 const route = (p, title, fn) => { routes[p] = { title, fn }; };
 function topbar(cur) {
   $('#top').innerHTML = `<span class="logo">AI Footarch</span><span class="tag">관리자</span>
-    ${Api.loggedIn ? `<nav>${[['sheet', '측정 시트'], ['dash', '대시보드'], ['users', '환자·측정'], ['content', '운동 영상'], ['errors', '오차·신뢰도'], ['ai', 'AI 보정 모델'], ['export', '데이터 내보내기']].map(([k, l]) => `<a href="#/${k}" class="${cur === k ? 'on' : ''}">${l}</a>`).join('')}</nav><button id="logout">로그아웃</button>` : ''}`;
+    ${Api.loggedIn ? `<nav>${[['sheet', '측정 시트'], ['trend', '환자별 그래프'], ['dash', '대시보드'], ['users', '환자·측정'], ['content', '운동 영상'], ['errors', '오차·신뢰도'], ['ai', 'AI 보정 모델'], ['export', '데이터 내보내기']].map(([k, l]) => `<a href="#/${k}" class="${cur === k ? 'on' : ''}">${l}</a>`).join('')}</nav><button id="logout">로그아웃</button>` : ''}`;
   const lo = $('#logout'); if (lo) lo.onclick = async () => { await Api.signOut(); Object.assign(D, { loaded: false }); location.hash = '#/login'; };
 }
 async function render() {
   const h = location.hash.replace(/^#\/?/, '') || 'sheet', [name, arg] = h.split('/');
   if (!Api.configured()) { topbar(); $('#view').innerHTML = '<div class="note warn">서버가 설정되지 않았습니다. 저장소의 public/config.js에 Supabase 주소와 공개 키를 넣어 주세요(supabase/README.md).</div>'; return; }
   if (!Api.loggedIn && name !== 'login') { location.hash = '#/login'; return; }
-  const r = routes[name] || routes.sheet; topbar(name); $('main').style.maxWidth = (name === 'sheet' || !routes[name]) ? 'none' : ''; document.title = 'AI Footarch 관리자 · ' + r.title;
+  const r = routes[name] || routes.sheet; topbar(name); $('main').style.maxWidth = (name === 'sheet' || name === 'trend' || !routes[name]) ? 'none' : ''; document.title = 'AI Footarch 관리자 · ' + r.title;
   const v = $('#view'); v.innerHTML = '<p class="muted">불러오는 중…</p>';
   try { await r.fn(v, arg); } catch (e) { v.innerHTML = `<div class="note bad">${esc(e.message)}</div>`; if (e.status === 401 || /만료/.test(e.message)) { await Api.signOut(); location.hash = '#/login'; } }
 }
@@ -163,7 +163,7 @@ route('sheet', '측정 시트', async (v) => {
       <div class="scroll sheet-wrap"><table class="sheet">
         <thead><tr><th colspan="3" class="blank"></th>${ROUNDS.map(n => `<th colspan="3" class="grp">${n}</th>`).join('')}</tr>
         <tr><th class="no"></th><th>이름</th><th>성별</th>${ROUNDS.map(() => '<th class="gs">측정날짜</th><th>RT</th><th>Y-balance</th>').join('')}</tr></thead>
-        <tbody>${list.map((p, i) => `<tr><td class="no">${i + 1}</td><td class="nm" title="@${esc(p.username)}">${esc(p.name)}</td><td class="${p.gender === '남' ? 'm' : 'f'}">${esc(p.gender || '')}</td>${ROUNDS.map((_, k) => { const r = (by[p.id] || {})[k];
+        <tbody>${list.map((p, i) => `<tr><td class="no">${i + 1}</td><td class="nm" title="@${esc(p.username)} · 그래프 보기"><a href="#/trend/${p.id}">${esc(p.name)}</a></td><td class="${p.gender === '남' ? 'm' : 'f'}">${esc(p.gender || '')}</td>${ROUNDS.map((_, k) => { const r = (by[p.id] || {})[k];
             return `<td class="gs">${r ? ymd(r.measured_at) : ''}</td><td class="rt">${r && r.rt_mm != null ? (+r.rt_mm).toFixed(1) : ''}</td><td class="yb"><input class="ybi" data-u="${p.id}" data-k="${k}" inputmode="decimal" value="${r && r.y_balance != null ? esc(String(r.y_balance)) : ''}"></td>`; }).join('')}</tr>`).join('')}
         ${Array.from({ length: pad }, (_, i) => `<tr class="empty"><td class="no">${list.length + i + 1}</td><td></td><td></td>${ROUNDS.map(() => '<td class="gs"></td><td></td><td></td>').join('')}</tr>`).join('')}</tbody></table></div>`;
     $('#rf').onclick = async () => { data = await loadSheet(); draw(); toast('새로고침했습니다.'); };
@@ -182,6 +182,62 @@ route('sheet', '측정 시트', async (v) => {
   draw();
   // 회원가입·측정이 생기면 자동으로 반영(입력 중이면 건너뜀)
   sheetTimer = setInterval(async () => { if (location.hash.replace(/^#\/?/, '').split('/')[0] !== 'sheet' && location.hash) { clearInterval(sheetTimer); return; } if (document.activeElement && document.activeElement.classList.contains('ybi')) return; try { data = await loadSheet(); draw(); } catch (e) {} }, 30000);
+});
+
+// ───── 환자별 그래프: 회차별 RT(오른발 발활 하강) 변화 + 판정(8 mm 기준) ─────
+const FLAT_MM = (C.CLASS_MM && C.CLASS_MM.flat) || 8;
+const judge = mm => mm == null || !isFinite(mm) ? null : (C.classify(+mm).key === 'normal' ? { ok: true, t: '정상' } : { ok: false, t: '유연성 평발' });
+/** points: [{ x(0..1), label, sub, y }] — y가 null이면 빈 자리. 8 mm 기준선, 정상 초록·유연성 평발 빨강 */
+function trendSvg(points, o) {
+  o = o || {};
+  const W = 760, H = 300, L = 48, R = 16, T = 18, B = 54, have = points.filter(p => p.y != null && isFinite(p.y));
+  const yMax = Math.max(12, Math.ceil((Math.max(0, ...have.map(p => +p.y)) + 2) / 2) * 2), sx = x => L + (0.05 + 0.9 * x) * (W - L - R), sy = y => T + (1 - y / yMax) * (H - T - B);
+  const grid = []; for (let y = 0; y <= yMax; y += 2) grid.push(`<line x1="${L}" x2="${W - R}" y1="${sy(y)}" y2="${sy(y)}" stroke="#E6ECF5"/><text x="${L - 8}" y="${sy(y) + 4}" text-anchor="end" font-size="11" fill="#6B7A90">${y}</text>`);
+  const flat = `<rect x="${L}" y="${sy(yMax)}" width="${W - L - R}" height="${sy(FLAT_MM) - sy(yMax)}" fill="#C0281B" opacity=".05"/><line x1="${L}" x2="${W - R}" y1="${sy(FLAT_MM)}" y2="${sy(FLAT_MM)}" stroke="#C0281B" stroke-dasharray="6 4" stroke-width="1.5"/><text x="${W - R - 6}" y="${sy(yMax) + 14}" text-anchor="end" font-size="11" font-weight="700" fill="#C0281B">${FLAT_MM} mm 이상 = 유연성 평발 구간</text>`;
+  const xl = points.map(p => `<text x="${sx(p.x)}" y="${H - B + 20}" text-anchor="middle" font-size="12" font-weight="700" fill="#22324A">${esc(p.label || '')}</text><text x="${sx(p.x)}" y="${H - B + 36}" text-anchor="middle" font-size="10.5" fill="#6B7A90">${esc(p.sub || '')}</text>`).join('');
+  const path = have.map((p, i) => `${i ? 'L' : 'M'}${sx(p.x).toFixed(1)},${sy(+p.y).toFixed(1)}`).join('');
+  const dots = have.map(p => { const j = judge(p.y), c = j.ok ? '#0F8A4A' : '#C0281B'; return `<circle cx="${sx(p.x)}" cy="${sy(+p.y)}" r="${o.small ? 4 : 6}" fill="${c}" stroke="#fff" stroke-width="2"><title>${esc((p.label || '') + ' ' + (p.sub || ''))} · ${(+p.y).toFixed(1)} mm · ${j.t}</title></circle>${o.small ? '' : `<text x="${sx(p.x)}" y="${sy(+p.y) - 11}" text-anchor="middle" font-size="12" font-weight="800" fill="${c}">${(+p.y).toFixed(1)}</text>`}`; }).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px;display:block" role="img" aria-label="${esc(o.aria || '발활 하강 변화 그래프')}">
+    ${grid.join('')}${flat}<text x="14" y="${(T + H - B) / 2}" font-size="11" fill="#6B7A90" transform="rotate(-90 14 ${(T + H - B) / 2})" text-anchor="middle">발활 하강 (mm)</text>
+    <line x1="${L}" x2="${W - R}" y1="${sy(0)}" y2="${sy(0)}" stroke="#B8C4D6"/>${xl}
+    ${have.length > 1 ? `<path d="${path}" fill="none" stroke="#5B6CFF" stroke-width="2.5" stroke-linejoin="round"/>` : ''}${dots}</svg>`;
+}
+route('trend', '환자별 그래프', async (v, id) => {
+  clearInterval(sheetTimer);
+  const { people, by } = await loadSheet();
+  let exams = []; try { await loadAll(true); exams = D.exams; } catch (e) { /* 연구 동의 기록은 없어도 됨 */ }
+  const last = p => { const rs = Object.values(by[p.id] || {}).filter(r => r.rt_mm != null).sort((a, b) => a.round - b.round); return rs[rs.length - 1]; };
+  const list = people.map(p => { const r = last(p); return `<a href="#/trend/${p.id}" class="pl ${p.id === id ? 'on' : ''}"><b>${esc(p.name)}</b> <span class="small muted">${esc(p.gender || '')}</span><br><span class="small">${r ? `${ROUNDS[r.round]} <span class="${judge(r.rt_mm).ok ? 'jg' : 'jb'}">${judge(r.rt_mm).t}</span>` : '<span class="muted">기록 없음</span>'}</span></a>`; }).join('') || '<p class="muted small">가입한 환자가 없습니다.</p>';
+  const p = people.find(x => x.id === id);
+  let body = '<div class="card"><p class="muted">왼쪽에서 환자를 고르면 회차별 아치 변화 그래프가 나옵니다.</p></div>';
+  if (p) {
+    const rs = by[p.id] || {};
+    const pts = ROUNDS.map((n, k) => ({ x: ROUNDS.length > 1 ? k / (ROUNDS.length - 1) : .5, label: n, sub: rs[k] ? ymd(rs[k].measured_at) : '미측정', y: rs[k] && rs[k].rt_mm != null ? +rs[k].rt_mm : null }));
+    const done = pts.filter(q => q.y != null), first = done[0], lastP = done[done.length - 1];
+    const diff = done.length > 1 ? lastP.y - first.y : null;
+    const summary = !done.length ? '<p class="muted">아직 회차에 저장된 측정이 없습니다. 환자가 측정 결과 화면에서 회차를 골라 저장하면 여기에 나옵니다.</p>'
+      : `<div class="row" style="gap:18px;margin-bottom:6px">
+          <div><div class="small muted">최근(${esc(lastP.label)})</div><div style="font-size:22px;font-weight:800" class="${judge(lastP.y).ok ? 'jg' : 'jb'}">${judge(lastP.y).t}</div><div class="small muted">${lastP.y.toFixed(1)} mm</div></div>
+          ${diff != null ? `<div><div class="small muted">${esc(first.label)} → ${esc(lastP.label)}</div><div style="font-size:22px;font-weight:800">${diff > 0 ? '+' : diff < 0 ? '−' : ''}${Math.abs(diff).toFixed(1)} mm</div><div class="small muted">${diff < -0.05 ? '하강이 줄었습니다(아치 개선 방향)' : diff > 0.05 ? '하강이 늘었습니다' : '변화 없음'}</div></div>` : ''}
+          ${judge(first.y) && judge(lastP.y) && done.length > 1 && judge(first.y).t !== judge(lastP.y).t ? `<div><div class="small muted">판정 변화</div><div style="font-size:22px;font-weight:800">${judge(first.y).t} → ${judge(lastP.y).t}</div></div>` : ''}
+        </div>`;
+    const table = `<table class="tt"><thead><tr><th>회차</th><th>측정날짜</th><th>RT(mm)</th><th>판정</th><th>Y-balance</th></tr></thead><tbody>${ROUNDS.map((n, k) => { const r = rs[k], j = r && judge(r.rt_mm); return `<tr><td>${n}</td><td>${r ? ymd(r.measured_at) : ''}</td><td>${r && r.rt_mm != null ? (+r.rt_mm).toFixed(1) : ''}</td><td>${j ? `<span class="${j.ok ? 'jg' : 'jb'}">${j.t}</span>` : ''}</td><td>${r && r.y_balance != null ? esc(String(r.y_balance)) : ''}</td></tr>`; }).join('')}</tbody></table>`;
+    // 회차 저장과 별개로, 연구 활용에 동의한 환자는 모든 측정(오른발)을 날짜순으로 함께 보여 줌
+    const all = exams.filter(e => e.user_id === p.id && e.foot !== 'left' && e.data && e.data.comparison && isFinite(e.data.comparison.changeMm)).sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+    let allHtml = '';
+    if (all.length > 1) {
+      const t0 = new Date(all[0].created_at).getTime(), t1 = new Date(all[all.length - 1].created_at).getTime(), span = Math.max(1, t1 - t0);
+      const step = Math.max(1, Math.ceil(all.length / 8));
+      const ap = all.map((e, i) => ({ x: (new Date(e.created_at).getTime() - t0) / span, label: i % step === 0 || i === all.length - 1 ? ymd(e.created_at).slice(5) : '', sub: '', y: +e.data.comparison.changeMm }));
+      allHtml = `<div class="card"><b>모든 측정 기록 (오른발, 날짜순 ${all.length}건)</b><p class="small muted">회차에 저장하지 않은 측정도 포함합니다(연구 활용 동의 환자만).</p>${trendSvg(ap, { small: true, aria: '모든 측정 그래프' })}</div>`;
+    }
+    body = `<div class="card"><div class="row"><h2 class="grow" style="margin:0">${esc(p.name)} <span class="small muted">${esc(p.gender || '')} · @${esc(p.username)}</span></h2></div>
+        <p class="small muted">회차별 오른발 발활 하강(RT). 초록 점 = 정상(${FLAT_MM} mm 미만), 빨간 점 = 유연성 평발(${FLAT_MM} mm 이상). 값이 내려갈수록 아치가 덜 무너진 것입니다.</p>
+        ${summary}${trendSvg(pts, { aria: p.name + ' 회차별 그래프' })}</div>
+      <div class="card scroll">${table}</div>${allHtml}`;
+  }
+  v.innerHTML = `<div class="row"><h1 class="grow" style="margin:0">환자별 그래프</h1><a class="btn sm" href="#/sheet">측정 시트로</a></div>
+    <div class="trend"><aside class="card plist">${list}</aside><section>${body}</section></div>`;
 });
 
 route('dash', '대시보드', async (v) => {

@@ -398,7 +398,7 @@ route('/result/:id', '측정 결과', async (v, p) => {
           const warn = c.calib && !(c.primary === 'p2' && c.p2) ? ' · P2 이동 미측정 → 추정값' : '';
           return `<div class="verdict ${ok ? 'ok' : 'bad'}">${esc(k.verdict)}</div>
             <div class="risk ${ok ? 'ok' : 'bad'}"><i></i>${esc(k.risk)}</div>
-            <div class="mm-note">측정값 ${mm(val)} · 기준 ${C.CLASS_MM.flat} mm${warn}</div>`; })()}
+            <div class="mm-note">측정값 ${mm(val)}${warn}</div>`; })()}
       </div>
     </div>
     <div id="roundBox"></div>

@@ -80,6 +80,14 @@ let pass = 0, fail = 0; const ok = (n, c, x) => { c ? pass++ : fail++; console.l
   const [dl] = await Promise.all([ap.waitForEvent('download'), ap.click('#csv')]); const csv = fs.readFileSync(await dl.path(), 'utf8');
   ok('CSV: 두 줄 머리글 + 회원 줄', csv.split('\r\n')[1].startsWith('번호,이름,성별,측정날짜,RT,Y-balance') && csv.includes('마형빈,남') && csv.includes(',6.4,95.5'), csv.split('\r\n').slice(0, 4).join(' | ').slice(0, 200));
   await ap.screenshot({ path: '/tmp/sheet.png', fullPage: false });
+  // 환자별 그래프: 김주희 회차 기록을 더 넣고(기본 측정 9.6 → 4회차 6.8) 이름을 눌러 그래프 확인
+  { const u1 = Object.keys(profiles).find(k => profiles[k].name === '김주희'), d0 = Date.parse('2026-09-01');
+    [[0, 9.6], [2, 8.4], [3, 7.6], [4, 6.8]].forEach(([k, v], i) => { rounds[u1 + ':' + k] = Object.assign({}, rounds[u1 + ':' + k] || {}, { user_id: u1, round: k, rt_mm: v, measured_at: new Date(d0 + k * 14 * 864e5).toISOString() }); });
+    await ap.click('#rf'); await ap.waitForTimeout(500); await ap.click('table.sheet td.nm a >> text=김주희'); await ap.waitForSelector('.trend svg');
+    const tv = await ap.evaluate(() => ({ dots: document.querySelectorAll('.trend section svg circle').length, red: [...document.querySelectorAll('.trend section svg circle')].filter(c => c.getAttribute('fill') === '#C0281B').length, txt: document.querySelector('.trend section').textContent, hash: location.hash }));
+    ok('환자별 그래프: 이름 클릭 → 회차 4개 점(빨강 2·초록 2)', /#\/trend\//.test(tv.hash) && tv.dots === 4 && tv.red === 2, JSON.stringify({ dots: tv.dots, red: tv.red }));
+    ok('환자별 그래프: 최근 판정·변화량·판정 변화 표시', tv.txt.includes('4회차') && tv.txt.includes('−2.8 mm') && tv.txt.includes('유연성 평발 → 정상') && tv.txt.includes('8 mm 이상 = 유연성 평발 구간'), tv.txt.slice(0, 160));
+    await ap.setViewportSize({ width: 1280, height: 900 }); await ap.waitForTimeout(200); await ap.screenshot({ path: '/tmp/trend.png', fullPage: true }); }
   ok('오류 없음', errs.length === 0, errs.slice(0, 3).join(' / '));
   console.log(`\n${pass}/${pass + fail} 통과`); await B.close(); process.exit(fail ? 1 : 0);
 })();
