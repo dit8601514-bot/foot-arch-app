@@ -9,7 +9,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  const ALGORITHM_VERSION = 'ALG-3.0.0'; // 고정촬영판: 치료사 방식 = 앉음→섬 P2 스티커 이동 거리 + 공통 보정계수
+  const ALGORITHM_VERSION = 'ALG-3.1.0'; // 고정촬영판: 치료사 방식 = 앉음→섬 P2 스티커 이동 거리 + 공통 보정계수
 
   // 기본 검출 파라미터 (휴리스틱 값 — 실제 사진으로 검증 후 연구자가 조정해야 함)
   const DEFAULT_DETECT = {
@@ -961,24 +961,20 @@
   }
 
   // ───────────────────────── 연구 기준 분류 ─────────────────────────
+  // 2단계 판정(F2.3): 8 mm 미만 정상 · 8 mm 이상 유연성 평발.
+  // 내부 키는 운동 연결·관리 계획과 호환되도록 'normal' / 'severe'를 그대로 쓴다.
   const CATEGORIES = [
-    { key: 'normal', label: '정상 범위', range: '0 mm 이상 2 mm 이하' },
-    { key: 'mild', label: '경증 평발 의심', range: '2 mm 초과 4 mm 미만' },
-    { key: 'moderate', label: '중등도 평발 의심', range: '4 mm 이상 6 mm 미만' },
-    { key: 'severe', label: '중증 평발 의심', range: '6 mm 이상' }
+    { key: 'normal', label: '정상', verdict: '정상입니다', risk: '위험도 낮음', range: '8 mm 미만' },
+    { key: 'severe', label: '유연성 평발', verdict: '유연성 평발입니다', risk: '위험도 높음', range: '8 mm 이상' }
   ];
-  // 분류 경계(mm, 내부 계산 단위). 연구자 지정 기준: 정상 ≤2 · 경증 2~4 · 중등도 4~6 · 중증 ≥6 mm
-  const CLASS_MM = { normal: 2, mild: 4, moderate: 6 };
+  // 분류 경계(mm). flat 이상이면 유연성 평발. normal은 예전 코드 호환용(같은 값).
+  const CLASS_MM = { flat: 8, normal: 8 };
   /** 표시값(소수 첫째 자리 반올림)과 분류를 일치시키기 위해 반올림 후 분류한다. */
   function roundMm(mm) { return Math.round((mm + (mm >= 0 ? 1e-9 : -1e-9)) * 10) / 10; }
   function classify(mm) {
-    if (typeof mm !== 'number' || !isFinite(mm) || mm < 0) return null;
-    const v = roundMm(mm);
-    let key;
-    if (v <= CLASS_MM.normal) key = 'normal';
-    else if (v < CLASS_MM.mild) key = 'mild';
-    else if (v < CLASS_MM.moderate) key = 'moderate';
-    else key = 'severe';
+    if (typeof mm !== 'number' || !isFinite(mm)) return null;
+    const v = roundMm(Math.max(0, mm));
+    const key = v < CLASS_MM.flat ? 'normal' : 'severe';
     return Object.assign({ value: v }, CATEGORIES.find(c => c.key === key));
   }
 
@@ -1081,7 +1077,7 @@
     { name: '수건 당기기(Towel Curl)', purpose: '발가락 굽힘근 사용을 연습하는 운동', posture: '의자에 앉아 발 아래 수건을 펼쳐 둔다.', steps: ['발꿈치를 바닥에 고정한다.', '발가락으로 수건을 움켜쥐어 몸쪽으로 끌어당긴다.', '수건을 다시 펴고 반복한다.'], cautions: ['미끄러운 바닥에서는 시행하지 않는다.', '발가락 경련이 생기면 쉬었다가 진행한다.'] },
     { name: '발꿈치 들기(Heel Raise)', purpose: '종아리 근육과 발목 주변 근육을 강화하는 운동', posture: '벽이나 의자를 잡고 양발을 골반 너비로 벌려 선다.', steps: ['체중을 엄지발가락 쪽에 고르게 싣고 발꿈치를 천천히 들어 올린다.', '꼭대기에서 잠시 멈춘다.', '천천히 발꿈치를 내린다.'], cautions: ['균형이 불안하면 반드시 지지물을 잡는다.', '발목이 바깥으로 꺾이지 않게 한다.'] }
   ];
-  const EXERCISE_CATEGORIES = [['normal', '정상 범위'], ['mild', '경증'], ['moderate', '중등도'], ['severe', '중증']];
+  const EXERCISE_CATEGORIES = [['normal', '정상'], ['severe', '유연성 평발']];
   // 유튜브 주소 → 영상 ID(youtu.be / watch?v= / shorts / embed). 아니면 null
   function youtubeId(url) {
     const m = String(url || '').match(/(?:youtu\.be\/|youtube(?:-nocookie)?\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/|live\/))([\w-]{11})/);
@@ -1276,7 +1272,7 @@
     if (sr.pain) { level = 'consult'; headline = '통증·붓기가 있어 전문가 상담을 먼저 권합니다'; nextTestDays = 14; actions.push({ kind: 'consult', text: '정형외과·재활의학과 등 전문가에게 발 상태를 확인받으세요. 통증이 있을 때는 운동 강도를 낮춥니다.' }); }
     else if (cat === 'normal') { level = 'keep'; headline = improving ? '좋아지고 있어요 · 지금 관리를 유지하세요' : '정상 범위 · 발활을 지키는 가벼운 관리'; nextTestDays = 28; }
     else if (cat === 'mild') { level = 'care'; headline = worsening ? '경증 · 최근 하강이 늘고 있어 관리를 강화합니다' : '경증 · 발바닥 근육을 깨우는 운동을 시작하세요'; nextTestDays = worsening ? 7 : 14; }
-    else { level = 'intense'; headline = `${cat === 'severe' ? '중증' : '중등도'} 범위 · 꾸준한 운동과 전문가 확인을 권합니다`; nextTestDays = 7; actions.push({ kind: 'consult', text: '하강량이 큰 편입니다. 이 앱의 결과는 진단이 아니므로 전문가 확인을 함께 받으세요.' }); }
+    else { level = 'intense'; headline = '유연성 평발 · 꾸준한 운동과 전문가 확인을 권합니다'; nextTestDays = 7; actions.push({ kind: 'consult', text: '하강량이 큰 편입니다. 이 앱의 결과는 진단이 아니므로 전문가 확인을 함께 받으세요.' }); }
     const dose = { keep: '주 3회 · 1세트', care: '주 5회 · 2세트', intense: '매일 · 3세트', consult: '통증 없는 범위에서 주 3회' }[level];
     const ex = level === 'keep' ? ['짧은 발 운동(Short Foot Exercise)'] : level === 'care' ? ['짧은 발 운동(Short Foot Exercise)', '수건 당기기(Towel Curl)'] : ['짧은 발 운동(Short Foot Exercise)', '수건 당기기(Towel Curl)', '발꿈치 들기(Heel Raise)'];
     actions.push({ kind: 'exercise', text: `${ex.join(' · ')} — ${dose}`, exercises: ex });

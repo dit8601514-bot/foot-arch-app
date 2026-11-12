@@ -151,7 +151,7 @@ const Account = (() => {
     for (const x of local) if (x.server && !ids.has(x.id)) await DB.del('exercises', x.id);
     // 분류 연결: 관리자가 정한 분류를 그대로 반영(기기에서 만든 운동의 연결은 유지)
     const map = S.settings.mapping || {};
-    for (const [k] of C.EXERCISE_CATEGORIES) map[k] = (map[k] || []).filter(id => !String(id).startsWith('srv-')).concat(rows.filter(r => (r.categories || []).includes(k)).map(r => 'srv-' + r.id));
+    for (const [k] of C.EXERCISE_CATEGORIES) map[k] = (map[k] || []).filter(id => !String(id).startsWith('srv-')).concat(rows.filter(r => (r.categories || []).some(c => c === k || (k === 'severe' && (c === 'mild' || c === 'moderate')))).map(r => 'srv-' + r.id));
     S.settings.mapping = map; S.settings.serverContent = rows.length > 0; await saveSettings();
     return { ok: true, n: rows.length };
   }

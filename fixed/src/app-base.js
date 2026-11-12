@@ -1,7 +1,7 @@
 'use strict';
 /* ═════════════ 기본: 저장소 · 상태 · 유틸 · 라우터 ═════════════ */
 const C = window.FootCore;
-const APP_VERSION = 'F2.2.0'; // 고정촬영판(별도 앱, 기존 앱 v3.5.0에서 분리)
+const APP_VERSION = 'F2.3.0'; // 고정촬영판(별도 앱, 기존 앱 v3.5.0에서 분리)
 const STORES = ['settings', 'exams', 'exercises', 'logs', 'errors', 'models', 'blobs', 'validations'];
 
 const DB = (() => {
@@ -84,7 +84,7 @@ async function rescaleExams(fromMm, toMm) {
     const scaleMm = o => { if (!o || typeof o !== 'object') return; for (const key of Object.keys(o)) { const v = o[key]; if (typeof v === 'number' && (/Mm$/.test(key) || key === 'mmPerPx') && key !== 'stickerDiameterMm') o[key] = v * k; else if (v && typeof v === 'object' && !Array.isArray(v)) scaleMm(v); else if (Array.isArray(v)) v.forEach(x => { if (x && typeof x === 'object' && typeof x.mm === 'number') x.mm *= k; }); } };
     scaleMm(e.pre.measure); scaleMm(e.post.measure);
     const cmp = C.comparePrePost(e.pre.measure, e.post.measure, conv, null);
-    e.comparison = Object.assign({}, e.comparison, cmp); e.category = cmp.status === '측정 가능' ? C.classify(cmp.changeMm) : null;
+    e.comparison = Object.assign({}, e.comparison, cmp); e.category = cmp.status === '측정 가능' ? C.classify(cmp.changeMm) : null; // 2단계 판정
     e.conversion = conv; e.rescaled = { fromMm, toMm, at: Date.now() }; delete e.aiCorrection; e.updatedAt = Date.now(); e._syncedAt = null;
     if (await save('exams', e)) n++;
   }
@@ -108,14 +108,15 @@ function fmtDate(ts, withTime) { const d = new Date(ts); const p = n => String(n
 // 길이 표시: mm 소수 첫째 자리(0.1 mm 단위). d = 소수 자릿수
 function mm(v, d) { if (v == null || !isFinite(v)) return '—'; const k = d == null ? 1 : d, f = 10 ** k; return (Math.round((v + (v >= 0 ? 1e-9 : -1e-9)) * f) / f).toFixed(k) + ' mm'; }
 const cmTxt = (v, d) => v.toFixed(d == null ? 1 : d) + ' mm'; // (이름은 그대로) 길이 문구: mm 소수 첫째 자리
-const CLASS_BANDS = () => [['normal', C.CLASS_MM.normal], ['mild', C.CLASS_MM.mild], ['moderate', C.CLASS_MM.moderate]].map(([, y]) => ({ y, label: String(y) }));
+const CLASS_BANDS = () => [{ y: C.CLASS_MM.flat, label: String(C.CLASS_MM.flat) }];
 function px(v) { return v == null || !isFinite(v) ? '—' : v.toFixed(1) + ' px'; }
 function pct(v) { return v == null || !isFinite(v) ? '—' : Math.round(v * 100) + '%'; }
 const FOOT = { left: '왼발', right: '오른발' };
 const PHASE = { pre: '체중부하 전', post: '체중부하 후' };
 function catBadge(cat) {
   if (!cat) return '<span class="badge">분류 없음</span>';
-  const cls = { normal: 'b-good', mild: 'b-warn', moderate: 'b-bad', severe: 'b-bad' }[cat.key];
+  if (isFinite(cat.value)) cat = C.classify(cat.value) || cat; // 예전 4단계 기록도 2단계로 표시
+  const cls = cat.key === 'normal' ? 'b-good' : 'b-bad';
   return `<span class="badge ${cls}">${esc(cat.label)}</span>`;
 }
 function statusBadge(st) {

@@ -186,9 +186,9 @@ route('sheet', '측정 시트', async (v) => {
 
 route('dash', '대시보드', async (v) => {
   await loadAll(true);
-  const s = D.stats || {}, cats = { normal: 0, mild: 0, moderate: 0, severe: 0 };
-  for (const e of D.exams) { const k = e.data && e.data.category && e.data.category.key; if (k in cats) cats[k]++; }
-  const tot = Object.values(cats).reduce((a, b) => a + b, 0) || 1, CL = { normal: '정상', mild: '경증', moderate: '중등도', severe: '중증' };
+  const s = D.stats || {}, cats = { normal: 0, severe: 0 };
+  for (const e of D.exams) { const c = e.data && e.data.comparison, m = c && c.changeMm; if (isFinite(m)) cats[C.classify(m).key]++; }
+  const tot = Object.values(cats).reduce((a, b) => a + b, 0) || 1, CL = { normal: '정상', severe: '유연성 평발' };
   const active = D.models.find(m => m.active), pairs = trainingRows();
   v.innerHTML = `<h1>대시보드</h1>
     <div class="grid">
@@ -349,7 +349,7 @@ route('content', '운동 영상', async (v, arg) => {
   catch (e) { if (notReady(e)) { v.innerHTML = `<h1>운동 영상</h1>${SETUP}`; return; } throw e; }
   rows = (rows || []).sort((a, b) => (a.sort - b.sort) || String(a.created_at).localeCompare(String(b.created_at)));
   if (arg) return contentEdit(v, arg === 'new' ? null : rows.find(r => r.id === arg), rows);
-  const catLabel = k => (CATS.find(c => c[0] === k) || [k, k])[1];
+  const catLabel = k => (CATS.find(c => c[0] === k) || [k, (k === 'mild' || k === 'moderate') ? '유연성 평발' : k])[1];
   v.innerHTML = `<div class="row"><h1 class="grow">운동 영상 <span class="muted small">(중재 콘텐츠)</span></h1><a class="btn primary" href="#/content/new">+ 운동 추가</a></div>
     <p class="small muted">여기서 올린 운동과 영상은 <b>모든 사용자 앱</b>의 ‘발활 재활영상’과, 연결한 분류의 <b>측정 결과 화면</b>에 바로 나타납니다.</p>
     ${rows.length ? '' : `<div class="card"><b>아직 등록된 운동이 없습니다.</b><p class="small">기본 운동(짧은 발 운동·수건 당기기·발꿈치 들기)을 불러온 뒤 영상만 올려도 됩니다.</p><button class="btn" id="seed">기본 운동 3개 불러오기</button></div>`}
@@ -362,7 +362,7 @@ route('content', '운동 영상', async (v, arg) => {
   const sb = $('#seed'); if (sb) sb.onclick = async () => {
     sb.disabled = true;
     try {
-      const body = C.EXERCISE_DRAFTS.map((d, i) => ({ id: crypto.randomUUID(), name: d.name, purpose: d.purpose || '', posture: d.posture || '', steps: d.steps || [], cautions: d.cautions || [], categories: i === 0 ? ['normal', 'mild', 'moderate', 'severe'] : i === 1 ? ['mild', 'moderate', 'severe'] : ['moderate', 'severe'], sort: (i + 1) * 10, published: true }));
+      const body = C.EXERCISE_DRAFTS.map((d, i) => ({ id: crypto.randomUUID(), name: d.name, purpose: d.purpose || '', posture: d.posture || '', steps: d.steps || [], cautions: d.cautions || [], categories: i === 0 ? ['normal', 'severe'] : ['severe'], sort: (i + 1) * 10, published: true }));
       await Api.call('/rest/v1/exercise_content', { method: 'POST', body, headers: { Prefer: 'return=minimal' } }); toast('기본 운동을 불러왔습니다. 이제 영상을 올려 주세요.'); render();
     } catch (e) { toast(e.message, true); sb.disabled = false; }
   };

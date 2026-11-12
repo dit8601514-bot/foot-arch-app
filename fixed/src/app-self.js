@@ -305,8 +305,8 @@ function flexSectionHtml(e) {
   const cat = e.category, c = e.comparison, sr = e.selfReport || {};
   let body;
   if (!cat) body = '<p class="small muted">길이 값과 분류가 있어야 유연성 평발 양상을 확인할 수 있습니다.</p>';
-  else if (cat.key === 'normal') body = `<p class="small">체중을 실었을 때 발활 하강이 <b>${mm(c.changeMm)}</b>로, 본 연구 기준 <b>정상 범위(${cmTxt(C.CLASS_MM.normal)} 이하)</b>입니다. 체중에 따라 발활이 크게 무너지는 유연성 평발 양상은 보이지 않습니다.</p>`;
-  else body = `<p class="small">앉았을 때(체중 없음) 발활 높이 <b>${mm(c.preMm)}</b> → 섰을 때 <b>${mm(c.postMm)}</b>로 <b>${mm(c.changeMm)}</b> 내려갔습니다. 체중을 빼면 발활이 다시 올라오는 <b>유연성 평발 양상</b>에 해당합니다(본 연구 기준: ${esc(cat.label)}).</p>
+  else if (cat.key === 'normal') body = `<p class="small">체중을 실었을 때 발활 하강이 <b>${mm(c.changeMm)}</b>로, 기준(${cmTxt(C.CLASS_MM.flat, 0)} 미만)에 따라 <b>정상</b>입니다. 체중에 따라 발활이 크게 무너지는 유연성 평발 양상은 보이지 않습니다.</p>`;
+  else body = `<p class="small">앉았을 때(체중 없음) 발활 높이 <b>${mm(c.preMm)}</b> → 섰을 때 <b>${mm(c.postMm)}</b>로 <b>${mm(c.changeMm)}</b> 내려갔습니다. 체중을 빼면 발활이 다시 올라오는 <b>유연성 평발 양상</b>에 해당합니다(기준: ${cmTxt(C.CLASS_MM.flat, 0)} 이상).</p>
       <div class="grid2"><a class="btn primary" href="#/exercises">관리 운동 보기</a><a class="btn" href="#/manage">관리 현황</a></div>`;
   const warn = SELF_QUESTIONS.some(([k]) => sr[k]);
   return `<div class="card" id="flex"><b>유연성 평발 자가 확인</b>${body}

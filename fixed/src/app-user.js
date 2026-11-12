@@ -31,7 +31,7 @@ route('/home', 'AI Footarch 고정촬영', async (v) => {
     <div class="sec-title">최근 결과</div>
     <div>${['right'].map(f => { const e = latest(f); return `<a class="mini" href="${e ? '#/result/' + e.id : '#/self?feet=' + f}">
       <div class="tiny" style="font-weight:700">${FOOT[f]}</div>
-      ${e ? `<div style="font-size:20px;font-weight:800;margin:2px 0">${e.comparison.changeMm != null ? mm(e.comparison.changeMm) : statusBadge(e.comparison.status)}</div><div>${catBadge(e.category)}</div><div class="tiny" style="margin-top:4px">${fmtDate(e.createdAt)}</div>` : '<div class="muted small" style="margin-top:4px">기록 없음 · 측정하기 ›</div>'}
+      ${e ? `<div style="font-size:20px;font-weight:800;margin:2px 0">${e.category ? catBadge(e.category) : statusBadge(e.comparison.status)}</div>${e.comparison.changeMm != null ? `<div class="tiny">측정값 ${mm(e.comparison.changeMm)}</div>` : ''}<div class="tiny" style="margin-top:4px">${fmtDate(e.createdAt)}</div>` : '<div class="muted small" style="margin-top:4px">기록 없음 · 측정하기 ›</div>'}
     </a>`; }).join('')}</div>
     <div id="homeCare"></div>
     ${mgmt ? `<a class="mini" style="margin-top:10px" href="#/manage"><div class="row"><b class="grow small">유연성 평발 관리 중</b><span class="badge b-warn">${esc(mgmt)}</span></div></a>` : ''}
@@ -374,12 +374,12 @@ function strip(r) { const o = Object.assign({}, r); delete o._blob; return o; }
 async function examById(id) { return (S.lastResult && S.lastResult.id === id) ? S.lastResult : await DB.get('exams', id); }
 route('/result/:id', '측정 결과', async (v, p) => {
   const e = await examById(p.id); if (!e) { v.innerHTML = '<div class="note bad">결과를 찾을 수 없습니다.</div>'; return; }
-  const c = e.comparison, cat = e.category;
+  const c = e.comparison, cat = e.category && c.status === '측정 가능' && isFinite(c.changeMm) ? C.classify(c.changeMm) : e.category;
   if (cat && typeof Account !== 'undefined') await Promise.race([Account.syncContent(), new Promise(r => setTimeout(r, 2000))]);
   const exs = cat ? (await DB.all('exercises')).filter(x => (S.settings.mapping[cat.key] || []).includes(x.id)) : [];
   const valOrPx = (m) => m.heightMm != null ? mm(m.heightMm) : px(m.heightPx);
   const preV = c.preMm != null ? mm(c.preMm) : valOrPx(e.pre.measure), postV = c.postMm != null ? mm(c.postMm) : valOrPx(e.post.measure);
-  const explain = cat ? `체중부하 전·후 P2(발배뼈 부위)와 P1–P3 기준선 사이 거리가 ${mm(c.changeMm)} 변했습니다. 본 연구에서 설정한 기준(${cat.range})에 따라 “${cat.label}”으로 분류됩니다. 이 기준은 본 연구의 분류 기준이며 모든 임상 환경에서 검증된 진단 기준이 아닙니다.`
+  const explain = cat ? `체중부하 전·후 P2(발배뼈 부위)와 P1–P3 기준선 사이 거리가 ${mm(c.changeMm)} 변했습니다. 기준(${cat.range})에 따라 “${cat.label}”으로 판정됩니다. 이 판정은 참고용이며 진단을 대신하지 않습니다.`
     : c.status === '보정 필요' ? `길이 환산 조건이 충족되지 않아 길이 값과 분류를 표시하지 않습니다. 픽셀 변화량(${px(c.changePx)})은 기록되었으며, 카메라 거리·해상도에 따라 달라지므로 다른 검사와 비교할 수 없습니다.`
     : '측정을 완료하지 못했습니다. 아래 원인을 확인하고 다시 검사해 주세요.';
   const ang = c.archAngle, fl = c.floor, deg = x => x == null ? '—' : x.toFixed(1) + '°';
@@ -389,17 +389,16 @@ route('/result/:id', '측정 결과', async (v, p) => {
     <div class="card hero-result">
       <span class="feet">${footprintsSvg('r')}</span>
       <div class="grow">
-        <div class="tiny" style="font-weight:700;color:var(--ink-2)">발배뼈 하강 ${c.primary === 'floor' ? '(바닥 기준)' : ''}</div>
-        ${(() => { const pc = c.calib; if ((pc || c.p2) && c.changeMm != null) { // 치료사 방식: 앉았다 일어섰을 때 P2 스티커가 내려간 거리
-            const coef = pc && pc.label && !/보정 없음/.test(pc.label);
-            const sub = c.primary === 'p2' && c.p2
-              ? `치료사 방식 · 앉음 → 섬 P2 스티커 이동 ${mm(Math.max(0, c.p2.dropMm))}${c.p2.floorCompensated ? ' (카메라 흔들림 보정)' : ''}${coef ? ` · 공통 보정계수 ${esc(pc.label)}` : ''}`
-              : `<span style="color:var(--warn)">P2 이동 미측정 → 추정값</span> · 기준선 ${mm(pc.rawMm)} + 공통 보정계수 ${esc(pc.label)} (표본 ${pc.n}개)`;
-            return `<div class="result-big">${mm(c.changeMm)}</div><div>${catBadge(cat)}</div><div class="tiny" style="font-weight:600">${sub}</div>`; }
-          const ac = e.aiCorrection && isFinite(e.aiCorrection.mm) ? e.aiCorrection : null; // 예전 기록(F1.1~F1.7): 별도 보정값
-          return ac ? `<div class="result-big">${mm(Math.max(0, ac.mm))}</div><div>${catBadge(ac.category || cat)}</div><div class="tiny" style="font-weight:600">보정 적용 · 앱 측정 ${mm(c.changeMm)} ${ac.slope ? `× ${ac.slope}` : `${ac.mm - c.changeMm >= 0 ? '+' : '−'} ${Math.abs(ac.mm - c.changeMm).toFixed(1)} mm`} (${esc(String(ac.version))})</div>`
-            : `<div class="result-big">${c.changeMm != null ? mm(c.changeMm) : '—'}</div><div>${catBadge(cat)}</div>`; })()}
-        ${c.changeMm == null && c.changePx != null ? `<div class="tiny">픽셀 변화량 ${px(c.changePx)} (mm 아님)</div>` : ''}
+        ${(() => { // F2.3: 판정(정상 / 유연성 평발)이 중심, mm 값은 작게 참고로만
+          const ac = !c.calib && !c.p2 && e.aiCorrection && isFinite(e.aiCorrection.mm) ? e.aiCorrection : null; // 예전 기록(F1.1~F1.7)
+          const val = ac ? Math.max(0, ac.mm) : c.changeMm;
+          const k = val != null && isFinite(val) && c.status === '측정 가능' ? C.classify(val) : null;
+          if (!k) return `<div class="verdict">${c.changeMm == null ? '판정할 수 없습니다' : '다시 측정해 주세요'}</div>${statusBadge(c.status)}${c.changeMm == null && c.changePx != null ? `<div class="mm-note">픽셀 변화량 ${px(c.changePx)} (mm 아님)</div>` : ''}`;
+          const ok = k.key === 'normal';
+          const warn = c.calib && !(c.primary === 'p2' && c.p2) ? ' · P2 이동 미측정 → 추정값' : '';
+          return `<div class="verdict ${ok ? 'ok' : 'bad'}">${esc(k.verdict)}</div>
+            <div class="risk ${ok ? 'ok' : 'bad'}"><i></i>${esc(k.risk)}</div>
+            <div class="mm-note">측정값 ${mm(val)} · 기준 ${C.CLASS_MM.flat} mm${warn}</div>`; })()}
       </div>
     </div>
     <div id="roundBox"></div>
@@ -488,7 +487,7 @@ function printReport(e) {
   w.innerHTML = `<h1>AI Footarch 발배뼈 하강(NDT) 측정 리포트</h1>
     <p>${esc(fmtDate(e.createdAt))} · ${FOOT[e.foot]} · 참여자 ${esc(e.participantId || '—')} · ${esc(e.algorithmVersion)} · 앱 v${APP_VERSION}</p>
     <table>${row('발배뼈 하강', `<b>${c.changeMm != null ? mm(c.changeMm) : '—'}</b> ${e.category ? '· ' + esc(e.category.label) : ''}`)}
-    ${row('분류 기준', '정상 ≤2 mm · 경증 2–4 mm · 중등도 4–6 mm · 중증 ≥6 mm (본 연구 기준)')}
+    ${row('판정 기준', '8 mm 미만 정상(위험도 낮음) · 8 mm 이상 유연성 평발(위험도 높음)')}
     ${row('P1–P3 기준선 하강', c.lineChangeMm != null ? mm(c.lineChangeMm) : '—')}
     ${row('바닥 기준 발배뼈 높이', c.floor ? `${mm(c.floor.preMm)} → ${mm(c.floor.postMm)} (하강 ${mm(c.floor.dropMm)})` : '바닥선 미확인')}
     ${c.archAngle ? row('스티커 발활 각도', `${c.archAngle.pre.toFixed(1)}° → ${c.archAngle.post.toFixed(1)}°`) : ''}
@@ -579,14 +578,14 @@ route('/history', '검사 이력', async (v, p) => {
   v.innerHTML = `<h2>검사 이력</h2>
     <div class="seg" id="fseg">${[['all', '전체'], ['left', '왼발'], ['right', '오른발']].map(([k, l]) => `<button data-v="${k}" class="${f === k ? 'on' : ''}">${l}</button>`).join('')}</div>
     <div class="card"><b>발활 높이 변화량 추이 (mm)</b>
-      ${valid.length ? `<div class="legend"><span><i style="background:var(--series-1)"></i>왼발</span><span><i style="background:var(--series-2)"></i>오른발</span></div><canvas class="chart" id="ch" aria-label="변화량 그래프"></canvas><p class="tiny">길이 환산이 유효한 검사만 표시합니다. 점선은 연구 분류 경계(2·4·6 mm)입니다.</p>`
+      ${valid.length ? `<div class="legend"><span><i style="background:var(--series-1)"></i>왼발</span><span><i style="background:var(--series-2)"></i>오른발</span></div><canvas class="chart" id="ch" aria-label="변화량 그래프"></canvas><p class="tiny">길이 환산이 유효한 검사만 표시합니다. 점선은 판정 경계(8 mm)입니다.</p>`
       : '<p class="muted small">mm 값이 확보된 검사가 아직 없어 그래프를 그릴 수 없습니다.</p>'}</div>
     <div class="card"><b>좌우 발 비교(가장 최근 유효 결과)</b>
-      <div class="grid2" style="margin-top:8px">${[['left', L], ['right', R]].map(([ft, e]) => `<div><div class="tiny">${FOOT[ft]}</div>${e ? `<div style="font-size:22px;font-weight:800">${mm(e.comparison.changeMm)}</div>${catBadge(e.category)}<div class="tiny">${fmtDate(e.createdAt, false)}</div>` : '<div class="muted small">유효 결과 없음</div>'}</div>`).join('')}</div>
+      <div class="grid2" style="margin-top:8px">${[['left', L], ['right', R]].map(([ft, e]) => `<div><div class="tiny">${FOOT[ft]}</div>${e ? `<div style="margin:2px 0">${catBadge(e.category)}</div><div class="tiny">측정값 ${mm(e.comparison.changeMm)} · ${fmtDate(e.createdAt, false)}</div>` : '<div class="muted small">유효 결과 없음</div>'}</div>`).join('')}</div>
       ${L && R ? `<p class="small">좌우 차이 ${mm(Math.abs(L.comparison.changeMm - R.comparison.changeMm))}. 측정 오차와 촬영 조건 차이를 함께 고려하세요.</p>` : ''}</div>
     <a class="btn block" href="#/compare">중재 전·후 결과 비교</a>
     <h3>전체 기록 (${list.length})</h3>
-    <div class="card">${list.length ? list.map(e => `<a class="list-item" href="#/result/${e.id}"><span class="badge b-info">${FOOT[e.foot]}</span><span class="grow small">${fmtDate(e.createdAt)}<br>${e.comparison.changeMm != null ? '<b>' + mm(e.comparison.changeMm) + '</b> ' + catBadge(e.category) : statusBadge(e.comparison.status)}</span>›</a>`).join('') : '<p class="muted">검사 기록이 없습니다.</p>'}</div>`;
+    <div class="card">${list.length ? list.map(e => `<a class="list-item" href="#/result/${e.id}"><span class="badge b-info">${FOOT[e.foot]}</span><span class="grow small">${fmtDate(e.createdAt)}<br>${e.comparison.changeMm != null ? catBadge(e.category) + ' <span class="tiny">' + mm(e.comparison.changeMm) + '</span>' : statusBadge(e.comparison.status)}</span>›</a>`).join('') : '<p class="muted">검사 기록이 없습니다.</p>'}</div>`;
   $$('#fseg button', v).forEach(b => b.onclick = () => go('#/history?foot=' + b.dataset.v));
   if (valid.length) {
     const ser = ['left', 'right'].filter(ft => f === 'all' || f === ft).map(ft => ({ name: FOOT[ft], color: ft === 'left' ? '#2a78d6' : '#eb6834', points: valid.filter(e => e.foot === ft).map(e => ({ x: e.createdAt, y: C.roundMm(e.comparison.changeMm), label: `${fmtDate(e.createdAt)} ${mm(e.comparison.changeMm)}` })) })).filter(s => s.points.length);

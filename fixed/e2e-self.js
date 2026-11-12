@@ -64,18 +64,18 @@ async function scenario(tag, video, expectConfirmed, expectMm, opt) {
   }
   log(`[${tag}] 음성: "촬영되었습니다" 2회`, spoken.filter(s => s === '촬영되었습니다.').length === 2);
   if (ok) {
-    await pg.waitForSelector('.result-big'); await shot(`s05-result-${tag}`);
-    const big = (await pg.textContent('.result-big')).trim(), main = await pg.textContent('main');
+    await pg.waitForSelector('.verdict'); await shot(`s05-result-${tag}`);
+    const big = (await pg.textContent('.mm-note')).replace(/^측정값\s*/, '').trim(), main = await pg.textContent('main');
     if (expectConfirmed) {
       { const pc = JSON.parse(require('fs').readFileSync(require('path').join(__dirname, '..', 'dist', 'fixed', 'calib-model.json'), 'utf8')).popCalib.p2, add = pc && pc.method === 'bias' ? -pc.bias : 0; // 학습된 공통 보정계수(P2 이동)
-      log(`[${tag}] 결과: P2 이동 ${expectMm} mm + 공통 보정계수 ${add.toFixed(1)} = ${(expectMm + add).toFixed(1)} mm · 중증`, big.includes('mm') && Math.abs(parseFloat(big) - (expectMm + add)) <= 0.6 && main.includes('중증 평발 의심') && main.includes('P2 스티커 이동') && (add === 0 || main.includes('공통 보정계수')), big); }
+      log(`[${tag}] 결과: P2 이동 ${expectMm} mm + 공통 보정계수 ${add.toFixed(1)} = ${(expectMm + add).toFixed(1)} mm · 판정`, big.includes('mm') && Math.abs(parseFloat(big) - (expectMm + add)) <= 0.6 && main.includes((expectMm + add) >= 8 ? '유연성 평발입니다' : '정상입니다') && main.includes((expectMm + add) >= 8 ? '위험도 높음' : '위험도 낮음') && main.includes('P2 스티커 이동'), big); }
       if (tag === 'C') {
         const ex = await pg.evaluate(async () => { const e = (await DB.all('exams'))[0]; return { line: e.comparison.lineChangeMm, floor: e.comparison.floor, pl: e.pre.measure.floor && e.pre.measure.floor.placement }; });
         log(`[${tag}] 바닥 기준 발배뼈 높이 ≈42→34mm, 하강 ≈8mm (표준 NDT 방식)`, ex.floor && Math.abs(ex.floor.preMm - 42) < 0.5 && Math.abs(ex.floor.postMm - 34) < 0.5 && Math.abs(ex.floor.dropMm - 8) < 0.4, JSON.stringify(ex.floor && { pre: ex.floor.preMm.toFixed(2), post: ex.floor.postMm.toFixed(2), drop: ex.floor.dropMm.toFixed(2) }));
         log(`[${tag}] P1·P3 부착 높이 표준(20mm) 점검 통과`, ex.pl && ex.pl.every(x => x.ok && Math.abs(x.mm - 20) < 0.6), JSON.stringify(ex.pl));
         await shot('d06-result'); await pg.click('#detailBtn'); await pg.waitForTimeout(200); await shot('d06b-result-detail');
         for (const [h, n] of [['#/home', 'd01-home'], ['#/records', 'd07-records'], ['#/exercises', 'd08-exercises']]) { await pg.goto(U + h); await pg.waitForTimeout(700); await shot(n); }
-        await pg.goBack(); await pg.goBack(); await pg.goBack(); await pg.waitForSelector('.result-big');
+        await pg.goBack(); await pg.goBack(); await pg.goBack(); await pg.waitForSelector('.verdict');
         log(`[${tag}] 결과 화면에 두 측정값(기준선·바닥) 표시`, main.includes('P1–P3 기준선 하강') && main.includes('바닥 기준 발배뼈 높이') && !main.includes('바닥선 미확인'));
       }
       log(`[${tag}] 결과: 체중부하 인지 기록(일어섬·발활 하강)`, main.includes('일어섬 확인') && main.includes('발활 하강 확인'));
