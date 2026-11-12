@@ -9,7 +9,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  const ALGORITHM_VERSION = 'ALG-2.9.0'; // 고정촬영판: 치료사 방식(바닥에서 잰 P2 높이 차이) 기본 + 바닥선 개선(v3.5.1 이식) + 공통 보정계수
+  const ALGORITHM_VERSION = 'ALG-3.0.0'; // 고정촬영판: 치료사 방식 = 앉음→섬 P2 스티커 이동 거리 + 공통 보정계수
 
   // 기본 검출 파라미터 (휴리스틱 값 — 실제 사진으로 검증 후 연구자가 조정해야 함)
   const DEFAULT_DETECT = {
@@ -39,7 +39,7 @@
   };
 
   const DEFAULT_CONVERSION = {
-    primaryMeasure: 'floor',       // 고정촬영판: 치료사 방식(바닥에서 잰 P2 높이: 앉음 − 섬)
+    primaryMeasure: 'floor',       // (고정촬영판 ALG-3.0.0부터는 P2 이동 거리(r.p2)가 기본 — 아래 comparePrePost)
     minAxisRatioForMm: 0.75,       // 이 미만이면 촬영 각도 기울어짐 → 보정 필요(지름은 장축으로 재므로 곡면의 약한 타원은 허용)
     maxSizeCv: 0.06,               // 3개 스티커 지름 변동계수 상한(원근/회전)
     minDiameterPx: 20,             // 해상도 하한
@@ -763,6 +763,7 @@
     const { P1, P2, P3 } = det.landmarks;
     if (dist(P1, P3) < 1) { out.notes.push('P1과 P3 위치가 부적절합니다.'); return out; }
     out.heightPx = distanceToLine(P2, P1, P3);
+    out.pts = { P1: { x: P1.x, y: P1.y }, P2: { x: P2.x, y: P2.y }, P3: { x: P3.x, y: P3.y } }; // P2 움직임 측정용(고정촬영판)
     // 스티커 발활 각도: P2(발배뼈)에서 P3(발꿈치)·P1(첫째발허리뼈머리)로 향하는 두 선이 이루는 각. 발활이 낮아질수록 180°에 가까워진다.
     out.archAngleDeg = archAngle(P1, P2, P3);
     out.signedHeightPx = det.landmarks.signedDistancePx;
@@ -788,7 +789,7 @@
   function attachFloor(out, det, c) {
     const so = det.sole;
     if (!so || !so.ok) { out.floor = { ok: false, reason: so ? so.reason : '바닥선 미검출' }; return; }
-    const L = det.landmarks, f = { ok: true, P1Px: heightAboveSole(L.P1, so), P2Px: heightAboveSole(L.P2, so), P3Px: heightAboveSole(L.P3, so), soleFrames: so.frames || 1, soleSdPx: so.sdPx || 0 };
+    const L = det.landmarks, f = { ok: true, sole: { slope: so.slope, intercept: so.intercept }, P1Px: heightAboveSole(L.P1, so), P2Px: heightAboveSole(L.P2, so), P3Px: heightAboveSole(L.P3, so), soleFrames: so.frames || 1, soleSdPx: so.sdPx || 0 };
     if (out.mmPerPx) {
       for (const k of ['P1', 'P2', 'P3']) f[k + 'Mm'] = f[k + 'Px'] * out.mmPerPx;
       const std = c.standardStickerHeightMm || 20, tol = c.stickerHeightTolMm || 6;
@@ -796,6 +797,28 @@
       f.placementNotes = f.placement.filter(x => !x.ok).map(x => `${x.key === 'P1' ? 'P1(첫째발허리뼈머리)' : 'P3(발꿈치뼈)'} 스티커 높이 ${x.mm.toFixed(0)} mm — 표준 ${std} mm(바닥에서 2 cm)와 차이가 큽니다.`);
     }
     out.floor = f;
+  }
+  // 앉음(pre) → 섬(post) 사이 P2 이동. 반환: dropMm(+ = 내려감), 카메라 움직임 점검
+  function p2Movement(pre, post, mmPerPx) {
+    if (!pre || !post || !pre.pts || !post.pts || !(mmPerPx > 0)) return null;
+    const A = pre.pts;
+    // 아래 방향(단위벡터): 앉은 자세 P1–P3 선에 수직이고 P2의 반대쪽(P2는 선보다 위에 있음)
+    let ux = A.P1.x - A.P3.x, uy = A.P1.y - A.P3.y; const ul = Math.hypot(ux, uy) || 1; ux /= ul; uy /= ul;
+    let nx = -uy, ny = ux; // 선의 법선
+    const side = (A.P2.x - A.P3.x) * nx + (A.P2.y - A.P3.y) * ny; if (side > 0) { nx = -nx; ny = -ny; } // n = P2 반대쪽 = 아래
+    const down = (a, b) => ((b.x - a.x) * nx + (b.y - a.y) * ny) * mmPerPx;
+    const out = { method: 'p2', dropMm: down(A.P2, post.pts.P2), rawMoveMm: null, p3MoveMm: down(A.P3, post.pts.P3), p1MoveMm: down(A.P1, post.pts.P1), camShiftMm: null, floorCompensated: false, flags: [] };
+    out.rawMoveMm = out.dropMm;
+    // 바닥선이 두 사진 모두에서 잡혔으면 바닥이 움직인 만큼(= 카메라가 움직인 만큼) 빼 준다
+    if (pre.floor && pre.floor.ok && pre.floor.sole && post.floor && post.floor.ok && post.floor.sole) {
+      const yAt = (so, x) => so.slope * x + so.intercept, x0 = A.P2.x;
+      const shift = (yAt(post.floor.sole, x0) - yAt(pre.floor.sole, x0)) * ny * mmPerPx; // 아래 방향 성분(근사)
+      out.camShiftMm = shift;
+      if (Math.abs(shift) > 0.3) { out.dropMm = out.rawMoveMm - shift; out.floorCompensated = true; }
+    }
+    if (out.camShiftMm != null && Math.abs(out.camShiftMm) > 3) out.flags.push(`앉은 사진과 선 사진 사이에 카메라(또는 바닥)가 약 ${Math.abs(out.camShiftMm).toFixed(1)} mm 움직였습니다. 바닥선으로 빼서 계산했지만, 휴대폰을 고정하고 다시 재면 더 정확합니다.`);
+    else if (out.camShiftMm == null && Math.abs(out.p3MoveMm) > 6) out.flags.push(`발꿈치(P3) 스티커가 ${out.p3MoveMm.toFixed(1)} mm 움직였습니다. 촬영 중 휴대폰이나 발 위치가 바뀌었을 수 있으니 휴대폰을 고정하고 다시 재 주세요.`);
+    return out;
   }
   function archAngle(P1, P2, P3) {
     const a = { x: P3.x - P2.x, y: P3.y - P2.y }, b = { x: P1.x - P2.x, y: P1.y - P2.y };
@@ -856,13 +879,18 @@
     }
     if (r.changeMm >= c.maxPlausibleChangeMm) { r.status = '측정 불가'; r.notes.push(`변화량(${r.changeMm.toFixed(1)}mm)이 비정상적으로 큽니다. 스티커 위치·자세를 확인하고 다시 검사해 주세요.`); r.changeMm = null; return r; }
     if (postMm - preMm > c.riseReviewMm) r.flags.push('체중부하 후 발활 높이가 오히려 높게 측정되었습니다. 자세·스티커 위치 검토가 필요합니다.');
+    // ── 치료사 방식(ALG-3.0.0, 사용자 정의 2026-11-12): 앉았다 일어섰을 때 P2 스티커가 아래로 움직인 거리 ──
+    //   카메라는 25 cm에 고정 → 바닥은 두 사진에서 같은 자리. P2가 사진 안에서 내려간 거리 × (mm/px) = 치료사가 재는 P2 높이 차이.
+    //   바닥선도 P1–P3 기준선도 필요 없다. '아래' 방향은 앉은 자세 P1–P3 선(P1·P3는 표준 20 mm 높이 → 바닥과 평행)에 수직.
+    r.p2 = p2Movement(pre, post, common);
+    if (r.p2) { r.changeMm = Math.max(0, r.p2.dropMm); r.primary = 'p2'; for (const f of r.p2.flags) r.flags.push(f); }
     // 모든 사용자 공통 보정계수(ALG-2.8.0): 촬영 거리 25 cm 고정 → 같은 조건의 계통 오차를 여러 사람의 실측 표본으로 학습한 계수로 줄인다.
     // 개인별 보정이 아님 — 처음 재는 사람에게도 똑같이 적용. 원래 값은 r.raw에 남겨 표본·검증에 쓴다.
-    r.raw = { lineMm: r.lineChangeMm, floorMm: r.floor && isFinite(r.floor.dropMm) ? Math.abs(r.floor.dropMm) : null };
+    r.raw = { p2Mm: r.p2 ? Math.max(0, r.p2.dropMm) : null, lineMm: r.lineChangeMm, floorMm: r.floor && isFinite(r.floor.dropMm) ? Math.abs(r.floor.dropMm) : null };
     const pc = populationCorrect(r.raw, (options && options.popCalib !== undefined) ? options.popCalib : POP_CALIB);
     if (pc) { r.changeMm = pc.mm; r.primary = pc.method; r.calib = pc;
-      if (pc.method === 'line') r.notes.push(`바닥선이 확인되지 않아 치료사 방식(바닥에서 잰 P2 높이 차이) 대신 P1–P3 기준선 ${pc.rawMm.toFixed(1)} mm에 공통 보정계수(${pc.label} · 표본 ${pc.n}개)를 적용한 추정값입니다. 발 아래 바닥 경계가 화면에 보이게 다시 찍으면 치료사 방식으로 잽니다.`);
-      else if (pc.label && !/보정 없음/.test(pc.label)) r.notes.push(`치료사 방식(바닥 기준) ${pc.rawMm.toFixed(1)} mm에 공통 보정계수 ${pc.label}(표본 ${pc.n}개)를 적용했습니다.`); }
+      if (pc.method === 'line') r.notes.push(`P2 움직임을 잴 수 없어 P1–P3 기준선 ${pc.rawMm.toFixed(1)} mm에 공통 보정계수(${pc.label} · 표본 ${pc.n}개)를 적용한 추정값입니다.`);
+      else if (pc.label && !/보정 없음/.test(pc.label)) r.notes.push(`P2 이동 ${pc.rawMm.toFixed(1)} mm에 공통 보정계수 ${pc.label}(표본 ${pc.n}개)를 적용했습니다.`); }
     r.status = '측정 가능';
     return r;
   }
@@ -1371,24 +1399,25 @@
   // raw: { lineMm: P1–P3 기준선 하강, floorMm: 바닥 기준 하강(바닥선이 전·후 모두 잡혔을 때) }
   function populationCorrect(raw, P) {
     if (!P || !raw) return null;
-    const useFloor = P.prefer === 'floor' && P.floor && raw.floorMm != null;
-    const method = useFloor ? 'floor' : 'line', m = useFloor ? P.floor : P.line, v = useFloor ? raw.floorMm : raw.lineMm;
-    if (!m || !isFinite(v) || (m.method === 'identity' && !useFloor)) return null; // 바닥 기준은 계수가 필요 없어도(identity) 방식 전환 자체가 개선
+    // 기본: P2 움직임(치료사 방식). P2 움직임을 못 잰 경우에만 기준선 추정.
+    const useP2 = raw.p2Mm != null && isFinite(raw.p2Mm);
+    const method = useP2 ? 'p2' : 'line', m = useP2 ? P.p2 : P.line, v = useP2 ? raw.p2Mm : raw.lineMm;
+    if (!m || !isFinite(v) || (m.method === 'identity' && !useP2)) return null;
     return { mm: Math.max(0, applyErrorModel(m, { ai: v })), rawMm: v, method, label: m.label, id: P.id, n: P.n, participants: P.participants, cvMae: m.cvMae, baseMae: m.baseMae, piMm: m.piMm };
   }
-  // 방식별 보정계수 학습. 측정 정의는 치료사 방식(사용자 결정 2026-11-12):
-  //   '바닥에서 잰 P2(발배뼈거친면) 높이'의 앉은 자세 − 선 자세 차이 = 바닥 기준(floor). 바닥선이 잡히면 항상 이 방식.
-  //  · 바닥 기준: 정의상 자로 잰 값과 같은 양 → 처음엔 보정 없음. 바닥 기준 표본이 minFloor개 이상 모이면 계통 오차가 있는지 학습해 계수 적용
-  //  · 기준선(line): 바닥선이 안 잡혔을 때만 쓰는 대체 추정. 서면 P1·P3 자리도 내려앉아 작게 나오므로 표본으로 학습한 계수로 보정
+  // 공통 보정계수 학습. 측정 정의는 치료사 방식(사용자 결정 2026-11-12):
+  //   앉았다 일어섰을 때 P2 스티커가 아래로 움직인 거리(p2Drop). 정의상 자로 잰 값과 같은 양 → 처음엔 보정 없음.
+  //   P2 움직임 표본(p2Drop)이 minP2개 이상 모이면 남은 계통 오차(축척·원근 등)를 학습해 모든 사용자에게 같은 계수 적용.
+  //   기준선(ai) 계수는 P2 움직임을 못 잰 예외 경우의 대체 추정용.
   function learnPopulationCalib(samples, options) {
-    const o = Object.assign({ minFloor: 5 }, options || {});
+    const o = Object.assign({ minP2: 5 }, options || {});
     const S = (samples || []).filter(x => x && isFinite(x.ref));
     const line = learnSeedCorrection(S.filter(x => isFinite(x.ai)), o);
-    const fs2 = S.filter(x => x.floorDrop != null && isFinite(x.floorDrop));
-    const floor = fs2.length >= o.minFloor ? learnSeedCorrection(fs2.map(x => Object.assign({}, x, { ai: Math.abs(x.floorDrop) })), o) : null;
-    const floorModel = floor && floor.ok ? floor.model : { method: 'identity', label: '보정 없음(치료사 방식과 같은 정의)', n: fs2.length, participants: new Set(fs2.map(x => x.participant)).size, cvMae: null, baseMae: null, piMm: null };
+    const ps = S.filter(x => x.p2Drop != null && isFinite(x.p2Drop));
+    const p2 = ps.length >= o.minP2 ? learnSeedCorrection(ps.map(x => Object.assign({}, x, { ai: x.p2Drop })), o) : null;
+    const p2Model = p2 && p2.ok ? p2.model : { method: 'identity', label: '보정 없음(치료사 방식과 같은 정의)', n: ps.length, participants: new Set(ps.map(x => x.participant)).size, cvMae: null, baseMae: null, piMm: null };
     const parts = new Set(S.map(x => x.participant)).size;
-    return { line, floor, prefer: 'floor', calib: { prefer: 'floor', line: line && line.ok ? line.model : null, floor: floorModel, n: S.length, nFloor: fs2.length, participants: parts } };
+    return { line, p2, prefer: 'p2', calib: { prefer: 'p2', p2: p2Model, line: line && line.ok ? line.model : null, n: S.length, nP2: ps.length, participants: parts } };
   }
 
   // ───────────────────────── 기본 보정 학습(표본 파일 → 모든 사용자) ─────────────────────────
@@ -1942,6 +1971,6 @@
     rgbToHsv, detectStickers, labelLandmarks, signedDistanceToLine, distanceToLine, projectionT,
     measureImage, comparePrePost, classify, roundMm, errorMetrics,
     splitByParticipant, trainCalibration, applyCalibration, fitMethod, validateConversion,
-    motionBetween, framingCheck, laplacianVariance, archAngle, cropImage, detectInRoi, labelsConsistent, combineDetections, shapeDelta, AI_FEATURES, errorFeatures, trainErrorModel, applyErrorModel, learnSeedCorrection, learnPopulationCalib, populationCorrect, fitRidge, createLandmarkKalman, chromaMap, ALIGN, alignmentCheck, LOAD, loadEvidence, shapeOf, FOOT_MODEL, GUIDE_LAYOUT, guideGeometry, guideCheck, fitFootModel, snapOutline, densify, segmentFoot, appHeights, EXERCISE_DRAFTS, EXERCISE_CATEGORIES, youtubeId, resampleClosed, personalCare, measurementWeight, CARE, detectSoleLine, heightAboveSole, appHeightsAll, reliabilityStats, retestPairs, normalizedIndices, NNH_REF, distanceAdvice, calibrateFovK, DIST
+    motionBetween, framingCheck, laplacianVariance, archAngle, cropImage, detectInRoi, labelsConsistent, combineDetections, shapeDelta, AI_FEATURES, errorFeatures, trainErrorModel, applyErrorModel, learnSeedCorrection, learnPopulationCalib, populationCorrect, p2Movement, fitRidge, createLandmarkKalman, chromaMap, ALIGN, alignmentCheck, LOAD, loadEvidence, shapeOf, FOOT_MODEL, GUIDE_LAYOUT, guideGeometry, guideCheck, fitFootModel, snapOutline, densify, segmentFoot, appHeights, EXERCISE_DRAFTS, EXERCISE_CATEGORIES, youtubeId, resampleClosed, personalCare, measurementWeight, CARE, detectSoleLine, heightAboveSole, appHeightsAll, reliabilityStats, retestPairs, normalizedIndices, NNH_REF, distanceAdvice, calibrateFovK, DIST
   };
 });

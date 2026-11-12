@@ -4,9 +4,9 @@ const path = require('path');
 const C = require(path.join(__dirname, '..', 'src', 'core.js'));
 const S = require(path.join(__dirname, 'samples.json')).samples;
 const LP = C.learnPopulationCalib(S); const r = LP.line;
-console.log(`측정 정의: 치료사 방식 — 바닥에서 잰 P2 높이(앉음 − 섬). 바닥선이 잡히면 이 값, 안 잡히면 기준선+보정계수 추정`);
-console.log(`바닥 기준 보정: ${LP.calib.floor.label} (바닥 기준 표본 ${LP.calib.nFloor}개${LP.calib.nFloor < 5 ? ', 5개 이상 모이면 계통 오차 학습' : `, 평균 오차 ${LP.floor && LP.floor.ok ? LP.floor.model.baseMae.toFixed(2) + ' → ' + LP.floor.model.cvMae.toFixed(2) + ' mm' : '—'}`})`);
-console.log('[바닥선 미확인 시 기준선 방식 보정계수]');
+console.log(`측정 정의: 치료사 방식 — 앉았다 일어섰을 때 P2 스티커가 아래로 움직인 거리(p2Drop)`);
+console.log(`P2 이동 보정: ${LP.calib.p2.label} (P2 이동 표본 ${LP.calib.nP2}개${LP.calib.nP2 < 5 ? ', 5개 이상 모이면 남은 계통 오차 학습' : LP.p2 && LP.p2.ok ? `, 평균 오차 ${LP.p2.model.baseMae.toFixed(2)} → ${LP.p2.model.cvMae.toFixed(2)} mm` : ''})`);
+console.log('[P2 이동을 못 잰 경우 대체: 기준선 방식 보정계수]');
 if (!r.ok) { console.log(r.reason); process.exit(0); }
 const m = r.model, f = v => (v == null ? '—' : v.toFixed(2));
 console.log(`표본 ${m.nAll}개(학습 ${m.n}개, 이상치 ${r.outliers.length}개${r.outliers.length ? ': ' + r.outliers.join(', ') : ''}) · 참여자 ${m.participants}명 · 검증 ${r.validation}`);

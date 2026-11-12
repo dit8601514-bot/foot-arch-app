@@ -37,15 +37,24 @@ const gauss = () => { let u = 0; for (let i = 0; i < 6; i++) u += rnd(); return 
 // 6) 표본 부족
 ok('표본 1개 → 학습 안 함', C.learnSeedCorrection([{ ai: 3, ref: 7 }]).ok === false);
 
-// 7) 측정 정의 = 치료사 방식(바닥에서 잰 P2 높이 차이). 바닥선 있으면 바닥 기준(표본 적으면 보정 없음), 없으면 기준선+계수
+// 7) 측정 정의 = 치료사 방식(앉음→섬 P2 이동). P2 이동이 있으면 그 값(표본 적으면 보정 없음), 없으면 기준선+계수
 { const L0 = C.learnPopulationCalib(S); const P0 = Object.assign({ id: 't' }, L0.calib);
-  ok('기본 = 바닥 기준(치료사 방식), 표본 부족 시 보정 없음', L0.prefer === 'floor' && L0.calib.floor.method === 'identity');
-  const a = C.populationCorrect({ lineMm: 4, floorMm: 8.3 }, P0), b = C.populationCorrect({ lineMm: 3.6, floorMm: null }, P0);
-  ok('바닥선 있음 → 바닥에서 잰 P2 높이 차이 그대로', a && a.method === 'floor' && Math.abs(a.mm - 8.3) < 1e-9, a && a.mm.toFixed(1));
-  ok('바닥선 없음 → 기준선 + 공통 계수 추정', b && b.method === 'line' && b.mm > 7.4 && b.mm < 8.2, b && b.mm.toFixed(1));
-  const rows = []; for (let p = 0; p < 8; p++) for (let i = 0; i < 2; i++) { const ref = 5 + 6 * rnd(); rows.push({ participant: 'F' + p, ref, ai: ref - 4 + 0.4 * gauss(), floorDrop: ref - 1.5 + 0.3 * gauss() }); }
-  const L = C.learnPopulationCalib(rows), c2 = C.populationCorrect({ lineMm: 3, floorMm: 6 }, Object.assign({ id: 't' }, L.calib));
-  ok('바닥 기준에 계통 오차가 있으면 표본으로 학습해 보정', L.calib.floor.method === 'bias' && c2.method === 'floor' && Math.abs(c2.mm - 7.5) < 0.6, `${L.calib.floor.label} → ${c2.mm.toFixed(1)}`); }
+  ok('기본 = P2 이동(치료사 방식), 표본 부족 시 보정 없음', L0.prefer === 'p2' && L0.calib.p2.method === 'identity');
+  const a = C.populationCorrect({ p2Mm: 8.3, lineMm: 4 }, P0), b = C.populationCorrect({ p2Mm: null, lineMm: 3.6 }, P0);
+  ok('P2 이동 있음 → 그대로', a && a.method === 'p2' && Math.abs(a.mm - 8.3) < 1e-9, a && a.mm.toFixed(1));
+  ok('P2 이동 없음 → 기준선 + 공통 계수 추정', b && b.method === 'line' && b.mm > 7.4 && b.mm < 8.2, b && b.mm.toFixed(1));
+  const rows = []; for (let p = 0; p < 8; p++) for (let i = 0; i < 2; i++) { const ref = 5 + 6 * rnd(); rows.push({ participant: 'F' + p, ref, ai: ref - 4 + 0.4 * gauss(), p2Drop: ref - 1.5 + 0.3 * gauss() }); }
+  const L = C.learnPopulationCalib(rows), c2 = C.populationCorrect({ p2Mm: 6, lineMm: 3 }, Object.assign({ id: 't' }, L.calib));
+  ok('P2 이동에 계통 오차가 있으면 표본으로 학습해 보정', L.calib.p2.method === 'bias' && c2.method === 'p2' && Math.abs(c2.mm - 7.5) < 0.6, `${L.calib.p2.label} → ${c2.mm.toFixed(1)}`); }
+
+// 7-2) P2 이동 계산: 앉음 P1(100,300) P3(500,300) P2(300,260) → 섬 P2(300,268): 8 px 아래, 1 px = 1 mm
+{ const pre = { pts: { P1: { x: 100, y: 300 }, P2: { x: 300, y: 260 }, P3: { x: 500, y: 300 } } }, post = { pts: { P1: { x: 102, y: 300 }, P2: { x: 300, y: 268 }, P3: { x: 500, y: 300.5 } } };
+  const r = C.p2Movement(pre, post, 1); ok('P2 이동 = 8 mm', r && Math.abs(r.dropMm - 8) < 1e-6 && Math.abs(r.p3MoveMm - 0.5) < 1e-6, r && r.dropMm);
+  const rot = (p, a) => ({ x: p.x * Math.cos(a) - p.y * Math.sin(a), y: p.x * Math.sin(a) + p.y * Math.cos(a) }), R = o => ({ pts: Object.fromEntries(Object.entries(o.pts).map(([k, v]) => [k, rot(v, 10 * Math.PI / 180)])) });
+  const r2 = C.p2Movement(R(pre), R(post), 1); ok('휴대폰 10° 기울어도 같은 값', Math.abs(r2.dropMm - 8) < 1e-6, r2.dropMm.toFixed(3));
+  const sole = (y) => ({ slope: 0, intercept: y });
+  const pre2 = Object.assign({}, pre, { floor: { ok: true, sole: sole(330) } }), post2 = { pts: { P1: { x: 102, y: 297 }, P2: { x: 300, y: 265 }, P3: { x: 500, y: 297.5 } }, floor: { ok: true, sole: sole(327) } };
+  const r3 = C.p2Movement(pre2, post2, 1); ok('카메라 흔들림(바닥선 이동) 보정', Math.abs(r3.dropMm - 8) < 1e-6 && r3.floorCompensated, `${r3.rawMoveMm.toFixed(1)} → ${r3.dropMm.toFixed(1)}`); }
 
 // 8) 측정 알고리즘 안에서 적용: 같은 입력이면 누구에게나 같은 값(개인 기록과 무관)
 { const P = Object.assign({ id: 't' }, C.learnPopulationCalib(S).calib);

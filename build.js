@@ -37,7 +37,7 @@ console.log('built', build, html.length, 'bytes');
   if (fcore2 === fcore) throw new Error('fixed: __POP_CALIB__ 자리를 찾지 못함');
   const fapp2 = fapp;
   const lm = L.calib.line;
-  console.log(`fixed 공통 보정계수 ${popCalib.id}: 사용 방식 ${L.prefer} · 기준선 ${lm ? lm.label + ` (${lm.validation} MAE ${lm.baseMae.toFixed(2)} → ${lm.cvMae.toFixed(2)} mm)` : '없음'} · 바닥 ${L.calib.floor ? L.calib.floor.label : `표본 부족(${L.calib.nFloor}/5)`} · 표본 ${L.calib.n}개 ${L.calib.participants}명`);
+  console.log(`fixed 공통 보정계수 ${popCalib.id}: 기본 = P2 이동(치료사 방식) ${L.calib.p2.label} · P2 표본 ${L.calib.nP2}개${L.calib.nP2 < 5 ? '(5개부터 학습)' : ''} · 대체 기준선 ${lm ? lm.label : '없음'} · 표본 ${L.calib.n}개 ${L.calib.participants}명`);
   let fh = rf('index.html').replace('<!--CORE-->', () => '<script id="core-script">\n' + safe(fcore2) + '\n</script>').replace('<!--APP-->', () => '<script>\n' + safe(fapp2) + '\n</script>');
   const fb = crypto.createHash('sha1').update(fh).update(fs.readFileSync(pf('config.js'))).update(fs.readFileSync(pf('sw.js'))).digest('hex').slice(0, 10);
   fh = fh.replace('__BUILD__', fb);

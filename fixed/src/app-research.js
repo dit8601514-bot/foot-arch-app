@@ -144,7 +144,7 @@ route('/r/calib', '측정 알고리즘 보정', async (v) => {
       <button class="btn block" id="syn">합성 이미지 시험 실행</button><div id="synres"></div></div>
     <div class="card small"><b>현재 검출·환산 파라미터 (${C.ALGORITHM_VERSION})</b><pre style="white-space:pre-wrap;font-size:12px">${esc(JSON.stringify({ detect: C.DEFAULT_DETECT, conversion: C.DEFAULT_CONVERSION }, null, 1))}</pre><p class="tiny">이 값들은 초기 휴리스틱이며 실제 사진 자료로 검증·조정이 필요합니다.</p></div>`;
   const paintPm = () => $$('#pmSeg button', v).forEach(b => b.classList.toggle('on', b.dataset.v === 'floor'));
-  $$('#pmSeg button', v).forEach(b => b.onclick = () => toast('고정촬영판은 치료사 방식(바닥에서 잰 P2 높이 차이)으로 고정되어 있습니다.')); paintPm();
+  $$('#pmSeg button', v).forEach(b => b.onclick = () => toast('고정촬영판은 치료사 방식(앉음→섬 P2 스티커 이동 거리)으로 고정되어 있습니다.')); paintPm();
   $('#saveD', v).onclick = async () => { const d = num($('#dia', v).value); if (!(d > 2 && d < 50)) return toast('지름은 2~50mm 사이 숫자로 입력해 주세요.', true); S.settings.stickerDiameterMm = d; S.settings.diameterSource = 'user'; if (await saveSettings()) { toast('저장했습니다.'); render(); } };
   $('#tpl', v).onclick = () => download(`foot-arch-template-${D}mm.svg`, templateSvg(D), 'image/svg+xml');
   $('#vf', v).onchange = e => {
