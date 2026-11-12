@@ -56,6 +56,9 @@ ok('표본 1개 → 학습 안 함', C.learnSeedCorrection([{ ai: 3, ref: 7 }]).
   const pre2 = Object.assign({}, pre, { floor: { ok: true, sole: sole(330) } }), post2 = { pts: { P1: { x: 102, y: 297 }, P2: { x: 300, y: 265 }, P3: { x: 500, y: 297.5 } }, floor: { ok: true, sole: sole(327) } };
   const r3 = C.p2Movement(pre2, post2, 1); ok('카메라 흔들림(바닥선 이동) 보정', Math.abs(r3.dropMm - 8) < 1e-6 && r3.floorCompensated, `${r3.rawMoveMm.toFixed(1)} → ${r3.dropMm.toFixed(1)}`); }
 
+// 7-3) P2 이동만 있는 표본(ai: null)은 기준선 학습에 0으로 섞이지 않음
+{ const L = C.learnPopulationCalib(S); ok('ai: null 표본은 기준선 학습에서 제외', L.line.model.nAll === S.filter(x => Number.isFinite(x.ai)).length, `${L.line.model.nAll}개`); }
+
 // 8) 측정 알고리즘 안에서 적용: 같은 입력이면 누구에게나 같은 값(개인 기록과 무관)
 { const P = Object.assign({ id: 't' }, C.learnPopulationCalib(S).calib);
   const v1 = C.populationCorrect({ lineMm: 3.6, floorMm: null }, P).mm, v2 = C.populationCorrect({ lineMm: 3.6, floorMm: null }, P).mm;

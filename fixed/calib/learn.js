@@ -13,5 +13,11 @@ console.log(`표본 ${m.nAll}개(학습 ${m.n}개, 이상치 ${r.outliers.length
 console.log('방법별 평균 오차(학습에 안 쓴 자료 기준):', Object.entries(r.cv).map(([k, v]) => `${k} ${f(v.mae)} mm`).join(' · '));
 console.log(`선택: ${r.chosen} → ${m.label}  (평균 오차 ${f(m.baseMae)} → ${f(m.cvMae)} mm, 90%가 ±${f(m.piMm)} mm 안)`);
 if (r.warning) console.log('주의:', r.warning);
-console.log('\n표본별(실측 / 앱 → 보정 후):');
-for (const s of S) { const p = C.applyErrorModel(m, { ai: s.ai }); console.log(`  ${s.id} ${s.participant} ${s.foot || '-'}  실측 ${s.ref.toFixed(1)} / 앱 ${s.ai.toFixed(1)} → ${p.toFixed(1)}  (차이 ${(p - s.ref >= 0 ? '+' : '')}${(p - s.ref).toFixed(1)})${r.outliers.includes(s.id) ? '  ← 이상치(학습 제외)' : ''}`); }
+console.log('\n표본별:');
+const P = Object.assign({ id: 'report' }, LP.calib);
+for (const s of S) {
+  const raw = { p2Mm: Number.isFinite(s.p2Drop) ? s.p2Drop : null, lineMm: Number.isFinite(s.ai) ? s.ai : null };
+  const pc = C.populationCorrect(raw, P), v = pc ? pc.mm : (raw.p2Mm != null ? raw.p2Mm : raw.lineMm);
+  const how = raw.p2Mm != null ? `P2 이동 ${raw.p2Mm.toFixed(1)}` : `기준선 ${raw.lineMm.toFixed(1)}`;
+  console.log(`  ${s.id} ${s.participant} ${s.foot || '-'} ${s.date || ''}  실측 ${s.ref.toFixed(1)} / 앱 ${how} → ${v.toFixed(1)}  (차이 ${v - s.ref >= 0 ? '+' : ''}${(v - s.ref).toFixed(1)})${r.outliers.includes(s.id) ? '  ← 이상치(학습 제외)' : ''}`);
+}

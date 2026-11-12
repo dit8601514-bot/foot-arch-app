@@ -1412,8 +1412,8 @@
   function learnPopulationCalib(samples, options) {
     const o = Object.assign({ minP2: 5 }, options || {});
     const S = (samples || []).filter(x => x && isFinite(x.ref));
-    const line = learnSeedCorrection(S.filter(x => isFinite(x.ai)), o);
-    const ps = S.filter(x => x.p2Drop != null && isFinite(x.p2Drop));
+    const line = learnSeedCorrection(S.filter(x => Number.isFinite(x.ai)), o); // ai가 null인 표본(P2 이동만 있는 표본)은 제외
+    const ps = S.filter(x => Number.isFinite(x.p2Drop));
     const p2 = ps.length >= o.minP2 ? learnSeedCorrection(ps.map(x => Object.assign({}, x, { ai: x.p2Drop })), o) : null;
     const p2Model = p2 && p2.ok ? p2.model : { method: 'identity', label: '보정 없음(치료사 방식과 같은 정의)', n: ps.length, participants: new Set(ps.map(x => x.participant)).size, cvMae: null, baseMae: null, piMm: null };
     const parts = new Set(S.map(x => x.participant)).size;
