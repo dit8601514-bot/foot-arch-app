@@ -1432,11 +1432,13 @@
    *  ⑤ 보정 없음보다 평균 오차가 10% 이상 줄 때만 보정, 선형은 더하기보다 5% 이상 나을 때만(흔들림을 키울 수 있음)
    */
   function learnSeedCorrection(samples, options) {
-    const o = Object.assign({ outlierK: 3, slopeShrinkN: 3, minGain: 0.10, methods: ['identity', 'bias', 'linear'] }, options || {});
+    const o = Object.assign({ outlierK: 3, minOutlierN: 6, minMadMm: 0.5, slopeShrinkN: 3, minLinearN: 10, minRefRange: 3, minGain: 0.10, methods: ['identity', 'bias', 'linear'] }, options || {});
     const all = (samples || []).filter(s => s && fin(s.ai) != null && fin(s.ref) != null).map((s, i) => Object.assign({ participant: 'P' + i }, s, { d: s.ref - s.ai }));
     if (all.length < 2) return { ok: false, reason: `표본이 부족합니다(${all.length}개, 최소 2개).`, n: all.length };
     const md = median(all.map(s => s.d)), mad = median(all.map(s => Math.abs(s.d - md))) * 1.4826;
-    for (const s of all) s.outlier = mad > 0 && Math.abs(s.d - md) > o.outlierK * mad;
+    // 이상치 판정은 표본이 minOutlierN개 이상일 때만(소표본의 MAD는 불안정), 흔들림 폭은 최소 minMadMm로 잡는다(측정 잡음보다 작은 폭으로 판정하지 않음)
+    const madUse = Math.max(mad, o.minMadMm);
+    for (const s of all) s.outlier = all.length >= o.minOutlierN && Math.abs(s.d - md) > o.outlierK * madUse;
     const use = all.filter(s => !s.outlier);
     const groups = rows => { const g = {}; for (const r of rows) (g[r.participant] = g[r.participant] || []).push(r); return Object.values(g); };
     const fit = (method, rows) => {
@@ -1468,7 +1470,10 @@
     // 단순한 쪽 우선: 보정 없음 → 더하기 → 선형 순으로, 앞의 것보다 확실히(보정 없음 대비 10%, 더하기 대비 5%) 나을 때만 다음 것을 고른다
     const base = cv.identity; let chosen = 'identity';
     if (cv.bias && cv.bias.mae <= base.mae * (1 - o.minGain)) chosen = 'bias';
-    if (cv.linear && cv.linear.mae <= base.mae * (1 - o.minGain) && cv.linear.mae <= (chosen === 'bias' ? cv.bias.mae * 0.95 : Infinity)) chosen = 'linear';
+    // 선형(기울기)은 표본이 충분하고(minLinearN) 실측값이 넓게 퍼져 있을 때만(minRefRange mm) — 실측이 거의 같은 값이면 기울기를 배울 수 없고 '외우기'가 됨
+    const refs = use.map(r => r.ref), refRange = refs.length ? Math.max(...refs) - Math.min(...refs) : 0;
+    const linearOk = use.length >= o.minLinearN && refRange >= o.minRefRange;
+    if (linearOk && cv.linear && cv.linear.mae <= base.mae * (1 - o.minGain) && cv.linear.mae <= (chosen === 'bias' ? cv.bias.mae * 0.95 : Infinity)) chosen = 'linear';
     const model = fit(chosen, use);
     const absRes = preds[chosen].map(p => Math.abs(p.ai - p.ref)).sort((a, b) => a - b);
     const q90 = absRes.length ? absRes[Math.min(absRes.length - 1, Math.ceil(0.9 * absRes.length) - 1)] : null;

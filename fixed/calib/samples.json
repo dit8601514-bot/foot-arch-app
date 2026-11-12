@@ -10,6 +10,7 @@
     { "id": "S06", "participant": "U01", "foot": "right", "date": "2026-11-09 18:54", "ai": 5.5, "ref": 10.5, "floorDrop": null, "note": "" },
     { "id": "S07", "participant": "U01", "foot": "right", "date": "2026-11-09 18:58", "ai": 3.6, "ref": 7.0,  "floorDrop": null, "note": "" },
     { "id": "S08", "participant": "U01", "foot": "right", "date": "2026-11-12 18:23", "alg": "ALG-3.0.0", "p2Drop": 4.1, "ai": null, "ref": 7.5, "floorDrop": null, "note": "치료사 방식(P2 이동) 첫 표본, 화면 녹화 — 발꿈치(P3) 이동 값은 녹화에 없음" },
-    { "id": "S09", "participant": "U01", "foot": "right", "date": "2026-11-12 18:24", "alg": "ALG-3.0.0", "p2Drop": 5.8, "ai": null, "ref": 7.5, "floorDrop": null, "note": "S08 바로 다음 같은 발·같은 실측(반복 측정)" }
+    { "id": "S09", "participant": "U01", "foot": "right", "date": "2026-11-12 18:24", "alg": "ALG-3.0.0", "p2Drop": 5.8, "ai": null, "ref": 7.5, "floorDrop": null, "note": "S08 바로 다음 같은 발·같은 실측(반복 측정)" },
+    { "id": "S10", "participant": "U01", "foot": "right", "date": "2026-11-12 18:33", "alg": "ALG-3.0.0", "p2Drop": 5.7, "ai": null, "ref": 7.5, "floorDrop": null, "note": "화면 녹화(같은 파일 5개로 받음 → 측정 1개)" }
   ]
 }

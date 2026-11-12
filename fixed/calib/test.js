@@ -59,6 +59,10 @@ ok('표본 1개 → 학습 안 함', C.learnSeedCorrection([{ ai: 3, ref: 7 }]).
 // 7-3) P2 이동만 있는 표본(ai: null)은 기준선 학습에 0으로 섞이지 않음
 { const L = C.learnPopulationCalib(S); ok('ai: null 표본은 기준선 학습에서 제외', L.line.model.nAll === S.filter(x => Number.isFinite(x.ai)).length, `${L.line.model.nAll}개`); }
 
+// 7-4) 실측이 모두 같은 값(7.5)인 소표본으로는 선형(기울기)을 배우지 않음
+{ const r = C.learnSeedCorrection([{ ai: 4.1, ref: 7.5 }, { ai: 5.8, ref: 7.5 }, { ai: 5.7, ref: 7.5 }, { ai: 4.6, ref: 7.5 }, { ai: 5.2, ref: 7.5 }].map(x => Object.assign({ participant: 'U' }, x)));
+  ok('실측이 한 값뿐이면 선형 안 씀', r.chosen !== 'linear', r.model.label); }
+
 // 8) 측정 알고리즘 안에서 적용: 같은 입력이면 누구에게나 같은 값(개인 기록과 무관)
 { const P = Object.assign({ id: 't' }, C.learnPopulationCalib(S).calib);
   const v1 = C.populationCorrect({ lineMm: 3.6, floorMm: null }, P).mm, v2 = C.populationCorrect({ lineMm: 3.6, floorMm: null }, P).mm;
