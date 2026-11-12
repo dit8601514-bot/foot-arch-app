@@ -2,12 +2,12 @@
 /* ═════════════ 계정·서버 동기화 (Supabase Auth + PostgREST, 외부 라이브러리 없이 fetch로 호출) ═════════════
  * 설정: config.js 의 window.FOOTARCH_CONFIG = { supabaseUrl, supabaseAnonKey, emailDomain }
  *       또는 연구자 모드에서 입력(이 기기에만 저장).
- * 고정촬영판(F1.7.0~): 로그인·회원가입 없음. 처음 한 번 동의하면 기기마다 이름 없는 익명 계정(Supabase anonymous sign-in)을 자동으로 만든다.
- *   서버 설정 필요: Authentication → Sign In / Providers → Allow anonymous sign-ins 켜기. 꺼져 있으면 이 기기에만 저장.
+ * 아이디 로그인: Supabase는 이메일 기반이므로 "아이디@emailDomain" 형식의 내부 주소로 가입한다(메일은 보내지 않음, 이메일 확인 끔 필요).
+ * 고정촬영판(F2.1.0~): 회원가입에 이름·학년·성별. 측정 후 '회차'(기본 측정·1~4회차)에 오른발 RT와 Y-balance를 저장 → rounds 표 → 관리자 시트.
  * 서버 테이블·보안 규칙: supabase/schema.sql
  */
 const Account = (() => {
-  const LS = 'footarchFixed.session', GUEST = 'footarchFixed.guest', CONSENT = 'footarchFixed.consent';
+  const LS = 'footarchFixed.session', GUEST = 'footarchFixed.guest';
   const ls = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }, del(k) { try { localStorage.removeItem(k); } catch (e) {} } };
   let session = null; try { session = JSON.parse(ls.get(LS) || 'null'); } catch (e) { session = null; }
   function cfg() {
@@ -51,27 +51,13 @@ const Account = (() => {
     const c = cfg();
     const res = await fetch(c.supabaseUrl + '/auth/v1/token?grant_type=refresh_token', { method: 'POST', headers: { apikey: c.supabaseAnonKey, 'Content-Type': 'application/json' }, body: JSON.stringify({ refresh_token: session.refresh_token }) }).catch(() => null);
     if (!res) return; // 오프라인: 기존 토큰 유지(기기 안 기록은 계속 쓸 수 있음)
-    if (!res.ok) {
-      const wasAnon = !!(session.user && session.user.is_anonymous); saveSession(null);
-      if (wasAnon && ls.get(CONSENT)) { await signInAnon(JSON.parse(ls.get(CONSENT)).research); return; } // 익명 계정은 조용히 새로 만든다(기기 안 기록은 그대로)
-      throw new Error('서버 연결이 끊겼습니다. 앱을 다시 열어 주세요.');
-    }
+    if (!res.ok) { saveSession(null); throw new Error('로그인이 만료되었습니다. 다시 로그인해 주세요.'); }
     adopt(await res.json());
   }
   // ───── 공개 API ─────
-  // 익명 계정: 이메일·비밀번호 없이 가입(서버에서 익명 가입을 켜야 함). profiles 표가 요구하는 값은 이름 없는 가명으로 채운다.
-  async function signInAnon(research) {
-    const now = new Date().toISOString(), rnd = (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2) + Date.now()).replace(/-/g, '').slice(0, 12);
-    let j;
-    try { j = await call('/auth/v1/signup', { method: 'POST', auth: false, body: { data: { username: 'anon-' + rnd, name: '익명', phone: null, consent_privacy_at: now, consent_sensitive_at: now, consent_research: !!research } } }); }
-    catch (e) { if (/anonymous/i.test(e.message) || e.status === 422) { const er = new Error('서버에서 익명 계정이 꺼져 있어 이 기기에만 저장합니다. (관리자: Supabase → Authentication → Sign In / Providers → Allow anonymous sign-ins 켜기)'); er.anonDisabled = true; throw er; } throw e; }
-    adopt(j.access_token ? j : (j.session || j));
-    ls.set(CONSENT, JSON.stringify({ at: now, research: !!research }));
-    return user();
-  }
-  async function signUp({ name, phone, username, password, consentPrivacy, consentSensitive, consentResearch }) {
+  async function signUp({ name, phone, grade, gender, username, password, consentPrivacy, consentSensitive, consentResearch }) {
     const now = new Date().toISOString();
-    const j = await call('/auth/v1/signup', { method: 'POST', auth: false, body: { email: emailOf(username), password, data: { username: username.toLowerCase(), name, phone, consent_privacy_at: consentPrivacy ? now : null, consent_sensitive_at: consentSensitive ? now : null, consent_research: !!consentResearch } } });
+    const j = await call('/auth/v1/signup', { method: 'POST', auth: false, body: { email: emailOf(username), password, data: { username: username.toLowerCase(), name, phone: phone || null, grade, gender, consent_privacy_at: consentPrivacy ? now : null, consent_sensitive_at: consentSensitive ? now : null, consent_research: !!consentResearch } } });
     adopt(j.access_token ? j : (j.session || j));
     await clearOthers(user().id);
     return user();
@@ -85,7 +71,7 @@ const Account = (() => {
   function user() {
     if (!session || !session.user) return null;
     const m = session.user.user_metadata || {};
-    return { id: session.user.id, anonymous: !!session.user.is_anonymous, username: m.username || '', name: m.name || '', phone: m.phone || '', consentResearch: !!m.consent_research };
+    return { id: session.user.id, username: m.username || '', name: m.name || '', phone: m.phone || '', grade: m.grade || '', gender: m.gender || '', consentResearch: !!m.consent_research };
   }
   // ───── 동기화: 기기 → 서버 업로드(사진·영상 제외), 서버 → 기기 내려받기 ─────
   let syncing = null;
@@ -118,7 +104,7 @@ const Account = (() => {
     await call('/rest/v1/exams?id=not.is.null', { method: 'DELETE' });
     await call('/rest/v1/exercise_logs?id=not.is.null', { method: 'DELETE' });
     await call('/rest/v1/rpc/delete_user', { method: 'POST', body: {} });
-    saveSession(null); ls.del(CONSENT);
+    saveSession(null);
   }
   async function removeRemote(store, id) { const table = store === 'logs' ? 'exercise_logs' : store; await call(`/rest/v1/${table}?id=eq.${encodeURIComponent(id)}`, { method: 'DELETE' }); }
   // 다른 계정이 이 기기에서 올려 둔(이미 서버에 있는) 기록은 로그인 시 기기에서 치운다
@@ -169,52 +155,118 @@ const Account = (() => {
     S.settings.mapping = map; S.settings.serverContent = rows.length > 0; await saveSettings();
     return { ok: true, n: rows.length };
   }
+  // ───── 회차 기록(시트지): 기본 측정(0)·1~4회차, 오른발 RT(mm)·Y-balance. 한 사람·한 회차에 한 줄(덮어쓰기) ─────
+  const ROUND_NAMES = ['기본 측정', '1회차', '2회차', '3회차', '4회차'];
+  async function saveRound(round, { measuredAt, rtMm, examId, yBalance }) {
+    const u = user(); if (!configured() || !u) throw new Error('로그인해야 회차에 저장할 수 있습니다.');
+    const row = { user_id: u.id, round, measured_at: measuredAt ? new Date(measuredAt).toISOString() : null, rt_mm: rtMm == null ? null : +(+rtMm).toFixed(1), exam_id: examId || null, y_balance: yBalance == null || yBalance === '' ? null : +yBalance, updated_at: new Date().toISOString() };
+    await call('/rest/v1/rounds?on_conflict=user_id,round', { method: 'POST', body: row, headers: { Prefer: 'resolution=merge-duplicates,return=minimal' } });
+    return row;
+  }
+  async function myRounds() { const u = user(); if (!configured() || !u) return []; return (await call(`/rest/v1/rounds?user_id=eq.${u.id}&select=*&order=round`)) || []; }
   return {
+    ROUND_NAMES, saveRound, myRounds,
     aiModel, fetchAiModel, syncContent, videoPublicUrl,
-    configured, user, signInAnon, signUp, signIn, signOut, sync, syncSoon, deleteAccount, pendingCount, cfg, removeRemote,
+    configured, user, signUp, signIn, signOut, sync, syncSoon, deleteAccount, pendingCount, cfg, removeRemote,
     isGuest: () => ls.get(GUEST) === '1', setGuest: v2 => v2 ? ls.set(GUEST, '1') : ls.del(GUEST),
     get loggedIn() { return !!user(); }
   };
 })();
 
-// ───── 화면: 처음 시작(동의) — 로그인·회원가입 없음(고정촬영판 F1.7.0) ─────
+// ───── 화면: 로그인/회원가입 선택(시안 ②), 로그인, 회원가입(시안 ③) ─────
 route('/auth', 'AI Footarch 고정촬영', async (v) => {
-  const on = Account.configured();
   v.innerHTML = `<div class="auth-hero">${logoHtml(true)}
     <p>건강한 발을 위한<br>AI 발활 분석 서비스</p><div class="feet">${footprintsSvg('h')}</div></div>
-    <div class="card small"><b>로그인 없이 바로 씁니다</b>
-      <p>이름·아이디·전화번호를 받지 않습니다. ${on ? '이 휴대폰에 <b>이름 없는 계정</b>이 자동으로 만들어지고, 측정값(사진 제외)이 그 계정으로 서버에 저장됩니다.' : '기록은 이 기기에만 저장됩니다.'}</p>
-      ${on ? `<label class="chk"><input type="checkbox" id="c1"><span><b>[필수]</b> 발 측정값(건강 관련 정보)을 이름 없는 계정으로 서버에 저장·처리하는 데 동의합니다.</span></label>
-      <label class="chk"><input type="checkbox" id="c2"><span><b>[선택]</b> 측정값·실측값을 앱 오차 보정 연구(모든 사용자의 보정 학습)에 쓰는 데 동의합니다.</span></label>` : ''}</div>
-    ${on ? `<button class="btn primary block big" id="go">${ICON.user} 동의하고 시작하기</button>` : ''}
-    <button class="btn ghost block" id="guest">${on ? '서버 없이 이 기기에서만 쓰기' : '시작하기'}</button>
-    <p class="tiny" style="text-align:center">서버 기록은 언제든 설정 → "서버 기록 삭제"로 지울 수 있습니다.</p>`;
-  $('#guest', v).onclick = () => { Account.setGuest(true); go('#/home'); };
-  const g = $('#go', v); if (g) g.onclick = async () => {
-    if (!$('#c1', v).checked) return toast('[필수] 항목에 동의해야 서버에 저장할 수 있습니다. 동의하지 않으려면 "이 기기에서만 쓰기"를 눌러 주세요.', true);
-    g.disabled = true; g.textContent = '시작하는 중…';
-    try { await Account.signInAnon($('#c2', v).checked); Account.sync().catch(() => {}); toast('시작합니다. 기록은 이름 없는 계정으로 저장됩니다.'); go('#/home'); }
-    catch (e) { toast(e.message, true); if (e.anonDisabled) { Account.setGuest(true); go('#/home'); } else { g.disabled = false; g.innerHTML = `${ICON.user} 동의하고 시작하기`; } }
-  };
+    ${Account.configured() ? '' : '<div class="note warn small">서버가 아직 연결되지 않아 로그인·회원가입을 쓸 수 없습니다. 관리자가 Supabase 주소를 설정해야 합니다. 그동안은 로그인 없이 이 기기에서만 쓸 수 있습니다.</div>'}
+    <a class="btn primary block big" href="#/auth/login" ${Account.configured() ? '' : 'style="pointer-events:none;opacity:.45"'}>${ICON.user} 로그인</a>
+    <a class="btn block big" href="#/auth/signup" ${Account.configured() ? '' : 'style="pointer-events:none;opacity:.45"'}>${ICON.userPlus} 회원가입</a>
+    ${Account.configured() ? '<p class="tiny" style="text-align:center">측정 기록은 회차별로 담당 선생님의 측정 시트에 정리됩니다.</p>' : '<button class="btn ghost block" id="guest">이 기기에서만 쓰기</button>'}`;
+  if ($('#guest', v)) $('#guest', v).onclick = () => { Account.setGuest(true); go('#/home'); };
 }, { bare: true });
+
+const pwToggle = id => `<button type="button" class="trail" data-pw="${id}" aria-label="비밀번호 보기">${ICON.eye}</button>`;
+function bindPw(root) { $$('[data-pw]', root).forEach(b => b.onclick = () => { const i = $('#' + b.dataset.pw, root); i.type = i.type === 'password' ? 'text' : 'password'; }); }
+function busyBtn(b, on, label) { b.disabled = on; if (label) b.dataset.l = b.dataset.l || b.innerHTML; b.innerHTML = on ? '처리 중…' : (b.dataset.l || b.innerHTML); }
+
+route('/auth/login', '로그인', async (v) => {
+  v.innerHTML = `<form id="f" autocomplete="on">
+    <div class="card">
+      <div class="field">${ICON.idcard.replace('<svg', '<svg class="lead"')}<input id="un" placeholder="아이디를 입력해주세요" autocomplete="username" autocapitalize="none" inputmode="latin" required></div>
+      <div class="field">${ICON.lock.replace('<svg', '<svg class="lead"')}<input id="pw" type="password" placeholder="비밀번호를 입력해주세요" autocomplete="current-password" required>${pwToggle('pw')}</div>
+    </div>
+    <button class="btn primary block big" id="go" type="submit">로그인</button></form>
+    <a class="btn ghost block" href="#/auth/signup">아직 계정이 없나요? 회원가입</a>`;
+  bindPw(v);
+  $('#f', v).onsubmit = async ev => {
+    ev.preventDefault(); const b = $('#go', v); busyBtn(b, true, 1);
+    try { await Account.signIn($('#un', v).value.trim(), $('#pw', v).value); const r = await Account.sync().catch(e => ({ err: e.message })); toast(r && r.err ? '로그인했습니다. 동기화는 나중에 다시 시도합니다.' : `로그인했습니다${r && r.down ? ` · 기록 ${r.down}건을 불러왔습니다` : ''}.`); go('#/home'); }
+    catch (e) { toast(e.message, true); busyBtn(b, false); }
+  };
+}, { bare: false });
+
+route('/auth/signup', '회원가입', async (v) => {
+  const seg = (id, opts) => `<div class="seg" id="${id}">${opts.map(o => `<button type="button" data-v="${o}">${o}</button>`).join('')}</div>`;
+  v.innerHTML = `<form id="f" autocomplete="on" novalidate>
+    <div class="card">
+      <div class="field">${ICON.user.replace('<svg', '<svg class="lead"')}<input id="nm" placeholder="이름을 입력해주세요" autocomplete="name" maxlength="20"></div>
+      <p class="small" style="margin:10px 0 6px"><b>학년</b></p>${seg('gr', ['1학년', '2학년', '3학년', '4학년'])}
+      <p class="small" style="margin:10px 0 6px"><b>성별</b></p>${seg('gd', ['여', '남'])}
+      <div class="field" style="margin-top:12px">${ICON.idcard.replace('<svg', '<svg class="lead"')}<input id="un" placeholder="아이디를 입력해주세요" autocomplete="username" autocapitalize="none" maxlength="20"></div>
+      <div class="field">${ICON.lock.replace('<svg', '<svg class="lead"')}<input id="pw" type="password" placeholder="비밀번호를 입력해주세요" autocomplete="new-password">${pwToggle('pw')}</div>
+      <p class="tiny">아이디: 영문 소문자·숫자·밑줄 4~20자 · 비밀번호: 영문과 숫자를 포함해 8자 이상</p>
+    </div>
+    <div class="card small">
+      <label class="chk"><input type="checkbox" id="cAll"><b>전체 동의</b></label>
+      <label class="chk"><input type="checkbox" id="c1" class="cs"><span><b>[필수]</b> 개인정보 수집·이용 동의 — 이름·학년·성별·아이디를 계정 관리와 측정 시트 작성에 사용하고, 탈퇴 시 지체 없이 파기합니다.</span></label>
+      <label class="chk"><input type="checkbox" id="c2" class="cs"><span><b>[필수]</b> 민감정보(건강 관련 정보) 처리 동의 — 발 측정값(오른발 RT)·Y-balance 기록을 저장하고, 담당 선생님(관리자)이 측정 시트에서 확인·관리합니다. 촬영 사진은 서버에 올리지 않습니다.</span></label>
+      <label class="chk"><input type="checkbox" id="c3" class="cs"><span>[선택] 연구 활용 동의 — 측정값을 가명 처리하여 연구 분석·앱 보정 학습에 활용할 수 있습니다.</span></label>
+    </div>
+    <button class="btn primary block big" id="go" type="submit">회원가입</button></form>
+    <a class="btn ghost block" href="#/auth/login">이미 계정이 있나요? 로그인</a>`;
+  bindPw(v);
+  const pick = { gr: '', gd: '' };
+  for (const id of ['gr', 'gd']) $$('#' + id + ' button', v).forEach(b => b.onclick = () => { pick[id] = b.dataset.v; $$('#' + id + ' button', v).forEach(x => x.classList.toggle('on', x === b)); });
+  $('#cAll', v).onchange = e => $$('.cs', v).forEach(c => { c.checked = e.target.checked; });
+  $('#f', v).onsubmit = async ev => {
+    ev.preventDefault();
+    const name = $('#nm', v).value.trim(), username = $('#un', v).value.trim().toLowerCase(), password = $('#pw', v).value;
+    const errs = [];
+    if (!name) errs.push('이름을 입력해 주세요');
+    if (!pick.gr) errs.push('학년을 골라 주세요');
+    if (!pick.gd) errs.push('성별을 골라 주세요');
+    if (!/^[a-z0-9_]{4,20}$/.test(username)) errs.push('아이디는 영문 소문자·숫자·밑줄 4~20자');
+    if (password.length < 8 || !/[A-Za-z]/.test(password) || !/\d/.test(password)) errs.push('비밀번호는 영문과 숫자를 포함해 8자 이상');
+    if (!$('#c1', v).checked || !$('#c2', v).checked) errs.push('필수 동의 항목에 동의해 주세요');
+    if (errs.length) return toast(errs.join(' / '), true);
+    const b = $('#go', v); busyBtn(b, true, 1);
+    try {
+      await Account.signUp({ name, grade: pick.gr, gender: pick.gd, username, password, consentPrivacy: true, consentSensitive: true, consentResearch: $('#c3', v).checked });
+      await Account.sync().catch(() => {});
+      toast(`${name}님, 가입을 환영합니다.`); go('#/home');
+    } catch (e) { toast(e.message, true); busyBtn(b, false); }
+  };
+});
 
 // 계정 카드(설정 화면에 삽입)
 async function accountCardHtml() {
-  if (!Account.configured()) return `<div class="card"><b>저장 위치</b><p class="small muted">서버가 연결되지 않아 기록이 이 기기에만 저장됩니다.</p></div>`;
+  if (!Account.configured()) return `<div class="card"><b>계정</b><p class="small muted">서버가 연결되지 않아 기록이 이 기기에만 저장됩니다. 연구자 모드 → 연구 데이터 관리에서 서버를 설정할 수 있습니다.</p></div>`;
   const u = Account.user();
-  if (!u) return `<div class="card"><b>저장 위치</b><p class="small muted">지금은 이 기기에만 저장됩니다. 서버에도 저장하면 휴대폰을 바꿔도 남고, 동의하면 모든 사용자의 오차 보정 학습에 쓰입니다.</p><button class="btn primary block" id="startSrv">${ICON.cloud} 서버에도 저장하기(이름 없는 계정)</button></div>`;
+  if (!u) return `<div class="card"><b>계정</b><p class="small muted">로그인하면 기록이 서버에 안전하게 보관되고 다른 기기에서도 볼 수 있습니다.</p><a class="btn primary block" href="#/auth/login">로그인</a><a class="btn block" href="#/auth/signup">회원가입</a></div>`;
   const pend = await Account.pendingCount();
-  return `<div class="card"><div class="row"><span class="mi" style="color:var(--brand)">${ICON.user}</span><b class="grow">${u.anonymous ? '이름 없는 계정' : esc(u.name)} <span class="tiny">${esc(String(u.id).slice(0, 8))}</span></b><span class="badge b-good">${ICON.cloud.replace('<svg', '<svg style="width:14px;height:14px;vertical-align:-2px"')} 서버 연결</span></div>
-    <dl class="kv small" style="margin-top:8px"><dt>마지막 동기화</dt><dd>${S.settings.lastSync ? fmtDate(S.settings.lastSync) : '—'}</dd><dt>올리지 않은 기록</dt><dd>${pend}건</dd><dt>보정 연구 활용</dt><dd>${u.consentResearch ? '동의' : '미동의'}</dd></dl>
-    <p class="tiny">로그인이 없어서 앱을 지우거나 브라우저 데이터를 지우면 이 계정으로 다시 들어갈 수 없습니다(서버 기록은 남지만 이 기기에서 다시 볼 수 없음).</p>
+  return `<div class="card"><div class="row"><span class="mi" style="color:var(--brand)">${ICON.user}</span><b class="grow">${esc(u.name)} <span class="tiny">@${esc(u.username)}</span></b><span class="badge b-good">${ICON.cloud.replace('<svg', '<svg style="width:14px;height:14px;vertical-align:-2px"')} 서버 연결</span></div>
+    <dl class="kv small" style="margin-top:8px"><dt>학년·성별</dt><dd>${esc(u.grade || '—')} · ${esc(u.gender || '—')}</dd><dt>마지막 동기화</dt><dd>${S.settings.lastSync ? fmtDate(S.settings.lastSync) : '—'}</dd><dt>올리지 않은 기록</dt><dd>${pend}건</dd><dt>연구 활용 동의</dt><dd>${u.consentResearch ? '동의' : '미동의'}</dd></dl>
     <button class="btn block" id="syncNow">${ICON.cloud} 지금 동기화</button>
-    <button class="btn ghost block" id="delAcc" style="color:var(--bad)">서버 기록 삭제(이름 없는 계정 삭제)</button></div>`;
+    <button class="btn ghost block" id="logout">${ICON.logout} 로그아웃</button>
+    <button class="btn ghost block" id="delAcc" style="color:var(--bad)">회원 탈퇴(서버 기록 삭제)</button></div>`;
 }
 function bindAccountCard(v) {
   if ($('#syncNow', v)) $('#syncNow', v).onclick = async () => { try { const r = await Account.sync(); toast(`동기화 완료 · 올림 ${r.up}건, 받음 ${r.down}건`); render(); } catch (e) { toast(e.message, true); } };
-  if ($('#startSrv', v)) $('#startSrv', v).onclick = () => { Account.setGuest(false); go('#/auth'); };
+  if ($('#logout', v)) $('#logout', v).onclick = async () => {
+    if (!await confirmModal('로그아웃할까요? 이 기기에 저장된 기록은 남아 있습니다(삭제하려면 아래 "내 기록 모두 삭제").', '로그아웃')) return;
+    await Account.signOut(); toast('로그아웃했습니다.'); go('#/auth');
+  };
   if ($('#delAcc', v)) $('#delAcc', v).onclick = async () => {
-    if (!await confirmModal('서버의 이름 없는 계정과 그 계정의 모든 측정·운동 기록을 삭제합니다. 되돌릴 수 없습니다. (이 기기 기록도 함께 지웁니다)', '삭제', true)) return;
-    try { await Account.deleteAccount(); for (const e of await DB.all('exams')) await deleteExam(e); await DB.clear('logs'); Account.setGuest(true); toast('서버 기록을 삭제했습니다. 이제 이 기기에만 저장됩니다.'); go('#/home'); } catch (e) { toast(e.message, true); }
+    if (!await confirmModal('회원 탈퇴 시 서버의 계정과 모든 측정·운동 기록이 삭제되며 되돌릴 수 없습니다.', '탈퇴', true)) return;
+    try { await Account.deleteAccount(); for (const e of await DB.all('exams')) await deleteExam(e); await DB.clear('logs'); toast('탈퇴 처리되었습니다.'); go('#/auth'); } catch (e) { toast(e.message, true); }
   };
 }

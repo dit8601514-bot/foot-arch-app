@@ -29,7 +29,7 @@ route('/home', 'AI Footarch 고정촬영', async (v) => {
       <a class="menu-pill" href="#/exercises"><span class="mi">${ICON.playBox}</span>발활 재활영상<span class="chev">${ICON.chev}</span></a>
     </nav>
     <div class="sec-title">최근 결과</div>
-    <div class="grid2">${['left', 'right'].map(f => { const e = latest(f); return `<a class="mini" href="${e ? '#/result/' + e.id : '#/self?feet=' + f}">
+    <div>${['right'].map(f => { const e = latest(f); return `<a class="mini" href="${e ? '#/result/' + e.id : '#/self?feet=' + f}">
       <div class="tiny" style="font-weight:700">${FOOT[f]}</div>
       ${e ? `<div style="font-size:20px;font-weight:800;margin:2px 0">${e.comparison.changeMm != null ? mm(e.comparison.changeMm) : statusBadge(e.comparison.status)}</div><div>${catBadge(e.category)}</div><div class="tiny" style="margin-top:4px">${fmtDate(e.createdAt)}</div>` : '<div class="muted small" style="margin-top:4px">기록 없음 · 측정하기 ›</div>'}
     </a>`; }).join('')}</div>
@@ -45,7 +45,7 @@ route('/home', 'AI Footarch 고정촬영', async (v) => {
 
 // ───── 검사 안내 ─────
 route('/guide', '검사 안내', async (v, p) => {
-  const foot = p.q.foot || (S.exam && S.exam.foot) || 'left';
+  const foot = 'right'; // 고정촬영판: 측정은 오른발로 통일
   v.innerHTML = `${stepper(1)}
     <h2>발 기능 검사 안내</h2>
     <div class="card">
@@ -58,8 +58,7 @@ route('/guide', '검사 안내', async (v, p) => {
       </ol>
       <p class="small muted">왼발과 오른발은 각각 따로 검사합니다. 한쪽 결과는 다른 쪽에 적용되지 않습니다.</p>
     </div>
-    <label class="f">검사할 발</label>
-    <div class="seg" id="footSeg"><button data-v="left">왼발</button><button data-v="right">오른발</button></div>
+    <div class="note info small">검사할 발: <b>오른발</b>(측정·Y-balance 모두 오른발로 통일)</div>
     <div class="card">
       <b>사진 저장 안내</b>
       <p class="small">현재 설정: <b>${S.settings.savePhotos ? '촬영 사진을 이 기기에 저장함' : '사진은 저장하지 않고 스티커 좌표와 측정값만 저장함'}</b>. 모든 데이터는 이 기기의 브라우저 저장소에만 보관되며 서버로 전송되지 않습니다. 설정에서 언제든 바꿀 수 있습니다.</p>
@@ -68,8 +67,6 @@ route('/guide', '검사 안내', async (v, p) => {
     <p class="tiny">${esc(DISCLAIMER)}</p>
     <button class="btn primary block big" id="next">다음: 스티커 부착 위치</button>`;
   let sel = foot;
-  const paint = () => $$('#footSeg button', v).forEach(b => b.classList.toggle('on', b.dataset.v === sel));
-  $$('#footSeg button', v).forEach(b => b.onclick = () => { sel = b.dataset.v; paint(); }); paint();
   $('#next', v).onclick = async () => {
     if (!$('#ack', v).checked) return toast('사진 저장 안내를 확인해 주세요.', true);
     S.settings.privacyAck = true; await saveSettings();
@@ -405,6 +402,7 @@ route('/result/:id', '측정 결과', async (v, p) => {
         ${c.changeMm == null && c.changePx != null ? `<div class="tiny">픽셀 변화량 ${px(c.changePx)} (mm 아님)</div>` : ''}
       </div>
     </div>
+    <div id="roundBox"></div>
     <div id="careBox"></div>
     ${c.flags && c.flags.length ? `<div class="note warn">${c.flags.map(esc).join('<br>')}</div>` : ''}
     ${c.notes && c.notes.length ? `<div class="note ${c.status === '측정 가능' ? 'info' : 'warn'}"><ul class="list">${c.notes.map(n => `<li>${esc(n)}</li>`).join('')}</ul></div>` : ''}
@@ -454,6 +452,7 @@ route('/result/:id', '측정 결과', async (v, p) => {
     <div class="grid2"><button class="btn primary" id="other">${FOOT[e.foot === 'left' ? 'right' : 'left']} 검사</button><a class="btn" href="#/history">검사 이력</a></div>
     <button class="btn ghost block" id="del">이 결과 삭제</button>`;
   bindFlexSection(v, e);
+  renderRoundBox($('#roundBox', v), e);
   await renderRefBox($('#careBox', v), e); // 측정 결과에는 AI 1:1 맞춤 창을 두지 않음(사용자 요청 2026-11-05) — 실측 입력만
   $('#detailBtn', v).onclick = () => { const d = $('#detail', v); d.classList.toggle('hide'); $('#detailBtn', v).textContent = d.classList.contains('hide') ? '상세 리포트 보기' : '상세 리포트 접기'; };
   $('#printBtn', v).onclick = () => printReport(e);
@@ -643,7 +642,7 @@ route('/settings', '설정 및 개인정보', async (v) => {
       <label class="chk"><input type="checkbox" id="photos" ${S.settings.savePhotos ? 'checked' : ''}><span class="small"><b>촬영 사진을 이 기기에 저장</b><br>끄면 사진은 분석 직후 버려지고 스티커 좌표·측정값만 저장됩니다. 연구자 검토(이미지 참조)를 위해서는 켜야 합니다.</span></label>
       <button class="btn primary block" id="saveS">저장</button></div>
     <div class="card"><b>데이터 보관 방식</b>
-      <p class="small">기록은 먼저 이 기기(브라우저)에 저장됩니다. 서버 저장에 동의했으면 측정값이 이름 없는 계정으로 서버와 동기화되고, 사진은 올리지 않습니다. 브라우저 데이터를 지우면 이 기기 기록도 삭제됩니다.</p>
+      <p class="small">기록은 먼저 이 기기(브라우저)에 저장됩니다. 로그인하면 측정값이 서버와 동기화되고, 사진은 올리지 않습니다. 브라우저 데이터를 지우면 이 기기 기록도 삭제됩니다.</p>
       ${est ? `<p class="tiny">사용 중 ${(est.usage / 1048576).toFixed(1)}MB / 허용 ${(est.quota / 1048576).toFixed(0)}MB</p>` : ''}
       <button class="btn block" id="exp">내 데이터 내보내기(JSON)</button>
       <button class="btn block" id="expSeed">실측 표본 내보내기(보정 학습용)</button>
@@ -651,7 +650,7 @@ route('/settings', '설정 및 개인정보', async (v) => {
       <button class="btn danger block" id="wipe">내 검사·운동 기록 모두 삭제</button></div>
     <div class="card small"><dl class="kv"><dt>앱 버전</dt><dd>${APP_VERSION}</dd><dt>측정 알고리즘</dt><dd>${C.ALGORITHM_VERSION}</dd><dt>스티커 지름 설정</dt><dd>${S.settings.stickerDiameterMm ? S.settings.stickerDiameterMm + ' mm' : '미설정'}</dd><dt>길이 환산</dt><dd>${esc(convBasisText())}</dd></dl></div>
     <a class="btn ghost block" href="#/r/home">기기 내 연구 도구(오프라인)</a>
-    <p class="tiny" style="text-align:center">고정촬영판: 기존 앱과 서버·기록이 분리된 별도 앱입니다(로그인 없음).</p>`;
+    <p class="tiny" style="text-align:center">고정촬영판: 기존 앱과 서버·기록이 분리된 별도 앱입니다. 측정은 오른발로 통일합니다.</p>`;
   bindAccountCard(v);
   $('#saveS', v).onclick = async () => {
     const pid = $('#pid', v).value.trim();
@@ -673,7 +672,7 @@ route('/settings', '설정 및 개인정보', async (v) => {
   $('#wipe', v).onclick = async () => {
     if (!await confirmModal('이 기기에 저장된 모든 검사 결과, 사진, 운동 기록을 삭제합니다. 되돌릴 수 없습니다.', '모두 삭제', true)) return;
     for (const e of await DB.all('exams')) await deleteExam(e, true);
-    await DB.clear('logs'); S.lastResult = null; toast(Account.loggedIn ? '이 기기의 기록을 삭제했습니다(서버 기록은 위 "서버 기록 삭제"로 지울 수 있음).' : '삭제했습니다.'); render();
+    await DB.clear('logs'); S.lastResult = null; toast(Account.loggedIn ? '이 기기의 기록을 삭제했습니다(서버 기록은 회원 탈퇴 시 삭제).' : '삭제했습니다.'); render();
   };
 });
 
@@ -704,6 +703,39 @@ function careHtml(pc, e) {
     ${e ? `<button class="btn block" id="refBtn">${e.reference ? `실제 잰 값 수정 (하강 ${mm(e.reference.ndtMm)}${e.reference.preMm != null ? ` · ${e.reference.preMm.toFixed(1)}→${e.reference.postMm.toFixed(1)} mm` : ''})` : '자로 실제 잰 값 입력 → AI 오차 학습'}</button>` : ''}
     <p class="tiny" style="margin-top:8px">AI 맞춤 추정은 내 기록에서 통계적으로 계산한 참고값입니다. 진단이 아니며, 분류는 앱 측정값 기준으로 따로 표시합니다.</p>
   </div>`;
+}
+// ───── 측정 후 회차 저장(시트지: 기본 측정·1~4회차 × 측정날짜·RT·Y-balance, 오른발) ─────
+function renderRoundBox(box, e) {
+  if (!box || !e || e.isTest || !e.comparison || e.comparison.changeMm == null) return;
+  const names = Account.ROUND_NAMES || ['기본 측정', '1회차', '2회차', '3회차', '4회차'];
+  if (e.foot !== 'right') { box.innerHTML = '<div class="note warn small">회차 기록(측정 시트)은 오른발 측정만 저장합니다.</div>'; return; }
+  if (!Account.configured() || !Account.loggedIn) { box.innerHTML = `<div class="card"><b>회차에 저장</b><p class="small">로그인하면 이 측정을 기본 측정·1~4회차에 저장해 담당 선생님의 측정 시트에 올릴 수 있습니다.</p><a class="btn primary block" href="#/auth/login">로그인</a></div>`; return; }
+  let sel = e.round != null ? e.round : null, saved = [];
+  const paint = () => {
+    const by = Object.fromEntries(saved.map(r => [r.round, r]));
+    box.innerHTML = `<div class="card" id="roundCard"><b>회차에 저장 (오른발)</b>
+      <p class="tiny" style="margin:4px 0 8px">이 측정(RT ${mm(e.comparison.changeMm)})을 저장할 회차를 고르세요. 이미 저장된 회차는 새 값으로 바뀝니다.</p>
+      <div class="seg" id="rSeg" style="flex-wrap:wrap">${names.map((n, i) => `<button type="button" data-v="${i}" class="${sel === i ? 'on' : ''}" style="min-width:30%">${n}${by[i] ? `<br><span class="tiny">${by[i].rt_mm != null ? (+by[i].rt_mm).toFixed(1) + ' mm' : '—'}${by[i].y_balance != null ? ' · Y ' + by[i].y_balance : ''}</span>` : ''}</button>`).join('')}</div>
+      <label class="f" style="margin-top:10px">Y-balance (오른발, 선택)</label>
+      <input id="yb" type="number" inputmode="decimal" step="0.1" placeholder="예: 95.5" value="${e.yBalance != null ? esc(String(e.yBalance)) : (sel != null && by[sel] && by[sel].y_balance != null ? esc(String(by[sel].y_balance)) : '')}">
+      <button class="btn primary block" id="rSave" style="margin-top:10px">${sel != null ? names[sel] + '에 저장' : '회차를 고르세요'}</button>
+      ${e.round != null ? `<p class="tiny" style="margin-top:6px">✓ ${names[e.round]}에 저장됨</p>` : ''}</div>`;
+    $$('#rSeg button', box).forEach(b => b.onclick = () => { sel = +b.dataset.v; paint(); });
+    $('#rSave', box).onclick = async () => {
+      if (sel == null) return toast('저장할 회차를 골라 주세요.', true);
+      const yRaw = $('#yb', box).value.trim(), yb = yRaw === '' ? null : parseFloat(yRaw);
+      if (yRaw !== '' && !isFinite(yb)) return toast('Y-balance는 숫자로 입력해 주세요.', true);
+      if (by[sel] && by[sel].exam_id !== e.id && !await confirmModal(`${names[sel]}에 이미 저장된 값(${by[sel].rt_mm != null ? (+by[sel].rt_mm).toFixed(1) + ' mm' : '—'})이 있습니다. 이 측정으로 바꿀까요?`, '바꾸기')) return;
+      const b = $('#rSave', box); b.disabled = true; b.textContent = '저장 중…';
+      try {
+        await Account.saveRound(sel, { measuredAt: e.createdAt, rtMm: e.comparison.changeMm, examId: e.id, yBalance: yb });
+        e.round = sel; e.yBalance = yb; e.updatedAt = Date.now(); await save('exams', e); Account.syncSoon();
+        saved = await Account.myRounds().catch(() => saved); toast(`${names[sel]}에 저장했습니다.`); paint();
+      } catch (er) { toast(er.message, true); b.disabled = false; b.textContent = names[sel] + '에 저장'; }
+    };
+  };
+  paint();
+  Account.myRounds().then(r => { saved = r || []; paint(); }).catch(() => {});
 }
 // 측정 결과용: 자로 잰 실측값 입력만(오차 학습은 뒤에서 그대로 진행)
 function renderRefBox(box, e) {

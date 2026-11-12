@@ -4,7 +4,10 @@
 - 기존 앱(v3.5.0, 루트 주소)과 **코드·서버·기록이 분리**된 별도 앱입니다. 버전 표기 `F1.0.0`, 측정 알고리즘 `ALG-2.7.0`.
 - 촬영 조건: 발 윤곽 가이드를 쓰지 않음. **스티커 P1·P2·P3가 모두 보이고 선명하며 움직이지 않을 때(고정)** 자동 촬영. 촬영 거리 **25 cm 고정**(± 2.5 cm, 설정으로 바꿀 수 없음).
 - 서버: 고정촬영판 전용 Supabase 프로젝트 `dwgwojexnerqyilngkuy` (`fixed/public/config.js`). 표 만들기: `fixed/supabase/setup_all.sql`을 SQL Editor에서 한 번 실행
-- 로그인·회원가입 없음(F1.7.0): 처음 한 번 동의 → 이름 없는 익명 계정 자동 생성(Supabase Allow anonymous sign-ins 필요), 동의 안 하면 기기에만 저장. 관리자 앱 없음
+- 로그인·회원가입(F2.1.0 다시 살림): 이름·학년·성별·아이디·비밀번호. 측정은 **오른발로 통일**
+- 측정 후 결과 화면 '회차에 저장': 기본 측정·1~4회차 중 하나 + Y-balance(오른발) → 서버 `rounds` 표
+- 관리자 앱 https://dit8601514-bot.github.io/foot-arch-app/fixed/admin/ → **측정 시트**(시트지와 같은 표: 이름·학년·성별 × 기본 측정·1~4회차 측정날짜·RT·Y-balance), Y-balance 바로 고치기, CSV·인쇄
+- 서버 설정: `fixed/supabase/setup_all.sql` → `fixed/supabase/rounds.sql`(학년·성별, 회차 표, 관리자 열람). 이메일 확인 끄기, 관리자 지정은 SQL
 - 저장소 분리: IndexedDB `footarch-fixed`, localStorage `footarchFixed.*`, 캐시 `footfixed-*`, 서비스 워커 범위 `/fixed/`.
 - 빌드: 루트에서 `node build.js` → `dist/fixed/` 도 함께 생성. main에 올리면 기존 앱과 함께 자동 배포.
 - 소스: `fixed/src/` (기존 `src/`를 복사해 고친 것 — 기존 앱 수정이 자동으로 따라오지 않음)

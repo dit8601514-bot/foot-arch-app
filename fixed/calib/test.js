@@ -87,7 +87,7 @@ ok('표본 1개 → 학습 안 함', C.learnSeedCorrection([{ ai: 3, ref: 7 }]).
   if (fs.existsSync(path.join(d, 'index.html'))) {
     const h = fs.readFileSync(path.join(d, 'index.html'), 'utf8');
     ok('빌드: 측정 엔진에 공통 보정계수', /const POP_CALIB = \{"id":"C\d+-/.test(h) && h.includes('const BUILTIN_MODEL = null'));
-    ok('빌드: 관리자 앱 없음', !fs.existsSync(path.join(d, 'admin')));
+    ok('빌드: 관리자 앱(측정 시트) 있음', fs.existsSync(path.join(d, 'admin', 'index.html')) && fs.readFileSync(path.join(d, 'admin', 'index.html'), 'utf8').includes("route('sheet'"));
   } else console.log('(dist 없음 — node build.js 후 빌드 확인)'); }
 
 console.log(`\n${pass}/${pass + fail} 통과`); if (fail) process.exit(1);

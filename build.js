@@ -48,6 +48,8 @@ console.log('built', build, html.length, 'bytes');
   for (const f of fs.readdirSync(pf('icons'))) fs.copyFileSync(path.join(pf('icons'), f), path.join(fo, 'icons', f));
   fs.writeFileSync(path.join(fo, 'calib-model.json'), JSON.stringify({ trainedFrom: 'fixed/calib/samples.json', samples: seed.length, popCalib, result: L }, null, 1));
   fs.writeFileSync(path.join(fo, 'version.json'), JSON.stringify({ build: fb, version: (rf('app-base.js').match(/APP_VERSION = '([^']+)'/) || [])[1] || '', alg: (fcore.match(/ALGORITHM_VERSION = '([^']+)'/) || [])[1] || '' }));
-  // 고정촬영판 관리자 앱은 없앰(F1.7.0, 사용자 결정 — 로그인 없이 열리면 모든 기록이 공개되므로). 보정 학습은 표본 파일로.
+  // 고정촬영판 관리자 앱(F2.1.0 다시 살림): 측정 시트 + 기존 관리 기능. 표본 파일도 넣음(AI 보정 화면용)
+  const fadmin = rf('admin.html').replace('<!--CORE-->', () => '<script>\n' + safe(fcore2) + '\n</script>').replace('<!--ADMIN-->', () => '<script>\n' + safe(rf('admin.js').replace('/*__SEED_SAMPLES__*/[]', () => JSON.stringify(seed.filter(x => Number.isFinite(x.ai)).map(x => ({ id: x.id, participant: x.participant, ai: x.ai, ref: x.ref, floorDrop: x.floorDrop }))))) + '\n</script>');
+  fs.mkdirSync(path.join(fo, 'admin'), { recursive: true }); fs.writeFileSync(path.join(fo, 'admin', 'index.html'), fadmin);
   console.log('built fixed', fb, fh.length, 'bytes');
 }

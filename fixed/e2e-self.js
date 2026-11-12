@@ -23,7 +23,7 @@ async function scenario(tag, video, expectConfirmed, expectMm, opt) {
   await pg.goto(U + '#/r/calib'); await pg.fill('#p1', '1234'); await pg.fill('#p2', '1234'); await pg.click('#go');
   await pg.waitForSelector('#dia'); await pg.fill('#dia', '10'); await pg.click('#saveD'); await pg.waitForTimeout(300);
   await pg.setInputFiles('#vf', path.join(__dirname, '..', 'test', 'img', 'template.png')); await pg.waitForSelector('#vres .note');
-  await pg.goto(U + '#/self'); await pg.waitForSelector('#feetSeg'); await pg.click('#feetSeg button[data-v="left"]');
+  await pg.goto(U + '#/self'); await pg.waitForSelector('#go'); // 고정촬영판: 오른발 고정(선택 없음)
   if (tag === 'A') await shot('s02-self-setup');
   const t0 = Date.now(); await pg.click('#go');
   { const bt = await pg.waitForFunction(() => { const b = document.querySelector('#distBadge'); return b && !b.classList.contains('hide') && b.textContent; }, null, { timeout: 30000 }).then(h => h.jsonValue()).catch(() => '');

@@ -21,7 +21,7 @@ function phoneSetupSvg(foot) {
 }
 
 route('/self', '측정하기', async (v, p) => {
-  const feetSel = p.q.feet === 'right' ? 'right' : 'left';
+  const feetSel = 'right'; // 고정촬영판: 측정은 오른발로 통일
   const cv = convSettings();
   v.innerHTML = `${stepper(1)}
     <div class="card shoot-card">
@@ -32,7 +32,7 @@ route('/self', '측정하기', async (v, p) => {
         <li><b>스티커가 고정되면 촬영</b><span>25 cm 거리에서 P1·P2·P3가 움직이지 않으면 앉은 자세를 찍습니다</span></li>
         <li><b>일어서기</b><span>그대로 일어서면 AI가 체중부하를 확인하고 선 자세를 찍습니다</span></li>
       </ol>
-      <div class="seg" id="feetSeg">${[['left', '왼발'], ['right', '오른발']].map(([k, l]) => `<button data-v="${k}" class="${feetSel === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+      <div class="note info small" style="text-align:center">측정하는 발: <b>오른발</b> (측정·Y-balance 모두 오른발로 통일)</div>
       <div class="bracket"><i></i><div id="svgBox"></div></div>
       <button class="shutter" id="go" aria-label="촬영 시작">${ICON.camera}</button>
       <div class="tiny" id="goHint" style="margin-top:4px"></div>
