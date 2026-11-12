@@ -709,7 +709,7 @@ function renderRoundBox(box, e) {
   if (!box || !e || e.isTest || !e.comparison || e.comparison.changeMm == null) return;
   const names = Account.ROUND_NAMES || ['기본 측정', '1회차', '2회차', '3회차', '4회차'];
   if (e.foot !== 'right') { box.innerHTML = '<div class="note warn small">회차 기록(측정 시트)은 오른발 측정만 저장합니다.</div>'; return; }
-  if (!Account.configured() || !Account.loggedIn) { box.innerHTML = `<div class="card"><b>회차에 저장</b><p class="small">로그인하면 이 측정을 기본 측정·1~4회차에 저장해 담당 선생님의 측정 시트에 올릴 수 있습니다.</p><a class="btn primary block" href="#/auth/login">로그인</a></div>`; return; }
+  if (!Account.configured() || !Account.loggedIn) { box.innerHTML = `<div class="card"><b>회차에 저장</b><p class="small">로그인하면 이 측정을 기본 측정·1~4회차에 저장해 담당 치료사(관리자)의 측정 시트에 올릴 수 있습니다.</p><a class="btn primary block" href="#/auth/login">로그인</a></div>`; return; }
   let sel = e.round != null ? e.round : null, saved = [];
   const paint = () => {
     const by = Object.fromEntries(saved.map(r => [r.round, r]));

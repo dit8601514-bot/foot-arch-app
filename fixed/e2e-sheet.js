@@ -37,14 +37,15 @@ let pass = 0, fail = 0; const ok = (n, c, x) => { c ? pass++ : fail++; console.l
   await pg.goto(base); await pg.waitForTimeout(1200);
   ok('처음 열면 로그인 화면', /#\/auth/.test(pg.url()) && !!(await pg.$('a[href="#/auth/signup"]')) && !(await pg.$('#guest')));
   // 회원가입 2명
-  for (const [nm, gr, gd, un] of [['김주희', '1학년', '여', 'juhee1'], ['마형빈', '1학년', '남', 'hyungbin']]) {
+  for (const [nm, gd, un] of [['김주희', '여', 'juhee1'], ['마형빈', '남', 'hyungbin']]) {
     await pg.goto(base + '#/auth/signup'); await pg.waitForTimeout(600);
-    await pg.fill('#nm', nm); await pg.click(`#gr button[data-v="${gr}"]`); await pg.click(`#gd button[data-v="${gd}"]`); await pg.fill('#un', un); await pg.fill('#pw', 'test1234'); await pg.check('#cAll');
+    await pg.fill('#nm', nm); await pg.click(`#gd button[data-v="${gd}"]`); await pg.fill('#un', un); await pg.fill('#pw', 'test1234'); await pg.check('#cAll');
     await pg.click('#go'); await pg.waitForTimeout(1200);
     if (un === 'juhee1') { ok('회원가입 → 홈', /#\/home/.test(pg.url()), pg.url().split('#')[1]); }
     if (un !== 'hyungbin') { await pg.evaluate(() => localStorage.removeItem('footarchFixed.session')); }
   }
-  const p0 = Object.values(profiles); ok('서버 프로필에 이름·학년·성별', p0.length === 2 && p0[0].grade === '1학년' && p0[0].gender === '여' && p0[1].gender === '남', JSON.stringify(p0.map(p => [p.name, p.grade, p.gender])));
+  const p0 = Object.values(profiles); ok('서버 프로필에 이름·성별(학년 없음)', p0.length === 2 && !p0[0].grade && p0[0].gender === '여' && p0[1].gender === '남', JSON.stringify(p0.map(p => [p.name, p.gender])));
+  await pg.goto(base + '#/auth/signup'); await pg.waitForTimeout(500); ok('회원가입 화면에 학년 없음', !(await pg.$('#gr')) && !(await pg.textContent('#view')).includes('학년'));
   // 마형빈(로그인 상태)으로 측정 기록 하나 넣고 결과 화면에서 1회차 저장
   const eid = await pg.evaluate(async () => { const e = { id: 'ex' + Date.now(), foot: 'right', createdAt: Date.now(), algorithmVersion: C.ALGORITHM_VERSION, participantId: '', pre: { mode: 'ai', detectionConfidence: 0.9, quality: { sharp: true, edgeWidthPx: 1.2 }, measure: { heightMm: 30, floor: { ok: false } } }, post: { mode: 'ai', detectionConfidence: 0.9, quality: { sharp: true, edgeWidthPx: 1.2 }, measure: { heightMm: 26, floor: { ok: false } } }, comparison: { status: '측정 가능', preMm: 30, postMm: 26, changeMm: 6.4, lineChangeMm: 4.0, primary: 'p2', p2: { dropMm: 5.2, p3MoveMm: 0.3, flags: [] }, calib: { method: 'p2', rawMm: 5.2, label: '+1.2 mm', n: 11 }, notes: [], flags: [] } }; e.category = C.classify(6.4); await save('exams', e); return e.id; });
   await pg.goto(base + '#/result/' + eid); await pg.waitForTimeout(1500);
@@ -68,8 +69,8 @@ let pass = 0, fail = 0; const ok = (n, c, x) => { c ? pass++ : fail++; console.l
   ok('관리자 로그인 → 측정 시트', /#\/sheet/.test(ap.url()) && !!(await ap.$('table.sheet')));
   const rows = await ap.$$eval('table.sheet tbody tr:not(.empty)', trs => trs.map(tr => [...tr.children].map(td => (td.querySelector('input') ? td.querySelector('input').value : td.textContent).trim())));
   console.log('  시트:', JSON.stringify(rows));
-  ok('시트: 학년→성별(여 먼저)→이름 순, 이름·학년·성별', rows.length === 2 && rows[0][1] === '김주희' && rows[0][2] === '1학년' && rows[0][3] === '여' && rows[1][1] === '마형빈');
-  ok('시트: 마형빈 기본 측정·1회차 RT 6.4, 1회차 Y 95.5', rows[1][5] === '6.4' && rows[1][8] === '6.4' && rows[1][9] === '95.5' && rows[1][4] !== '', JSON.stringify(rows[1].slice(4, 10)));
+  ok('시트: 여·남 → 이름 순, 이름·성별(학년 칸 없음)', rows.length === 2 && rows[0][1] === '김주희' && rows[0][2] === '여' && rows[1][1] === '마형빈' && rows[1][2] === '남' && !(await ap.textContent('table.sheet thead')).includes('학년'));
+  ok('시트: 마형빈 기본 측정·1회차 RT 6.4, 1회차 Y 95.5', rows[1][4] === '6.4' && rows[1][7] === '6.4' && rows[1][8] === '95.5' && rows[1][3] !== '', JSON.stringify(rows[1].slice(3, 9)));
   ok('시트: 빈 줄 포함 30줄', (await ap.$$('table.sheet tbody tr')).length === 30);
   const heads = await ap.$$eval('table.sheet thead tr:first-child th.grp', t => t.map(x => x.textContent)); ok('시트 머리글 기본 측정·1~4회차', heads.join(',') === '기본 측정,1회차,2회차,3회차,4회차', heads.join(','));
   // 관리자가 김주희 2회차 Y-balance 입력
@@ -77,7 +78,7 @@ let pass = 0, fail = 0; const ok = (n, c, x) => { c ? pass++ : fail++; console.l
   const rz = Object.values(rounds).find(r => r.round === 2); ok('관리자 Y-balance 입력 → 서버 저장', rz && rz.y_balance === 88 && rz.user_id.startsWith('u1'), JSON.stringify(rz));
   // CSV
   const [dl] = await Promise.all([ap.waitForEvent('download'), ap.click('#csv')]); const csv = fs.readFileSync(await dl.path(), 'utf8');
-  ok('CSV: 두 줄 머리글 + 회원 줄', csv.split('\r\n')[1].startsWith('번호,이름,학년,성별,측정날짜,RT,Y-balance') && csv.includes('마형빈,1학년,남') && csv.includes(',6.4,95.5'), csv.split('\r\n').slice(0, 4).join(' | ').slice(0, 200));
+  ok('CSV: 두 줄 머리글 + 회원 줄', csv.split('\r\n')[1].startsWith('번호,이름,성별,측정날짜,RT,Y-balance') && csv.includes('마형빈,남') && csv.includes(',6.4,95.5'), csv.split('\r\n').slice(0, 4).join(' | ').slice(0, 200));
   await ap.screenshot({ path: '/tmp/sheet.png', fullPage: false });
   ok('오류 없음', errs.length === 0, errs.slice(0, 3).join(' / '));
   console.log(`\n${pass}/${pass + fail} 통과`); await B.close(); process.exit(fail ? 1 : 0);

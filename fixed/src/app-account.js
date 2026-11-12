@@ -3,7 +3,7 @@
  * 설정: config.js 의 window.FOOTARCH_CONFIG = { supabaseUrl, supabaseAnonKey, emailDomain }
  *       또는 연구자 모드에서 입력(이 기기에만 저장).
  * 아이디 로그인: Supabase는 이메일 기반이므로 "아이디@emailDomain" 형식의 내부 주소로 가입한다(메일은 보내지 않음, 이메일 확인 끔 필요).
- * 고정촬영판(F2.1.0~): 회원가입에 이름·학년·성별. 측정 후 '회차'(기본 측정·1~4회차)에 오른발 RT와 Y-balance를 저장 → rounds 표 → 관리자 시트.
+ * 고정촬영판(F2.2.0~): 사용자 = 환자(회원가입: 이름·성별) / 관리자(서버에서 지정).  측정 후 '회차'(기본 측정·1~4회차)에 오른발 RT와 Y-balance를 저장 → rounds 표 → 관리자 시트.
  * 서버 테이블·보안 규칙: supabase/schema.sql
  */
 const Account = (() => {
@@ -180,7 +180,7 @@ route('/auth', 'AI Footarch 고정촬영', async (v) => {
     ${Account.configured() ? '' : '<div class="note warn small">서버가 아직 연결되지 않아 로그인·회원가입을 쓸 수 없습니다. 관리자가 Supabase 주소를 설정해야 합니다. 그동안은 로그인 없이 이 기기에서만 쓸 수 있습니다.</div>'}
     <a class="btn primary block big" href="#/auth/login" ${Account.configured() ? '' : 'style="pointer-events:none;opacity:.45"'}>${ICON.user} 로그인</a>
     <a class="btn block big" href="#/auth/signup" ${Account.configured() ? '' : 'style="pointer-events:none;opacity:.45"'}>${ICON.userPlus} 회원가입</a>
-    ${Account.configured() ? '<p class="tiny" style="text-align:center">측정 기록은 회차별로 담당 선생님의 측정 시트에 정리됩니다.</p>' : '<button class="btn ghost block" id="guest">이 기기에서만 쓰기</button>'}`;
+    ${Account.configured() ? '<p class="tiny" style="text-align:center">측정 기록은 회차별로 담당 치료사(관리자)의 측정 시트에 정리됩니다.</p>' : '<button class="btn ghost block" id="guest">이 기기에서만 쓰기</button>'}`;
   if ($('#guest', v)) $('#guest', v).onclick = () => { Account.setGuest(true); go('#/home'); };
 }, { bare: true });
 
@@ -204,12 +204,11 @@ route('/auth/login', '로그인', async (v) => {
   };
 }, { bare: false });
 
-route('/auth/signup', '회원가입', async (v) => {
+route('/auth/signup', '환자 회원가입', async (v) => {
   const seg = (id, opts) => `<div class="seg" id="${id}">${opts.map(o => `<button type="button" data-v="${o}">${o}</button>`).join('')}</div>`;
   v.innerHTML = `<form id="f" autocomplete="on" novalidate>
     <div class="card">
       <div class="field">${ICON.user.replace('<svg', '<svg class="lead"')}<input id="nm" placeholder="이름을 입력해주세요" autocomplete="name" maxlength="20"></div>
-      <p class="small" style="margin:10px 0 6px"><b>학년</b></p>${seg('gr', ['1학년', '2학년', '3학년', '4학년'])}
       <p class="small" style="margin:10px 0 6px"><b>성별</b></p>${seg('gd', ['여', '남'])}
       <div class="field" style="margin-top:12px">${ICON.idcard.replace('<svg', '<svg class="lead"')}<input id="un" placeholder="아이디를 입력해주세요" autocomplete="username" autocapitalize="none" maxlength="20"></div>
       <div class="field">${ICON.lock.replace('<svg', '<svg class="lead"')}<input id="pw" type="password" placeholder="비밀번호를 입력해주세요" autocomplete="new-password">${pwToggle('pw')}</div>
@@ -217,22 +216,21 @@ route('/auth/signup', '회원가입', async (v) => {
     </div>
     <div class="card small">
       <label class="chk"><input type="checkbox" id="cAll"><b>전체 동의</b></label>
-      <label class="chk"><input type="checkbox" id="c1" class="cs"><span><b>[필수]</b> 개인정보 수집·이용 동의 — 이름·학년·성별·아이디를 계정 관리와 측정 시트 작성에 사용하고, 탈퇴 시 지체 없이 파기합니다.</span></label>
-      <label class="chk"><input type="checkbox" id="c2" class="cs"><span><b>[필수]</b> 민감정보(건강 관련 정보) 처리 동의 — 발 측정값(오른발 RT)·Y-balance 기록을 저장하고, 담당 선생님(관리자)이 측정 시트에서 확인·관리합니다. 촬영 사진은 서버에 올리지 않습니다.</span></label>
+      <label class="chk"><input type="checkbox" id="c1" class="cs"><span><b>[필수]</b> 개인정보 수집·이용 동의 — 이름·성별·아이디를 계정 관리와 측정 시트 작성에 사용하고, 탈퇴 시 지체 없이 파기합니다.</span></label>
+      <label class="chk"><input type="checkbox" id="c2" class="cs"><span><b>[필수]</b> 민감정보(건강 관련 정보) 처리 동의 — 발 측정값(오른발 RT)·Y-balance 기록을 저장하고, 담당 치료사(관리자)가 측정 시트에서 확인·관리합니다. 촬영 사진은 서버에 올리지 않습니다.</span></label>
       <label class="chk"><input type="checkbox" id="c3" class="cs"><span>[선택] 연구 활용 동의 — 측정값을 가명 처리하여 연구 분석·앱 보정 학습에 활용할 수 있습니다.</span></label>
     </div>
     <button class="btn primary block big" id="go" type="submit">회원가입</button></form>
     <a class="btn ghost block" href="#/auth/login">이미 계정이 있나요? 로그인</a>`;
   bindPw(v);
-  const pick = { gr: '', gd: '' };
-  for (const id of ['gr', 'gd']) $$('#' + id + ' button', v).forEach(b => b.onclick = () => { pick[id] = b.dataset.v; $$('#' + id + ' button', v).forEach(x => x.classList.toggle('on', x === b)); });
+  const pick = { gd: '' };
+  for (const id of ['gd']) $$('#' + id + ' button', v).forEach(b => b.onclick = () => { pick[id] = b.dataset.v; $$('#' + id + ' button', v).forEach(x => x.classList.toggle('on', x === b)); });
   $('#cAll', v).onchange = e => $$('.cs', v).forEach(c => { c.checked = e.target.checked; });
   $('#f', v).onsubmit = async ev => {
     ev.preventDefault();
     const name = $('#nm', v).value.trim(), username = $('#un', v).value.trim().toLowerCase(), password = $('#pw', v).value;
     const errs = [];
     if (!name) errs.push('이름을 입력해 주세요');
-    if (!pick.gr) errs.push('학년을 골라 주세요');
     if (!pick.gd) errs.push('성별을 골라 주세요');
     if (!/^[a-z0-9_]{4,20}$/.test(username)) errs.push('아이디는 영문 소문자·숫자·밑줄 4~20자');
     if (password.length < 8 || !/[A-Za-z]/.test(password) || !/\d/.test(password)) errs.push('비밀번호는 영문과 숫자를 포함해 8자 이상');
@@ -240,7 +238,7 @@ route('/auth/signup', '회원가입', async (v) => {
     if (errs.length) return toast(errs.join(' / '), true);
     const b = $('#go', v); busyBtn(b, true, 1);
     try {
-      await Account.signUp({ name, grade: pick.gr, gender: pick.gd, username, password, consentPrivacy: true, consentSensitive: true, consentResearch: $('#c3', v).checked });
+      await Account.signUp({ name, gender: pick.gd, username, password, consentPrivacy: true, consentSensitive: true, consentResearch: $('#c3', v).checked });
       await Account.sync().catch(() => {});
       toast(`${name}님, 가입을 환영합니다.`); go('#/home');
     } catch (e) { toast(e.message, true); busyBtn(b, false); }
@@ -254,7 +252,7 @@ async function accountCardHtml() {
   if (!u) return `<div class="card"><b>계정</b><p class="small muted">로그인하면 기록이 서버에 안전하게 보관되고 다른 기기에서도 볼 수 있습니다.</p><a class="btn primary block" href="#/auth/login">로그인</a><a class="btn block" href="#/auth/signup">회원가입</a></div>`;
   const pend = await Account.pendingCount();
   return `<div class="card"><div class="row"><span class="mi" style="color:var(--brand)">${ICON.user}</span><b class="grow">${esc(u.name)} <span class="tiny">@${esc(u.username)}</span></b><span class="badge b-good">${ICON.cloud.replace('<svg', '<svg style="width:14px;height:14px;vertical-align:-2px"')} 서버 연결</span></div>
-    <dl class="kv small" style="margin-top:8px"><dt>학년·성별</dt><dd>${esc(u.grade || '—')} · ${esc(u.gender || '—')}</dd><dt>마지막 동기화</dt><dd>${S.settings.lastSync ? fmtDate(S.settings.lastSync) : '—'}</dd><dt>올리지 않은 기록</dt><dd>${pend}건</dd><dt>연구 활용 동의</dt><dd>${u.consentResearch ? '동의' : '미동의'}</dd></dl>
+    <dl class="kv small" style="margin-top:8px"><dt>성별</dt><dd>${esc(u.gender || '—')}</dd><dt>마지막 동기화</dt><dd>${S.settings.lastSync ? fmtDate(S.settings.lastSync) : '—'}</dd><dt>올리지 않은 기록</dt><dd>${pend}건</dd><dt>연구 활용 동의</dt><dd>${u.consentResearch ? '동의' : '미동의'}</dd></dl>
     <button class="btn block" id="syncNow">${ICON.cloud} 지금 동기화</button>
     <button class="btn ghost block" id="logout">${ICON.logout} 로그아웃</button>
     <button class="btn ghost block" id="delAcc" style="color:var(--bad)">회원 탈퇴(서버 기록 삭제)</button></div>`;

@@ -100,7 +100,7 @@ const routes = {};
 const route = (p, title, fn) => { routes[p] = { title, fn }; };
 function topbar(cur) {
   $('#top').innerHTML = `<span class="logo">AI Footarch</span><span class="tag">관리자</span>
-    ${Api.loggedIn ? `<nav>${[['sheet', '측정 시트'], ['dash', '대시보드'], ['users', '사용자·측정'], ['content', '운동 영상'], ['errors', '오차·신뢰도'], ['ai', 'AI 보정 모델'], ['export', '데이터 내보내기']].map(([k, l]) => `<a href="#/${k}" class="${cur === k ? 'on' : ''}">${l}</a>`).join('')}</nav><button id="logout">로그아웃</button>` : ''}`;
+    ${Api.loggedIn ? `<nav>${[['sheet', '측정 시트'], ['dash', '대시보드'], ['users', '환자·측정'], ['content', '운동 영상'], ['errors', '오차·신뢰도'], ['ai', 'AI 보정 모델'], ['export', '데이터 내보내기']].map(([k, l]) => `<a href="#/${k}" class="${cur === k ? 'on' : ''}">${l}</a>`).join('')}</nav><button id="logout">로그아웃</button>` : ''}`;
   const lo = $('#logout'); if (lo) lo.onclick = async () => { await Api.signOut(); Object.assign(D, { loaded: false }); location.hash = '#/login'; };
 }
 async function render() {
@@ -130,19 +130,19 @@ const ymd = t => { if (!t) return ''; const d = new Date(t); const p = n => Stri
 let sheetTimer = null;
 async function loadSheet() {
   const [profiles, rounds] = await Promise.all([
-    Api.call('/rest/v1/profiles?select=id,username,name,grade,gender,created_at&order=created_at'),
+    Api.call('/rest/v1/profiles?select=id,username,name,gender,created_at&order=created_at'),
     Api.call('/rest/v1/rounds?select=*')
   ]);
   const me = Api.userId && Api.userId();
   const people = (profiles || []).filter(p => p.id !== me || (rounds || []).some(r => r.user_id === p.id)) // 관리자 본인은 측정 기록이 있을 때만
-    .sort((a, b) => gradeNum(a.grade) - gradeNum(b.grade) || (a.gender === b.gender ? 0 : a.gender === '여' ? -1 : 1) || String(a.name).localeCompare(String(b.name), 'ko'));
+    .sort((a, b) => (a.gender === b.gender ? 0 : a.gender === '여' ? -1 : 1) || String(a.name).localeCompare(String(b.name), 'ko')); // 환자: 여·남 → 이름 순
   const by = {}; for (const r of rounds || []) (by[r.user_id] = by[r.user_id] || {})[r.round] = r;
   return { people, by };
 }
 function sheetCsv(people, by) {
   const q = v => { const t = v == null ? '' : String(v); return /[",\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; };
-  const h1 = ['', '', '', ''].concat(...ROUNDS.map(n => [n, '', ''])), h2 = ['번호', '이름', '학년', '성별'].concat(...ROUNDS.map(() => ['측정날짜', 'RT', 'Y-balance']));
-  const rows = people.map((p, i) => [i + 1, p.name, p.grade || '', p.gender || ''].concat(...ROUNDS.map((_, k) => { const r = (by[p.id] || {})[k]; return r ? [ymd(r.measured_at), r.rt_mm == null ? '' : (+r.rt_mm).toFixed(1), r.y_balance == null ? '' : r.y_balance] : ['', '', '']; })));
+  const h1 = ['', '', ''].concat(...ROUNDS.map(n => [n, '', ''])), h2 = ['번호', '이름', '성별'].concat(...ROUNDS.map(() => ['측정날짜', 'RT', 'Y-balance']));
+  const rows = people.map((p, i) => [i + 1, p.name, p.gender || ''].concat(...ROUNDS.map((_, k) => { const r = (by[p.id] || {})[k]; return r ? [ymd(r.measured_at), r.rt_mm == null ? '' : (+r.rt_mm).toFixed(1), r.y_balance == null ? '' : r.y_balance] : ['', '', '']; })));
   return '\ufeff' + [h1, h2].concat(rows).map(r => r.map(q).join(',')).join('\r\n');
 }
 route('sheet', '측정 시트', async (v) => {
@@ -153,23 +153,19 @@ route('sheet', '측정 시트', async (v) => {
     if (/rounds|grade|gender|does not exist|schema cache/i.test(e.message)) { v.innerHTML = `<div class="note warn"><b>측정 시트용 서버 설정이 필요합니다.</b><br>Supabase → SQL Editor에서 저장소의 <code>fixed/supabase/rounds.sql</code>을 한 번 실행해 주세요.<br><span class="small">(${esc(e.message)})</span></div>`; return; }
     throw e;
   }
-  let gradeF = '전체';
   const draw = () => {
-    const { people, by } = data, list = people.filter(p => gradeF === '전체' || p.grade === gradeF);
-    const grades = ['전체'].concat([...new Set(people.map(p => p.grade).filter(Boolean))].sort((a, b) => gradeNum(a) - gradeNum(b)));
+    const { people, by } = data, list = people;
     const nDone = k => list.filter(p => (by[p.id] || {})[k] && (by[p.id] || {})[k].rt_mm != null).length;
     const pad = Math.max(0, 30 - list.length);
     v.innerHTML = `<div class="row"><h1 class="grow" style="margin:0">측정 시트 <span class="small muted">· 오른발 RT(mm)·Y-balance</span></h1>
-        <select id="gf">${grades.map(g => `<option ${g === gradeF ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select>
         <button class="btn sm" id="rf">새로고침</button><button class="btn sm" id="csv">엑셀(CSV) 저장</button><button class="btn sm" id="pr">인쇄</button></div>
-      <p class="small muted">회원가입하면 줄이 생기고, 회원이 측정 결과 화면에서 회차를 골라 저장하면 칸이 채워집니다(30초마다 자동 새로고침). Y-balance 칸은 여기서 바로 고칠 수 있습니다. 회원 ${list.length}명 · ${ROUNDS.map((n, k) => `${n} ${nDone(k)}명`).join(' · ')}</p>
+      <p class="small muted">환자가 회원가입하면 줄이 생기고, 측정 결과 화면에서 회차를 골라 저장하면 칸이 채워집니다(30초마다 자동 새로고침). Y-balance 칸은 여기서 바로 고칠 수 있습니다. 환자 ${list.length}명 · ${ROUNDS.map((n, k) => `${n} ${nDone(k)}명`).join(' · ')}</p>
       <div class="scroll sheet-wrap"><table class="sheet">
-        <thead><tr><th colspan="4" class="blank"></th>${ROUNDS.map(n => `<th colspan="3" class="grp">${n}</th>`).join('')}</tr>
-        <tr><th class="no"></th><th>이름</th><th>학년</th><th>성별</th>${ROUNDS.map(() => '<th class="gs">측정날짜</th><th>RT</th><th>Y-balance</th>').join('')}</tr></thead>
-        <tbody>${list.map((p, i) => `<tr><td class="no">${i + 1}</td><td class="nm" title="@${esc(p.username)}">${esc(p.name)}</td><td class="gr g${gradeNum(p.grade)}">${esc(p.grade || '')}</td><td class="${p.gender === '남' ? 'm' : 'f'}">${esc(p.gender || '')}</td>${ROUNDS.map((_, k) => { const r = (by[p.id] || {})[k];
+        <thead><tr><th colspan="3" class="blank"></th>${ROUNDS.map(n => `<th colspan="3" class="grp">${n}</th>`).join('')}</tr>
+        <tr><th class="no"></th><th>이름</th><th>성별</th>${ROUNDS.map(() => '<th class="gs">측정날짜</th><th>RT</th><th>Y-balance</th>').join('')}</tr></thead>
+        <tbody>${list.map((p, i) => `<tr><td class="no">${i + 1}</td><td class="nm" title="@${esc(p.username)}">${esc(p.name)}</td><td class="${p.gender === '남' ? 'm' : 'f'}">${esc(p.gender || '')}</td>${ROUNDS.map((_, k) => { const r = (by[p.id] || {})[k];
             return `<td class="gs">${r ? ymd(r.measured_at) : ''}</td><td class="rt">${r && r.rt_mm != null ? (+r.rt_mm).toFixed(1) : ''}</td><td class="yb"><input class="ybi" data-u="${p.id}" data-k="${k}" inputmode="decimal" value="${r && r.y_balance != null ? esc(String(r.y_balance)) : ''}"></td>`; }).join('')}</tr>`).join('')}
-        ${Array.from({ length: pad }, (_, i) => `<tr class="empty"><td class="no">${list.length + i + 1}</td><td></td><td></td><td></td>${ROUNDS.map(() => '<td class="gs"></td><td></td><td></td>').join('')}</tr>`).join('')}</tbody></table></div>`;
-    $('#gf').onchange = e => { gradeF = e.target.value; draw(); };
+        ${Array.from({ length: pad }, (_, i) => `<tr class="empty"><td class="no">${list.length + i + 1}</td><td></td><td></td>${ROUNDS.map(() => '<td class="gs"></td><td></td><td></td>').join('')}</tr>`).join('')}</tbody></table></div>`;
     $('#rf').onclick = async () => { data = await loadSheet(); draw(); toast('새로고침했습니다.'); };
     $('#pr').onclick = () => window.print();
     $('#csv').onclick = () => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([sheetCsv(list, by)], { type: 'text/csv;charset=utf-8' })); a.download = `측정시트_${ymd(Date.now()).replace(/\./g, '')}.csv`; a.click(); };
