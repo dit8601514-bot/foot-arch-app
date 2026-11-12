@@ -15,6 +15,10 @@
     { "id": "S11", "participant": "U01", "foot": "left", "date": "2026-11-12 18:33", "alg": "ALG-3.0.0", "p2Drop": 4.8, "ai": null, "ref": 7.5, "floorDrop": null, "note": "왼발 화면 녹화, 실측 7.5(사용자)" },
     { "id": "S12", "participant": "U01", "foot": "left", "date": "2026-11-12 18:34", "alg": "ALG-3.0.0", "p2Drop": 3.2, "ai": null, "ref": 7.5, "floorDrop": null, "note": "왼발 화면 녹화, 실측 7.5(사용자)" },
     { "id": "S13", "participant": "U01", "foot": "left", "date": "2026-11-12 18:35", "alg": "ALG-3.0.0", "p2Drop": 4.9, "ai": null, "ref": 7.5, "floorDrop": null, "note": "왼발 화면 녹화, 실측 7.5(사용자)" },
-    { "id": "S14", "participant": "U01", "foot": "left", "date": "2026-11-12 18:35", "alg": "ALG-3.0.0", "p2Drop": 3.1, "ai": null, "ref": 7.5, "floorDrop": null, "note": "왼발 화면 녹화, 실측 7.5(사용자)" }
+    { "id": "S14", "participant": "U01", "foot": "left", "date": "2026-11-12 18:35", "alg": "ALG-3.0.0", "p2Drop": 3.1, "ai": null, "ref": 7.5, "floorDrop": null, "note": "왼발 화면 녹화, 실측 7.5(사용자)" },
+    { "id": "S15", "participant": "U01", "foot": "right", "date": "2026-11-12 18:55", "alg": "ALG-3.0.0", "p2Drop": 7.4, "ai": null, "ref": 7.0, "floorDrop": null, "note": "+2.6 고정 후 새로 잰 전향 검증 측정(화면 값 10.0), 실측 7.0" },
+    { "id": "S16", "participant": "U01", "foot": "right", "date": "2026-11-12 18:57", "alg": "ALG-3.0.0", "p2Drop": 6.0, "ai": null, "ref": 7.0, "floorDrop": null, "note": "+2.6 고정 후 새로 잰 전향 검증 측정(화면 값 8.6), 실측 7.0" },
+    { "id": "S17", "participant": "U01", "foot": "right", "date": "2026-11-12 18:58", "alg": "ALG-3.0.0", "p2Drop": 6.8, "ai": null, "ref": 7.0, "floorDrop": null, "note": "+2.6 고정 후 새로 잰 전향 검증 측정(화면 값 9.4), 실측 7.0" },
+    { "id": "S18", "participant": "U01", "foot": "right", "date": "2026-11-12 19:00", "alg": "ALG-3.0.0", "p2Drop": 5.4, "ai": null, "ref": 7.0, "floorDrop": null, "note": "+2.6 고정 후 새로 잰 전향 검증 측정(화면 값 8.0), 실측 7.0" }
   ]
 }

@@ -12,7 +12,7 @@ const gauss = () => { let u = 0; for (let i = 0; i < 6; i++) u += rnd(); return 
   ok('사용자 표본 → 더하기 보정', r.ok && r.chosen === 'bias', r.model && r.model.label);
   ok('보정량 +3.8~+4.6 mm', -r.model.bias > 3.8 && -r.model.bias < 4.6, (-r.model.bias).toFixed(2));
   ok('보정 없음보다 평균 오차 50% 이상 감소', r.model.cvMae < r.model.baseMae * 0.5, `${r.model.baseMae.toFixed(2)} → ${r.model.cvMae.toFixed(2)}`);
-  ok('1명 표본 경고', !!r.warning && r.validation === 'LOO'); }
+  ok('1명 표본 경고(측정 묶음 단위 검증)', !!r.warning && r.validation !== 'LOPO', r.validation); }
 
 // 2) 이상치 하나(차이 +20)는 학습에서 빠지고 보정이 거의 그대로
 { const r0 = C.learnSeedCorrection(S), r = C.learnSeedCorrection(S.concat([{ id: 'X', participant: 'U01', ai: 2, ref: 22 }]));
@@ -64,10 +64,16 @@ ok('표본 1개 → 학습 안 함', C.learnSeedCorrection([{ ai: 3, ref: 7 }]).
 { const r = C.learnSeedCorrection([{ ai: 4.1, ref: 7.5 }, { ai: 5.8, ref: 7.5 }, { ai: 5.7, ref: 7.5 }, { ai: 4.6, ref: 7.5 }, { ai: 5.2, ref: 7.5 }].map(x => Object.assign({ participant: 'U' }, x)));
   ok('실측이 한 값뿐이면 선형 안 씀', r.chosen !== 'linear', r.model.label); }
 
-// 7-5) 현재 표본(P2 이동 7개, 실측 모두 7.5): 더하기 약 +2.6 mm, 선형 안 씀, 오차 감소
+// 7-5) 현재 표본(P2 이동 11개, 1명, 측정 묶음 3개): 묶음 단위로 빼고 검증(LOSO), 더하기, 오차 감소
 { const L = C.learnPopulationCalib(S), m = L.calib.p2;
-  ok('현재 P2 표본 → 더하기 +2.2~+3.0 mm', m.method === 'bias' && -m.bias > 2.2 && -m.bias < 3.0, m.label);
-  ok('현재 P2 표본 → 평균 오차 50% 이상 감소', m.cvMae < m.baseMae * 0.5, `${m.baseMae.toFixed(2)} → ${m.cvMae.toFixed(2)}`); }
+  ok('현재 P2 표본 → 묶음 단위 검증(LOSO)', m.validation === 'LOSO' && m.groups >= 3, `${m.groups}묶음`);
+  ok('현재 P2 표본 → 더하기 +0.8~+2.2 mm', m.method === 'bias' && -m.bias > 0.8 && -m.bias < 2.2, m.label);
+  ok('현재 P2 표본 → 새 묶음 기준 평균 오차 감소', m.cvMae < m.baseMae * 0.9, `${m.baseMae.toFixed(2)} → ${m.cvMae.toFixed(2)}`); }
+
+// 7-6) 묶음마다 오차가 다르면(묶음 내부는 비슷) 묶음 단위 검증이 표본 단위보다 엄격 — 한 묶음이 많아도 끌려가지 않음
+{ const rows = []; const add = (sess, d, n) => { for (let i = 0; i < n; i++) rows.push({ participant: 'U', session: sess, ai: 4 + i * 0.1, ref: 4 + i * 0.1 + d + 0.1 * gauss() }); };
+  add('A', 1, 10); add('B', 2, 3); add('C', 3, 3);
+  const r = C.learnSeedCorrection(rows); ok('큰 묶음 하나가 계수를 끌지 못함(묶음 중간값 ≈2, 수축)', r.validation === 'LOSO' && -r.model.bias > 1.0 && -r.model.bias < 2.3, r.model.label); }
 
 // 8) 측정 알고리즘 안에서 적용: 같은 입력이면 누구에게나 같은 값(개인 기록과 무관)
 { const P = Object.assign({ id: 't' }, C.learnPopulationCalib(S).calib);

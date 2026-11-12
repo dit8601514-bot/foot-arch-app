@@ -1433,14 +1433,19 @@
    */
   function learnSeedCorrection(samples, options) {
     const o = Object.assign({ outlierK: 3, minOutlierN: 6, minMadMm: 0.5, slopeShrinkN: 3, minLinearN: 10, minRefRange: 3, minGain: 0.10, methods: ['identity', 'bias', 'linear'] }, options || {});
-    const all = (samples || []).filter(s => s && fin(s.ai) != null && fin(s.ref) != null).map((s, i) => Object.assign({ participant: 'P' + i }, s, { d: s.ref - s.ai }));
+    // 측정 묶음(session): 같은 날·같은 발·같은 실측 = 같은 스티커 부착·같은 설치 → 오차가 서로 닮음. 지정이 없으면 자동으로 만든다.
+    const sessionOf = x => x.session || `${x.participant || '?'}|${String(x.date || '').slice(0, 10)}|${x.foot || '-'}|${x.ref}`;
+    const all = (samples || []).filter(s => s && fin(s.ai) != null && fin(s.ref) != null).map((s, i) => Object.assign({ participant: 'P' + i }, s, { d: s.ref - s.ai })).map(s => Object.assign(s, { session: sessionOf(s) }));
     if (all.length < 2) return { ok: false, reason: `표본이 부족합니다(${all.length}개, 최소 2개).`, n: all.length };
-    const md = median(all.map(s => s.d)), mad = median(all.map(s => Math.abs(s.d - md))) * 1.4826;
-    // 이상치 판정은 표본이 minOutlierN개 이상일 때만(소표본의 MAD는 불안정), 흔들림 폭은 최소 minMadMm로 잡는다(측정 잡음보다 작은 폭으로 판정하지 않음)
+    const nPeople = new Set(all.map(r => r.participant)).size, gkey = nPeople >= 3 ? 'participant' : 'session'; // 사람이 3명 미만이면 측정 묶음 단위
+    // 이상치: 자기 묶음(사람 또는 측정 묶음) 중간값에서 튀는 표본만. 묶음끼리 다른 것은 실제 차이이므로 이상치가 아님.
+    const gmed = {}; for (const r of all) (gmed[r[gkey]] = gmed[r[gkey]] || []).push(r.d);
+    for (const k in gmed) gmed[k] = gmed[k].length >= 3 ? median(gmed[k]) : median(all.map(r => r.d));
+    const md = 0, mad = median(all.map(r => Math.abs(r.d - gmed[r[gkey]]))) * 1.4826;
     const madUse = Math.max(mad, o.minMadMm);
-    for (const s of all) s.outlier = all.length >= o.minOutlierN && Math.abs(s.d - md) > o.outlierK * madUse;
+    for (const s of all) s.outlier = all.length >= o.minOutlierN && Math.abs(s.d - gmed[s[gkey]]) > o.outlierK * madUse;
     const use = all.filter(s => !s.outlier);
-    const groups = rows => { const g = {}; for (const r of rows) (g[r.participant] = g[r.participant] || []).push(r); return Object.values(g); };
+    const groups = rows => { const g = {}; for (const r of rows) (g[r[gkey]] = g[r[gkey]] || []).push(r); return Object.values(g); };
     const fit = (method, rows) => {
       if (method === 'identity' || !rows.length) return { method: 'identity' };
       const gs = groups(rows), nP = gs.length, k = nP >= 3 ? nP : rows.length; // 수축 정도: 사람이 3명 이상이면 사람 수, 아니면 표본 수
@@ -1458,12 +1463,12 @@
       const intercept = median(gs.map(g => median(g.map(r => r.ref - slope * r.ai))));
       return { method: 'linear', slope, intercept };
     };
-    const nP = groups(use).length, validation = nP >= 3 ? 'LOPO' : 'LOO';
-    const folds = validation === 'LOPO' ? groups(use).map(g => g[0].participant) : use.map((_, i) => i);
+    const nP = groups(use).length, validation = nP >= 3 ? (gkey === 'participant' ? 'LOPO' : 'LOSO') : 'LOO'; // LOSO = 측정 묶음 하나씩 통째로 빼고 검증
+    const folds = validation !== 'LOO' ? groups(use).map(g => g[0][gkey]) : use.map((_, i) => i);
     const preds = Object.fromEntries(o.methods.map(m => [m, []]));
     folds.forEach((f, i) => {
-      const te = validation === 'LOPO' ? use.filter(r => r.participant === f) : [use[i]];
-      const tr = validation === 'LOPO' ? use.filter(r => r.participant !== f) : use.filter((_, j) => j !== i);
+      const te = validation !== 'LOO' ? use.filter(r => r[gkey] === f) : [use[i]];
+      const tr = validation !== 'LOO' ? use.filter(r => r[gkey] !== f) : use.filter((_, j) => j !== i);
       for (const m of o.methods) { const mod = fit(m, tr); for (const r of te) preds[m].push({ ai: applyErrorModel(mod, { ai: r.ai }), ref: r.ref }); }
     });
     const cv = Object.fromEntries(o.methods.map(m => [m, errorMetrics(preds[m])]));
@@ -1481,8 +1486,8 @@
     return {
       ok: true, chosen, cv, validation,
       outliers: all.filter(s => s.outlier).map(s => s.id || `${s.ai}/${s.ref}`),
-      model: Object.assign(model, { kind: 'seed', n: use.length, nAll: all.length, participants: nP, validation, cvMae: cv[chosen].mae, baseMae: base.mae, piMm: q90, label }),
-      warning: nP < 3 ? `표본이 ${nP}명에게서만 나왔습니다. 같은 사람 안에서만 검증됐으므로, 다른 사람에게도 잘 맞는지는 여러 사람(3명 이상, 권장 8명 이상)의 표본이 모여야 확인됩니다.` : null
+      model: Object.assign(model, { kind: 'seed', n: use.length, nAll: all.length, participants: nPeople, groups: nP, groupBy: gkey, validation, cvMae: cv[chosen].mae, baseMae: base.mae, piMm: q90, label }),
+      warning: nPeople < 3 ? `표본이 ${nPeople}명에게서만 나왔습니다(측정 묶음 ${nP}개). 같은 사람 안에서만 검증됐으므로, 다른 사람에게도 잘 맞는지는 여러 사람(3명 이상, 권장 8명 이상)의 표본이 모여야 확인됩니다.` : null
     };
   }
 
