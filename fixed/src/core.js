@@ -9,7 +9,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  const ALGORITHM_VERSION = 'ALG-2.7.0';
+  const ALGORITHM_VERSION = 'ALG-2.8.0'; // 고정촬영판: 바닥선 개선(v3.5.1 이식) + 모든 사용자 공통 보정계수
 
   // 기본 검출 파라미터 (휴리스틱 값 — 실제 사진으로 검증 후 연구자가 조정해야 함)
   const DEFAULT_DETECT = {
@@ -802,7 +802,7 @@
     return Math.acos(Math.max(-1, Math.min(1, c))) * 180 / Math.PI;
   }
   /** 체중부하 전·후 비교 */
-  function comparePrePost(pre, post, conv, calibration) {
+  function comparePrePost(pre, post, conv, calibration, options) {
     const c = Object.assign({}, DEFAULT_CONVERSION, conv || {});
     const r = { status: '측정 불가', changeMm: null, changePx: null, notes: [], flags: [] };
     if (!pre || !post) { r.notes.push('체중부하 전·후 측정값이 모두 필요합니다.'); return r; }
@@ -855,6 +855,11 @@
     }
     if (r.changeMm >= c.maxPlausibleChangeMm) { r.status = '측정 불가'; r.notes.push(`변화량(${r.changeMm.toFixed(1)}mm)이 비정상적으로 큽니다. 스티커 위치·자세를 확인하고 다시 검사해 주세요.`); r.changeMm = null; return r; }
     if (postMm - preMm > c.riseReviewMm) r.flags.push('체중부하 후 발활 높이가 오히려 높게 측정되었습니다. 자세·스티커 위치 검토가 필요합니다.');
+    // 모든 사용자 공통 보정계수(ALG-2.8.0): 촬영 거리 25 cm 고정 → 같은 조건의 계통 오차를 여러 사람의 실측 표본으로 학습한 계수로 줄인다.
+    // 개인별 보정이 아님 — 처음 재는 사람에게도 똑같이 적용. 원래 값은 r.raw에 남겨 표본·검증에 쓴다.
+    r.raw = { lineMm: r.lineChangeMm, floorMm: r.floor && isFinite(r.floor.dropMm) ? Math.abs(r.floor.dropMm) : null };
+    const pc = populationCorrect(r.raw, (options && options.popCalib !== undefined) ? options.popCalib : POP_CALIB);
+    if (pc) { r.changeMm = pc.mm; r.primary = pc.method; r.calib = pc; r.notes.push(`모든 사용자 공통 보정계수 적용(${pc.method === 'floor' ? '바닥 기준' : 'P1–P3 기준선'} ${pc.rawMm.toFixed(1)} mm → ${pc.mm.toFixed(1)} mm · ${pc.label} · 표본 ${pc.n}개 ${pc.participants}명)`); }
     r.status = '측정 가능';
     return r;
   }
@@ -1132,10 +1137,12 @@
     // ③-1 앉은 자세·선 자세 높이를 따로 배운다(실측 전·후 높이를 넣었을 때): 체중이 실리면 스티커 기준선도 함께
     //      내려앉는 등 '선 자세에서만' 생기는 오차가 있어서, 하강량 하나로 배우는 것보다 정확하다. 측정 방식(바닥선/기준선)별로 따로.
     const last0 = valid[valid.length - 1], protocolCm = opts.protocolCm !== undefined ? opts.protocolCm : (last0 && last0.distance && last0.distance.targetCm) || null;
-    const cal = personalHeightCalib(refs, kShr, protocolCm);
-    const corrected = e => { const h = appHeights(e), c2 = h && cal[h.method]; return c2 && c2.n ? Math.max(0, (h.pre + c2.bPre) - (h.post + c2.bPost)) : null; };
+    // 고정촬영판(ALG-2.8.0): 개인별 오차 보정은 하지 않는다(모든 사용자 공통 보정계수만 — 사용자 결정). 실측값은 그 검사의 '정답'으로만 쓴다.
+    const cal = {};
+    // 보정이 있는 방식 중 학습 자료가 많은 쪽(같으면 바닥선) — 바닥선 검출 여부로 보정이 켜졌다 꺼지지 않게
+    const corrected = e => { const hs = appHeightsAll(e).filter(h => cal[h.method] && cal[h.method].n).sort((a, b) => cal[b.method].wSum - cal[a.method].wSum || (a.method === 'floor' ? -1 : 1)); const h = hs[0]; if (!h) return null; const c2 = cal[h.method]; return Math.max(0, (h.pre + c2.bPre) - (h.post + c2.bPost)); };
     // ③-2 하강량만 넣은 기록(또는 높이 보정이 없는 측정 방식)은 하강량 잔차로 배운다
-    const resRefs = refs.filter(e => !(isFinite(e.reference.preMm) && isFinite(e.reference.postMm) && appHeights(e))), RW = refWeights(resRefs, protocolCm);
+    const resRefs = [], RW = new Map();
     const res = resRefs.map(e => e.reference.ndtMm - base(e)), rw = resRefs.map(e => RW.get(e)), rwSum = rw.reduce((x, y) => x + y, 0);
     const bias = res.length ? res.reduce((x, y, i) => x + y * rw[i], 0) / (rwSum + Math.max(kShr, shrinkK(res, rw))) : 0;
     const nCal = Object.values(cal).reduce((n, c2) => n + c2.n, 0);
@@ -1191,6 +1198,14 @@
     if (isFinite(c.preMm) && isFinite(c.postMm)) return { method: 'line', pre: c.preMm, post: c.postMm };
     return null;
   }
+  // 한 검사에서 쓸 수 있는 측정 방식 전부(바닥선·기준선). v3.5.1: 보정은 방식별로 배우므로, 바닥선이 잡혔다 안 잡혔다 해도
+  // 같은 방식으로 보정되도록 실측 기록은 가능한 모든 방식에 넣고, 새 검사는 보정이 있는 방식을 고른다(재현성).
+  function appHeightsAll(e) {
+    const c = e && e.comparison, out = []; if (!c) return out;
+    if (c.floor && isFinite(c.floor.preMm) && isFinite(c.floor.postMm)) out.push({ method: 'floor', pre: c.floor.preMm, post: c.floor.postMm });
+    if (isFinite(c.preMm) && isFinite(c.postMm)) out.push({ method: 'line', pre: c.preMm, post: c.postMm });
+    return out;
+  }
   // 실측 전·후 높이와 앱 높이의 차이를 측정 방식별로 수축 평균(적을수록 조심스럽게)
   // 실측 기록 가중치(v3.3, 2026-11 사용자 사례: 예전 실측 오차 +4~5 mm로 배운 보정이 새 측정(실제 오차 +0.7 mm)을 9.0 mm로 과보정):
   // ① 최근 실측일수록 크게(한 번 오래될 때마다 ×0.6) ② 촬영 조건(거리 고정)이 지금과 같은 실측만 온전히, 다르면(예전·거리 미기록) ×0.5
@@ -1209,8 +1224,8 @@
   function personalHeightCalib(refs, kShr, protocolCm) {
     const out = {}, W = refWeights(refs, protocolCm), groups = {};
     for (const e of refs) {
-      const r = e.reference, h = appHeights(e); if (!h || !isFinite(r.preMm) || !isFinite(r.postMm)) continue;
-      (groups[h.method] = groups[h.method] || []).push({ dPre: r.preMm - h.pre, dPost: r.postMm - h.post, w: W.get(e) });
+      const r = e.reference; if (!isFinite(r.preMm) || !isFinite(r.postMm)) continue;
+      for (const h of appHeightsAll(e)) (groups[h.method] = groups[h.method] || []).push({ dPre: r.preMm - h.pre, dPost: r.postMm - h.post, w: W.get(e) });
     }
     for (const [k, g] of Object.entries(groups)) {
       const ws = g.map(x => x.w), sw = ws.reduce((x, y) => x + y, 0), kk = Math.max(kShr, shrinkK(g.map(x => x.dPre - x.dPost), ws));
@@ -1345,6 +1360,37 @@
         ? `교차검증에서 평균 오차가 ${base.mae.toFixed(2)} → ${cv[chosen].mae.toFixed(2)} mm로 ${((1 - cv[chosen].mae / base.mae) * 100).toFixed(0)}% 줄었습니다. 검토 후 배포할 수 있습니다.`
         : `교차검증에서 보정 없음(평균 오차 ${base.mae.toFixed(2)} mm)보다 확실하게(${(o.minGain * 100).toFixed(0)}% 이상, 참여자 재표집 95% 기준) 나아진 모델이 없습니다. 보정 없이 앱 값을 그대로 쓰는 것을 권합니다.`
     };
+  }
+
+  // ───────────────────────── 모든 사용자 공통 보정계수(측정 알고리즘의 일부) ─────────────────────────
+  // 빌드(node build.js)가 fixed/calib/samples.json으로 학습해 아래 자리에 넣는다(Node에서 직접 불러 쓸 때는 null = 보정 없음).
+  const POP_CALIB = /*__POP_CALIB__*/null;
+  // raw: { lineMm: P1–P3 기준선 하강, floorMm: 바닥 기준 하강(바닥선이 전·후 모두 잡혔을 때) }
+  function populationCorrect(raw, P) {
+    if (!P || !raw) return null;
+    const useFloor = P.prefer === 'floor' && P.floor && raw.floorMm != null;
+    const method = useFloor ? 'floor' : 'line', m = useFloor ? P.floor : P.line, v = useFloor ? raw.floorMm : raw.lineMm;
+    if (!m || !isFinite(v) || (m.method === 'identity' && !useFloor)) return null; // 바닥 기준은 계수가 필요 없어도(identity) 방식 전환 자체가 개선
+    return { mm: Math.max(0, applyErrorModel(m, { ai: v })), rawMm: v, method, label: m.label, id: P.id, n: P.n, participants: P.participants, cvMae: m.cvMae, baseMae: m.baseMae, piMm: m.piMm };
+  }
+  // 방식별로 보정계수를 학습하고 어느 방식을 쓸지 고른다.
+  //  · 기준선(line): 서면 P1·P3 자리도 내려앉아 실측(바닥에서 잰 값)보다 작게 나옴 → 계수로 보정
+  //  · 바닥 기준(floor): 정의상 자로 잰 실측과 같은 양. 바닥 기준 값이 있는 표본이 minFloor개 이상 모이고,
+  //    같은 표본에서 기준선 방식보다 오차가 작다고 검증되면 바닥 기준을 쓴다(바닥선이 안 잡힌 측정은 계속 기준선).
+  function learnPopulationCalib(samples, options) {
+    const o = Object.assign({ minFloor: 5 }, options || {});
+    const S = (samples || []).filter(x => x && isFinite(x.ref));
+    const line = learnSeedCorrection(S.filter(x => isFinite(x.ai)), o);
+    const fs2 = S.filter(x => x.floorDrop != null && isFinite(x.floorDrop));
+    let floor = null, lineOnFloorSet = null, prefer = 'line';
+    if (fs2.length >= o.minFloor) {
+      floor = learnSeedCorrection(fs2.map(x => Object.assign({}, x, { ai: Math.abs(x.floorDrop) })), o);
+      lineOnFloorSet = learnSeedCorrection(fs2.filter(x => isFinite(x.ai)), o);
+      if (floor.ok && lineOnFloorSet.ok && floor.model.cvMae < lineOnFloorSet.model.cvMae) prefer = 'floor';
+    }
+    const mdl = r => (r && r.ok ? r.model : null);
+    const parts = new Set(S.map(x => x.participant)).size;
+    return { line, floor, lineOnFloorSet, prefer, calib: { prefer, line: mdl(line), floor: mdl(floor), n: S.length, nFloor: fs2.length, participants: parts } };
   }
 
   // ───────────────────────── 기본 보정 학습(표본 파일 → 모든 사용자) ─────────────────────────
@@ -1616,10 +1662,32 @@
     }
     let method = 'edge';
     if (stats.P3 < o.minFrac || stats.P1 < o.minFrac) {
-      const q = det.quality || {}, crisp = q.edgeWidthPx != null && q.edgeLimitPx && q.edgeWidthPx <= 0.6 * q.edgeLimitPx; // 2차 방법은 사진이 선명할 때만(흐리면 경계 위치가 치우침)
+      const q = det.quality || {}, crisp = q.edgeWidthPx != null && q.edgeLimitPx && q.edgeWidthPx <= 0.7 * q.edgeLimitPx; // 2차 방법은 사진이 선명할 때만(흐리면 경계 위치가 치우침)
       const m2 = o.noModel || !crisp ? null : detectSoleLineModel(img, det, o);
       if (!m2 || !m2.pts || m2.stats.P3 < 0.45 || m2.stats.P1 < 0.45) return { ok: false, reason: '발바닥 경계를 충분히 찾지 못함(바닥과 피부색이 비슷하거나 그림자)', stats, stats2: m2 && m2.stats };
-      pts.length = 0; m2.pts.forEach(p => pts.push(p)); method = 'model'; Object.assign(stats, m2.stats); o.maxRmsPx = Math.min(o.maxRmsPx, 1.5);
+      pts.length = 0; m2.pts.forEach(p => pts.push(p)); method = 'model'; stats.texS = m2.texS; stats.texF = m2.texF; Object.assign(stats, m2.stats); o.maxRmsPx = Math.min(o.maxRmsPx, 1.5);
+    }
+    // 무리 고르기(ALG-2.6.1, 2026-11 사용자 카펫 사진 U_ 7장): 촘촘한 카펫 무늬 때문에 열마다 '진짜 발바닥 선'과
+    // 그 아래 무늬 경계가 섞여 잡힌다(두 무리, 12~18px 차이). 두 점 직선마다 1.5px 안의 점 수를 세고(양쪽 스티커에
+    // 2개 이상씩), 최다의 75% 이상인 직선 중 가장 위(발에 가까운) 것을 고른다 — 발바닥 선은 발 아래 첫 바닥 경계이므로.
+    // 결이 뚜렷한 바닥(카펫)에서만 — 발을 든 사진(바닥 대신 배경)은 결이 약해 여기서 걸러진다(표본 S_11~14: 결 4~13, 사용자 카펫 20~45)
+    if (method === 'model' && pts.length >= 6 && stats.texF >= 18 && stats.texF >= 4 * stats.texS) {
+      let cand = [];
+      for (let i = 0; i < pts.length; i++) for (let j = i + 1; j < pts.length; j++) {
+        const a = pts[i], b = pts[j]; if (a.key === b.key || Math.abs(b.x - a.x) < 1) continue;
+        const mm = (b.y - a.y) / (b.x - a.x), cc = a.y - mm * a.x; if (Math.abs(mm) > Math.tan(o.maxAbsAngleDeg * Math.PI / 180)) continue;
+        const inl = pts.filter(p => Math.abs(p.y - (mm * p.x + cc)) <= 1.5);
+        if (inl.filter(p => p.key === 'P1').length < 2 || inl.filter(p => p.key === 'P3').length < 2) continue;
+        cand.push({ n: inl.length, yMid: mm * (L.P1.x + L.P3.x) / 2 + cc, inl });
+      }
+      if (cand.length) {
+        const nMax = Math.max(...cand.map(q => q.n)); cand = cand.filter(q => q.n >= Math.max(5, 0.75 * nMax, 0.3 * pts.length));
+        if (cand.length) { cand.sort((p, q) => p.yMid - q.yMid || q.n - p.n); const keep = new Set(cand[0].inl), mm0 = cand[0].inl;
+          const fitL = arr => { const n = arr.length, sx = arr.reduce((s, p) => s + p.x, 0), sy = arr.reduce((s, p) => s + p.y, 0), sxx = arr.reduce((s, p) => s + p.x * p.x, 0), sxy = arr.reduce((s, p) => s + p.x * p.y, 0), d = n * sxx - sx * sx; const k = d ? (n * sxy - sx * sy) / d : 0; return { k, c: (sy - k * sx) / n }; };
+          const l0 = fitL(mm0); for (const p of pts) if (Math.abs(p.y - (l0.k * p.x + l0.c)) <= 2.5) keep.add(p);
+          if (keep.size < pts.length) { const dropped = pts.length - keep.size; const kept = pts.filter(p => keep.has(p)); pts.length = 0; kept.forEach(p => pts.push(p)); stats.clusterDropped = dropped; }
+        }
+      }
     }
     // 견고한 직선 피팅(y = m x + c, Tukey 가중 반복)
     let m = 0, c = median(pts.map(p => p.y)), w = pts.map(() => 1);
@@ -1709,7 +1777,7 @@
       }
       stats[key] = found / o.cols;
     }
-    return { pts, stats };
+    return { pts, stats, texS: mS, texF: mF };
   }
   // 점에서 바닥선까지 수직 거리(px). 바닥선 위쪽(발 쪽)이 양수.
   function heightAboveSole(p, sole) {
@@ -1876,6 +1944,6 @@
     rgbToHsv, detectStickers, labelLandmarks, signedDistanceToLine, distanceToLine, projectionT,
     measureImage, comparePrePost, classify, roundMm, errorMetrics,
     splitByParticipant, trainCalibration, applyCalibration, fitMethod, validateConversion,
-    motionBetween, framingCheck, laplacianVariance, archAngle, cropImage, detectInRoi, labelsConsistent, combineDetections, shapeDelta, AI_FEATURES, errorFeatures, trainErrorModel, applyErrorModel, learnSeedCorrection, fitRidge, createLandmarkKalman, chromaMap, ALIGN, alignmentCheck, LOAD, loadEvidence, shapeOf, FOOT_MODEL, GUIDE_LAYOUT, guideGeometry, guideCheck, fitFootModel, snapOutline, densify, segmentFoot, appHeights, EXERCISE_DRAFTS, EXERCISE_CATEGORIES, youtubeId, resampleClosed, personalCare, measurementWeight, CARE, detectSoleLine, heightAboveSole, reliabilityStats, retestPairs, normalizedIndices, NNH_REF, distanceAdvice, calibrateFovK, DIST
+    motionBetween, framingCheck, laplacianVariance, archAngle, cropImage, detectInRoi, labelsConsistent, combineDetections, shapeDelta, AI_FEATURES, errorFeatures, trainErrorModel, applyErrorModel, learnSeedCorrection, learnPopulationCalib, populationCorrect, fitRidge, createLandmarkKalman, chromaMap, ALIGN, alignmentCheck, LOAD, loadEvidence, shapeOf, FOOT_MODEL, GUIDE_LAYOUT, guideGeometry, guideCheck, fitFootModel, snapOutline, densify, segmentFoot, appHeights, EXERCISE_DRAFTS, EXERCISE_CATEGORIES, youtubeId, resampleClosed, personalCare, measurementWeight, CARE, detectSoleLine, heightAboveSole, appHeightsAll, reliabilityStats, retestPairs, normalizedIndices, NNH_REF, distanceAdvice, calibrateFovK, DIST
   };
 });

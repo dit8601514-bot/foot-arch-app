@@ -37,11 +37,26 @@ const gauss = () => { let u = 0; for (let i = 0; i < 6; i++) u += rnd(); return 
 // 6) 표본 부족
 ok('표본 1개 → 학습 안 함', C.learnSeedCorrection([{ ai: 3, ref: 7 }]).ok === false);
 
-// 7) 빌드 결과에 학습 모델이 들어갔는지
+// 7) 방식 선택: 바닥 기준 표본이 5개 미만이면 기준선, 바닥 기준이 더 정확한 표본이 모이면 바닥 기준으로 전환
+{ const L0 = C.learnPopulationCalib(S); ok('바닥 표본 부족 → 기준선 방식', L0.prefer === 'line' && L0.calib.floor === null);
+  const rows = []; for (let p = 0; p < 8; p++) for (let i = 0; i < 2; i++) { const ref = 5 + 6 * rnd(), sink = 3 + 2.5 * rnd(); rows.push({ participant: 'F' + p, ref, ai: ref - sink + 0.4 * gauss(), floorDrop: ref + 0.4 * gauss() }); }
+  const L = C.learnPopulationCalib(rows); ok('바닥 기준이 더 정확 → 바닥 기준으로 전환', L.prefer === 'floor' && L.calib.floor && L.calib.floor.cvMae < L.lineOnFloorSet.model.cvMae, `바닥 ${L.calib.floor && L.calib.floor.cvMae.toFixed(2)} vs 기준선 ${L.lineOnFloorSet.model.cvMae.toFixed(2)} mm`);
+  const P = Object.assign({ id: 't' }, L.calib);
+  const a = C.populationCorrect({ lineMm: 4, floorMm: 8 }, P), b = C.populationCorrect({ lineMm: 4, floorMm: null }, P);
+  ok('바닥선 잡힌 측정 → 바닥 기준, 안 잡힌 측정 → 기준선+계수', a && a.method === 'floor' && b && b.method === 'line' && b.mm > 4, `${a && a.mm.toFixed(1)} / ${b && b.mm.toFixed(1)}`); }
+
+// 8) 측정 알고리즘 안에서 적용: 같은 입력이면 누구에게나 같은 값(개인 기록과 무관)
+{ const P = Object.assign({ id: 't' }, C.learnPopulationCalib(S).calib);
+  const v1 = C.populationCorrect({ lineMm: 3.6, floorMm: null }, P).mm, v2 = C.populationCorrect({ lineMm: 3.6, floorMm: null }, P).mm;
+  ok('공통 보정: 3.6 mm → 약 7.8 mm, 사람과 무관하게 동일', Math.abs(v1 - v2) < 1e-9 && v1 > 7.4 && v1 < 8.2, v1.toFixed(2));
+  const ex = [{ id: 'a', foot: 'right', createdAt: 1, comparison: { changeMm: 5, status: '측정 가능' }, reference: { ndtMm: 9 } }, { id: 'b', foot: 'right', createdAt: 2e6, comparison: { changeMm: 5, status: '측정 가능' } }];
+  const pc = C.personalCare(ex, {}); ok('개인별 오차 보정 없음', pc.biasMm === 0 && pc.personalMm(ex[1]) === 5); }
+
+// 9) 빌드 결과에 학습 모델이 들어갔는지
 { const d = path.join(__dirname, '..', '..', 'dist', 'fixed');
   if (fs.existsSync(path.join(d, 'index.html'))) {
     const h = fs.readFileSync(path.join(d, 'index.html'), 'utf8');
-    ok('빌드: 앱에 학습 모델', /const BUILTIN_MODEL = \{"id":"seed-/.test(h));
+    ok('빌드: 측정 엔진에 공통 보정계수', /const POP_CALIB = \{"id":"C\d+-/.test(h) && h.includes('const BUILTIN_MODEL = null'));
     ok('빌드: 관리자 앱 없음', !fs.existsSync(path.join(d, 'admin')));
   } else console.log('(dist 없음 — node build.js 후 빌드 확인)'); }
 

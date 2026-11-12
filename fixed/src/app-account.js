@@ -126,11 +126,8 @@ const Account = (() => {
   async function pendingCount() { const u = user(); if (!u) return 0; let n = 0; for (const st of ['exams', 'logs']) n += (await DB.all(st)).filter(r => !r.isTest && !r._syncedAt).length; return n; }
   // ───── AI 오차 보정 모델: 관리자가 배포한(active) 모델 1개를 내려받아 이 기기에 보관 ─────
   const AIM = 'footarchFixed.aimodel';
-  // 고정촬영판 기본 오차 보정 — 손으로 정한 숫자가 아니라 표본 파일(fixed/calib/samples.json)에서 빌드할 때 자동 학습한 값.
-  //   학습: core.js learnSeedCorrection (이상치 제외 · 사람 단위 중간값 · 흔들림에 맞춘 수축 · 학습에 안 쓴 자료로 검증).
-  //   새 표본을 samples.json에 추가하고 main에 올리면 다시 학습되어 모든 사용자에게 적용됨.
-  //   서버에 관리자가 배포한 모델(여러 사람 자료로 학습)이 있으면 그것을 우선 쓴다.
-  const BUILTIN_MODEL = /*__SEED_MODEL__*/null;
+  // 고정촬영판(ALG-2.8.0~): 보정은 측정 알고리즘(core.js POP_CALIB, 모든 사용자 공통)에서 한다. 서버·개인 보정 모델은 쓰지 않음.
+  const BUILTIN_MODEL = null;
   function aiModel() { try { return JSON.parse(ls.get(AIM) || 'null') || BUILTIN_MODEL; } catch (e) { return BUILTIN_MODEL; } } // BUILTIN_MODEL이 null(보정 없음)이면 앱 값 그대로
   async function fetchAiModel() {
     if (!configured()) return aiModel();

@@ -3,7 +3,8 @@
 const path = require('path');
 const C = require(path.join(__dirname, '..', 'src', 'core.js'));
 const S = require(path.join(__dirname, 'samples.json')).samples;
-const r = C.learnSeedCorrection(S);
+const LP = C.learnPopulationCalib(S); const r = LP.line;
+console.log(`사용 방식: ${LP.prefer === 'floor' ? '바닥 기준(바닥선이 잡힌 측정)' : 'P1–P3 기준선'} · 바닥 기준 표본 ${LP.calib.nFloor}개${LP.floor && LP.floor.ok ? ` → 바닥 보정 ${LP.floor.model.label}, 평균 오차 ${LP.floor.model.cvMae.toFixed(2)} mm (같은 표본의 기준선 ${LP.lineOnFloorSet.model.cvMae.toFixed(2)} mm)` : ' (5개 이상 모이면 바닥 기준도 학습·비교)'}\n[기준선 방식 보정계수]`);
 if (!r.ok) { console.log(r.reason); process.exit(0); }
 const m = r.model, f = v => (v == null ? '—' : v.toFixed(2));
 console.log(`표본 ${m.nAll}개(학습 ${m.n}개, 이상치 ${r.outliers.length}개${r.outliers.length ? ': ' + r.outliers.join(', ') : ''}) · 참여자 ${m.participants}명 · 검증 ${r.validation}`);

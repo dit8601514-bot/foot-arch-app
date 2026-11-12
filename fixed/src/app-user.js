@@ -352,14 +352,7 @@ async function finalizeExam(ex, log) {
     conversion: convSettings(), isTest: false, selfReport: {}, loadRecognition: ex.loadRecognition || null, distance: ex.distance || null
   };
   // AI 오차 보정: 관리자가 배포한 모델이 있으면 임상 NDT 추정치를 함께 저장(앱 측정값·분류는 바꾸지 않음)
-  try {
-    const am = typeof Account !== 'undefined' ? (await Promise.race([Account.fetchAiModel(), new Promise(r => setTimeout(() => r(Account.aiModel()), 2500))])) : null;
-    const feat = am && cmp.status === '측정 가능' ? C.errorFeatures(rec) : null;
-    if (feat && am.data && am.data.method && am.data.method !== 'identity') {
-      const v2 = C.applyErrorModel(am.data, feat);
-      if (isFinite(v2)) { rec.aiCorrection = { mm: v2, version: am.version, modelId: am.id, method: am.data.method, slope: am.data.method === 'linear' && !am.data.intercept ? am.data.slope : null, piMm: am.data.piMm, cvMae: am.data.cvMae, category: C.classify(Math.max(0, v2)) }; log(`AI 오차 보정(v${am.version}): 임상 NDT 추정 ${mm(v2)}`); }
-    }
-  } catch (e) { console.warn('ai', e); }
+  // (고정촬영판 ALG-2.8.0: 별도 AI 보정 단계 없음 — 공통 보정계수는 측정 알고리즘 안에서 이미 적용됨)
   for (const ph of ['pre', 'post']) if (ex[ph]._blob) {
     const bid = uid(); if (await save('blobs', { id: bid, kind: 'image', examId: rec.id, phase: ph, blob: ex[ph]._blob, createdAt: Date.now() })) rec[ph].imageId = bid;
   }
@@ -400,7 +393,9 @@ route('/result/:id', '측정 결과', async (v, p) => {
       <span class="feet">${footprintsSvg('r')}</span>
       <div class="grow">
         <div class="tiny" style="font-weight:700;color:var(--ink-2)">발배뼈 하강 ${c.primary === 'floor' ? '(바닥 기준)' : ''}</div>
-        ${(() => { const ac = e.aiCorrection && isFinite(e.aiCorrection.mm) ? e.aiCorrection : null; // 고정촬영판: 보정값을 큰 숫자로, 앱 원래 값은 아래 작게
+        ${(() => { const pc = c.calib; if (pc && c.changeMm != null) // ALG-2.8.0: 알고리즘 안의 공통 보정계수가 이미 적용된 값
+            return `<div class="result-big">${mm(c.changeMm)}</div><div>${catBadge(cat)}</div><div class="tiny" style="font-weight:600">공통 보정계수 적용 · ${pc.method === 'floor' ? '바닥 기준' : '기준선'} ${mm(pc.rawMm)} → ${mm(c.changeMm)} (${esc(pc.label)} · 표본 ${pc.n}개 · ${esc(pc.id || '')})</div>`;
+          const ac = e.aiCorrection && isFinite(e.aiCorrection.mm) ? e.aiCorrection : null; // 예전 기록(F1.1~F1.7): 별도 보정값
           return ac ? `<div class="result-big">${mm(Math.max(0, ac.mm))}</div><div>${catBadge(ac.category || cat)}</div><div class="tiny" style="font-weight:600">보정 적용 · 앱 측정 ${mm(c.changeMm)} ${ac.slope ? `× ${ac.slope}` : `${ac.mm - c.changeMm >= 0 ? '+' : '−'} ${Math.abs(ac.mm - c.changeMm).toFixed(1)} mm`} (${esc(String(ac.version))})</div>`
             : `<div class="result-big">${c.changeMm != null ? mm(c.changeMm) : '—'}</div><div>${catBadge(cat)}</div>`; })()}
         ${c.changeMm == null && c.changePx != null ? `<div class="tiny">픽셀 변화량 ${px(c.changePx)} (mm 아님)</div>` : ''}
@@ -664,7 +659,7 @@ route('/settings', '설정 및 개인정보', async (v) => {
   $('#expSeed', v).onclick = async () => {
     const pid = 'D' + String((Account.user() && Account.user().id) || S.settings.participantId || 'device').replace(/[^A-Za-z0-9]/g, '').slice(0, 8);
     const rows = (await DB.all('exams')).filter(e => !e.isTest && e.reference && isFinite(e.reference.ndtMm) && e.comparison && isFinite(e.comparison.changeMm)).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0))
-      .map((e, i) => ({ id: pid + '-' + (i + 1), participant: pid, foot: e.foot || null, date: new Date(e.createdAt || e.date || Date.now()).toISOString().slice(0, 16).replace('T', ' '), ai: +e.comparison.changeMm.toFixed(2), ref: +e.reference.ndtMm.toFixed(2), floorDrop: e.comparison.floor && isFinite(e.comparison.floor.dropMm) ? +e.comparison.floor.dropMm.toFixed(2) : null, note: '앱 실측 입력' }));
+      .map((e, i) => ({ id: pid + '-' + (i + 1), participant: pid, foot: e.foot || null, date: new Date(e.createdAt || e.date || Date.now()).toISOString().slice(0, 16).replace('T', ' '), ai: +(e.comparison.raw ? e.comparison.raw.lineMm : (e.comparison.lineChangeMm != null ? e.comparison.lineChangeMm : e.comparison.changeMm)).toFixed(2), ref: +e.reference.ndtMm.toFixed(2), floorDrop: e.comparison.floor && isFinite(e.comparison.floor.dropMm) ? +Math.abs(e.comparison.floor.dropMm).toFixed(2) : null, alg: e.algorithmVersion || null, note: '앱 실측 입력' }));
     if (!rows.length) return toast('자로 잰 값(실측)을 넣은 측정이 없습니다. 측정 결과 화면의 "자로 실제 잰 값 입력"으로 먼저 넣어 주세요.', true);
     download(`footarch-fixed-samples-${Date.now()}.json`, JSON.stringify({ samples: rows }, null, 1)); toast(`표본 ${rows.length}개를 저장했습니다.`);
   };
@@ -686,12 +681,7 @@ function careHtml(pc, e) {
   const rows = [];
   rows.push(['개인 맞춤 추정', `<b>${mm(F.estimateMm)}</b> <span class="tiny">± ${cmTxt(F.ciMm)} (95%)</span>`]);
   if (s) rows.push(['이번 측정 반영', s.ref ? '실제 잰 값 사용' : `${Math.round(s.w * 100)}%${s.outlier ? ' · <span class="badge b-warn">평소와 다름</span>' : ''}`]);
-  if (pc.nRefs) {
-    rows.push(['내 오차 보정', `${sign(pc.biasMm)} <span class="tiny">(실측 ${pc.nRefs}회 학습)</span>`]);
-    const hc = Object.entries(pc.heightCalib || {}).map(([k, c2]) => `${k === 'floor' ? '바닥 기준' : '기준선'} 앉음 ${sign(c2.bPre)} · 섬 ${sign(c2.bPost)}`).join(' / ');
-    if (hc) rows.push(['자세별 보정', `<span class="small">${hc}</span>`]);
-  }
-  if (e && pc.nRefs && !e.reference) rows.unshift(['이번 측정 AI 보정값', `<b>${mm(pc.personalMm(e))}</b> <span class="tiny">(앱 ${mm(e.comparison.changeMm)} → 내 실측 습관으로 보정)</span>`]);
+  // (고정촬영판 ALG-2.8.0: 개인별 오차 보정 없음 — 모든 사용자 공통 보정계수만 측정 알고리즘에서 적용)
   if (e && e.reference) rows.unshift(['실제 잰 값', `<b>${mm(e.reference.ndtMm)}</b> <span class="tiny">(앱 ${mm(e.comparison.changeMm)} · 차이 ${sign(e.reference.ndtMm - e.comparison.changeMm)})</span>`]);
   rows.push(['내 측정 흔들림', `± ${cmTxt(pc.sdMm)} <span class="tiny">${pc.nPairs ? `(반복 ${pc.nPairs}쌍 학습)` : '(기본값 · 3일 안에 한 번 더 재면 학습)'}</span>`]);
   if (F.changeSincePrevMm != null) rows.push(['지난번보다', `${sign(F.changeSincePrevMm)} <span class="tiny">${F.realChange ? '실제 변화로 보입니다' : `측정 흔들림 범위(±${cmTxt(pc.mdcMm)}) 안`}</span>`]);
@@ -714,7 +704,7 @@ function renderRefBox(box, e) {
   if (!box || !e) return;
   const r = e.reference;
   box.innerHTML = `<div class="card" id="refCard"><b>직접 잰 값(실측)</b>
-    <p class="tiny" style="margin:4px 0 8px">자로 잰 앉은·선 자세 발배뼈 높이를 넣으면 앱이 내 오차를 배워 다음 측정부터 보정합니다.</p>
+    <p class="tiny" style="margin:4px 0 8px">자로 잰 값을 넣으면 모든 사용자 공통 보정계수를 학습하는 표본이 됩니다(설정 → 실측 표본 내보내기). 개인별 보정은 하지 않습니다.</p>
     <button class="btn block" id="refBtn">${r ? `실제 잰 값 수정 (하강 ${mm(r.ndtMm)}${r.preMm != null ? ` · ${r.preMm.toFixed(1)}→${r.postMm.toFixed(1)} mm` : ''})` : '자로 실제 잰 값 입력'}</button></div>`;
   $('#refBtn', box).onclick = async () => {
     const val = await refModal(e.reference || null, e.comparison && e.comparison.changeMm); if (val === undefined) return;

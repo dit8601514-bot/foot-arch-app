@@ -28,15 +28,17 @@ console.log('built', build, html.length, 'bytes');
 {
   const FD = path.join(__dirname, 'fixed'), rf = f => fs.readFileSync(path.join(FD, 'src', f), 'utf8'), pf = f => path.join(FD, 'public', f);
   const fcore = rf('core.js'), fapp = ['app-base.js', 'app-live.js', 'app-account.js', 'app-user.js', 'app-self.js', 'app-design.js', 'app-research.js'].map(rf).join('\n');
-  // 기본 보정 학습: 표본 파일 → learnSeedCorrection → 앱(BUILTIN_MODEL)에 넣기
+  // 모든 사용자 공통 보정계수 학습: 표본 파일 → learnPopulationCalib → 측정 엔진(core.js의 POP_CALIB)에 넣기
   const seed = JSON.parse(fs.readFileSync(path.join(FD, 'calib', 'samples.json'), 'utf8')).samples;
-  const L = require(path.join(FD, 'src', 'core.js')).learnSeedCorrection(seed);
+  const L = require(path.join(FD, 'src', 'core.js')).learnPopulationCalib(seed);
   const sh = crypto.createHash('sha1').update(JSON.stringify(seed)).digest('hex').slice(0, 6);
-  const seedModel = L.ok && L.chosen !== 'identity' ? { id: 'seed-' + sh, version: `학습(${L.model.label} · 표본 ${L.model.n}개)`, builtin: true, data: L.model } : null;
-  const fapp2 = fapp.replace('/*__SEED_MODEL__*/null', () => JSON.stringify(seedModel));
-  if (fapp2 === fapp) throw new Error('fixed: __SEED_MODEL__ 자리를 찾지 못함');
-  console.log('fixed seed model:', L.ok ? `${L.chosen} ${L.model.label} · 표본 ${L.model.n}/${L.model.nAll} · ${L.model.participants}명 · ${L.validation} MAE ${L.model.baseMae.toFixed(2)} → ${L.model.cvMae.toFixed(2)} mm` : L.reason);
-  let fh = rf('index.html').replace('<!--CORE-->', () => '<script id="core-script">\n' + safe(fcore) + '\n</script>').replace('<!--APP-->', () => '<script>\n' + safe(fapp2) + '\n</script>');
+  const popCalib = Object.assign({ id: 'C' + seed.length + '-' + sh }, L.calib);
+  const fcore2 = fcore.replace('/*__POP_CALIB__*/null', () => JSON.stringify(popCalib));
+  if (fcore2 === fcore) throw new Error('fixed: __POP_CALIB__ 자리를 찾지 못함');
+  const fapp2 = fapp;
+  const lm = L.calib.line;
+  console.log(`fixed 공통 보정계수 ${popCalib.id}: 사용 방식 ${L.prefer} · 기준선 ${lm ? lm.label + ` (${lm.validation} MAE ${lm.baseMae.toFixed(2)} → ${lm.cvMae.toFixed(2)} mm)` : '없음'} · 바닥 ${L.calib.floor ? L.calib.floor.label : `표본 부족(${L.calib.nFloor}/5)`} · 표본 ${L.calib.n}개 ${L.calib.participants}명`);
+  let fh = rf('index.html').replace('<!--CORE-->', () => '<script id="core-script">\n' + safe(fcore2) + '\n</script>').replace('<!--APP-->', () => '<script>\n' + safe(fapp2) + '\n</script>');
   const fb = crypto.createHash('sha1').update(fh).update(fs.readFileSync(pf('config.js'))).update(fs.readFileSync(pf('sw.js'))).digest('hex').slice(0, 10);
   fh = fh.replace('__BUILD__', fb);
   const fo = path.join(out, 'fixed'); fs.mkdirSync(path.join(fo, 'icons'), { recursive: true });
@@ -44,7 +46,7 @@ console.log('built', build, html.length, 'bytes');
   fs.writeFileSync(path.join(fo, 'sw.js'), fs.readFileSync(pf('sw.js'), 'utf8').replace('__BUILD__', fb));
   for (const f of ['manifest.webmanifest', 'config.js']) fs.copyFileSync(pf(f), path.join(fo, f));
   for (const f of fs.readdirSync(pf('icons'))) fs.copyFileSync(path.join(pf('icons'), f), path.join(fo, 'icons', f));
-  fs.writeFileSync(path.join(fo, 'calib-model.json'), JSON.stringify({ trainedFrom: 'fixed/calib/samples.json', samples: seed.length, result: L }, null, 1));
+  fs.writeFileSync(path.join(fo, 'calib-model.json'), JSON.stringify({ trainedFrom: 'fixed/calib/samples.json', samples: seed.length, popCalib, result: L }, null, 1));
   fs.writeFileSync(path.join(fo, 'version.json'), JSON.stringify({ build: fb, version: (rf('app-base.js').match(/APP_VERSION = '([^']+)'/) || [])[1] || '', alg: (fcore.match(/ALGORITHM_VERSION = '([^']+)'/) || [])[1] || '' }));
   // 고정촬영판 관리자 앱은 없앰(F1.7.0, 사용자 결정 — 로그인 없이 열리면 모든 기록이 공개되므로). 보정 학습은 표본 파일로.
   console.log('built fixed', fb, fh.length, 'bytes');
