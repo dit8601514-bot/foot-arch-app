@@ -38,7 +38,8 @@ const gauss = () => { let u = 0; for (let i = 0; i < 6; i++) u += rnd(); return 
 ok('표본 1개 → 학습 안 함', C.learnSeedCorrection([{ ai: 3, ref: 7 }]).ok === false);
 
 // 7) 측정 정의 = 치료사 방식(앉음→섬 P2 이동). P2 이동이 있으면 그 값(표본 적으면 보정 없음), 없으면 기준선+계수
-{ const L0 = C.learnPopulationCalib(S); const P0 = Object.assign({ id: 't' }, L0.calib);
+{ const S0 = S.filter(x => !Number.isFinite(x.p2Drop)); // P2 이동 표본이 없던 상태
+  const L0 = C.learnPopulationCalib(S0); const P0 = Object.assign({ id: 't' }, L0.calib);
   ok('기본 = P2 이동(치료사 방식), 표본 부족 시 보정 없음', L0.prefer === 'p2' && L0.calib.p2.method === 'identity');
   const a = C.populationCorrect({ p2Mm: 8.3, lineMm: 4 }, P0), b = C.populationCorrect({ p2Mm: null, lineMm: 3.6 }, P0);
   ok('P2 이동 있음 → 그대로', a && a.method === 'p2' && Math.abs(a.mm - 8.3) < 1e-9, a && a.mm.toFixed(1));
@@ -62,6 +63,11 @@ ok('표본 1개 → 학습 안 함', C.learnSeedCorrection([{ ai: 3, ref: 7 }]).
 // 7-4) 실측이 모두 같은 값(7.5)인 소표본으로는 선형(기울기)을 배우지 않음
 { const r = C.learnSeedCorrection([{ ai: 4.1, ref: 7.5 }, { ai: 5.8, ref: 7.5 }, { ai: 5.7, ref: 7.5 }, { ai: 4.6, ref: 7.5 }, { ai: 5.2, ref: 7.5 }].map(x => Object.assign({ participant: 'U' }, x)));
   ok('실측이 한 값뿐이면 선형 안 씀', r.chosen !== 'linear', r.model.label); }
+
+// 7-5) 현재 표본(P2 이동 7개, 실측 모두 7.5): 더하기 약 +2.6 mm, 선형 안 씀, 오차 감소
+{ const L = C.learnPopulationCalib(S), m = L.calib.p2;
+  ok('현재 P2 표본 → 더하기 +2.2~+3.0 mm', m.method === 'bias' && -m.bias > 2.2 && -m.bias < 3.0, m.label);
+  ok('현재 P2 표본 → 평균 오차 50% 이상 감소', m.cvMae < m.baseMae * 0.5, `${m.baseMae.toFixed(2)} → ${m.cvMae.toFixed(2)}`); }
 
 // 8) 측정 알고리즘 안에서 적용: 같은 입력이면 누구에게나 같은 값(개인 기록과 무관)
 { const P = Object.assign({ id: 't' }, C.learnPopulationCalib(S).calib);
