@@ -1072,6 +1072,22 @@
 
   // ═══════════════ 운동(중재) 콘텐츠 ═══════════════
   // 기본 운동 초안(이름·일반 설명) — 사용자 앱 첫 실행과 관리자 앱 '기본 운동 불러오기'에서 같이 쓴다
+  // 중재 운동 영상(F2.5.0, 사용자 제공 영상 3개). 앱에 함께 배포(fixed/public/videos, H.264 720p).
+  // 수치는 영상 안 '운동 방법' 화면 그대로. id 고정 → 기기·결과 화면 연결이 바뀌지 않음.
+  const INTERVENTION_EXERCISES = [
+    { id: 'iv-short-foot', file: 'short-foot.mp4', name: '짧은 발 운동(Short Foot Exercise)', purpose: '발바닥 안쪽 근육으로 발의 아치를 들어 올리는 힘을 기르는 운동',
+      posture: '발바닥 전체가 바닥에 닿을 수 있도록 의자에 앉습니다.',
+      steps: ['발이 바닥에서 떨어지지 않도록 유지한 채 발의 아치를 들어 올립니다.', '이때 발가락이 과도하게 굽혀지지 않도록 주의합니다.', '아치를 들어 올린 채 5초 유지 후 힘을 풀어 줍니다.', '이 동작을 10회 반복하여 1세트를 완료합니다.', '총 3세트 진행하며, 세트 사이에는 30초간 휴식합니다.'],
+      cautions: ['발가락으로 바닥을 움켜쥐지 않습니다.', '통증이 생기면 멈추고 담당 치료사와 상의합니다.'], reps: '10', sets: '3', holdSec: '5', restSec: '30' },
+    { id: 'iv-towel-curl', file: 'towel-curl.mp4', name: '수건 당기기(Towel Curl)', purpose: '발가락을 모으는 힘으로 발바닥 근육을 강화하는 운동',
+      posture: '의자 앞에 수건을 세로로 깔아 놓고, 의자에 앉아 수건 위에 발을 올립니다.',
+      steps: ['수건에 얹은 발을 이용하여 천천히 수건을 당깁니다.', '이때 뒤꿈치가 바닥에서 떨어지지 않도록 합니다.', '발가락을 최대한 펼쳤다가 모으며 수건을 당겨 옵니다.', '10회를 1세트로, 총 3세트 진행합니다.', '세트 사이에는 30초간 휴식합니다.'],
+      cautions: ['미끄러운 바닥에서는 하지 않습니다.', '발가락에 쥐가 나면 쉬었다가 진행합니다.'], reps: '10', sets: '3', holdSec: '', restSec: '30' },
+    { id: 'iv-toe-spread', file: 'toe-spread.mp4', name: '발가락 벌리기(Toe Spread-Out)', purpose: '발가락 사이 근육을 써서 발의 아치를 받쳐 주는 운동',
+      posture: '의자에 앉아 발뒤꿈치를 바닥에 붙입니다.',
+      steps: ['발뒤꿈치를 바닥에 붙인 채 앞꿈치를 약 20~30° 들어 올립니다.', '앞꿈치를 들어 올린 자세를 유지하면서 발가락을 최대한 벌립니다.', '발가락을 벌린 상태로 5초간 유지합니다.', '5초 후 힘을 풀며 발가락을 다시 모읍니다.', '이 동작을 10회 반복하여 1세트를 완료합니다.', '총 3세트 진행하며, 세트 사이에는 30초간 휴식합니다.'],
+      cautions: ['발목에 무리가 가지 않게 천천히 합니다.', '통증이 생기면 멈추고 담당 치료사와 상의합니다.'], reps: '10', sets: '3', holdSec: '5', restSec: '30' }
+  ];
   const EXERCISE_DRAFTS = [
     { name: '짧은 발 운동(Short Foot Exercise)', purpose: '발바닥 내재근을 활성화하여 안쪽세로발활 지지를 돕는 운동', posture: '의자에 앉아 발바닥 전체를 바닥에 붙이고 발가락은 편안하게 둔다.', steps: ['발가락을 구부리지 않은 채 엄지발가락 뿌리(첫째발허리뼈머리)를 발꿈치 쪽으로 끌어당기듯 힘을 준다.', '발활이 살짝 높아지는 것을 확인하고 그 상태를 유지한다.', '천천히 힘을 풀고 처음 자세로 돌아온다.'], cautions: ['발가락을 말아 쥐지 않는다.', '통증이 생기면 즉시 중단한다.'] },
     { name: '수건 당기기(Towel Curl)', purpose: '발가락 굽힘근 사용을 연습하는 운동', posture: '의자에 앉아 발 아래 수건을 펼쳐 둔다.', steps: ['발꿈치를 바닥에 고정한다.', '발가락으로 수건을 움켜쥐어 몸쪽으로 끌어당긴다.', '수건을 다시 펴고 반복한다.'], cautions: ['미끄러운 바닥에서는 시행하지 않는다.', '발가락 경련이 생기면 쉬었다가 진행한다.'] },
@@ -1977,6 +1993,6 @@
     rgbToHsv, detectStickers, labelLandmarks, signedDistanceToLine, distanceToLine, projectionT,
     measureImage, comparePrePost, classify, roundMm, errorMetrics,
     splitByParticipant, trainCalibration, applyCalibration, fitMethod, validateConversion,
-    motionBetween, framingCheck, laplacianVariance, archAngle, cropImage, detectInRoi, labelsConsistent, combineDetections, shapeDelta, AI_FEATURES, errorFeatures, trainErrorModel, applyErrorModel, learnSeedCorrection, learnPopulationCalib, populationCorrect, p2Movement, fitRidge, createLandmarkKalman, chromaMap, ALIGN, alignmentCheck, LOAD, loadEvidence, shapeOf, FOOT_MODEL, GUIDE_LAYOUT, guideGeometry, guideCheck, fitFootModel, snapOutline, densify, segmentFoot, appHeights, EXERCISE_DRAFTS, EXERCISE_CATEGORIES, youtubeId, resampleClosed, personalCare, measurementWeight, CARE, detectSoleLine, heightAboveSole, appHeightsAll, reliabilityStats, retestPairs, normalizedIndices, NNH_REF, distanceAdvice, calibrateFovK, DIST
+    motionBetween, framingCheck, laplacianVariance, archAngle, cropImage, detectInRoi, labelsConsistent, combineDetections, shapeDelta, AI_FEATURES, errorFeatures, trainErrorModel, applyErrorModel, learnSeedCorrection, learnPopulationCalib, populationCorrect, p2Movement, fitRidge, createLandmarkKalman, chromaMap, ALIGN, alignmentCheck, LOAD, loadEvidence, shapeOf, FOOT_MODEL, GUIDE_LAYOUT, guideGeometry, guideCheck, fitFootModel, snapOutline, densify, segmentFoot, appHeights, INTERVENTION_EXERCISES, EXERCISE_DRAFTS, EXERCISE_CATEGORIES, youtubeId, resampleClosed, personalCare, measurementWeight, CARE, detectSoleLine, heightAboveSole, appHeightsAll, reliabilityStats, retestPairs, normalizedIndices, NNH_REF, distanceAdvice, calibrateFovK, DIST
   };
 });

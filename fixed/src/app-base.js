@@ -1,7 +1,7 @@
 'use strict';
 /* ═════════════ 기본: 저장소 · 상태 · 유틸 · 라우터 ═════════════ */
 const C = window.FootCore;
-const APP_VERSION = 'F2.4.0'; // 고정촬영판(별도 앱, 기존 앱 v3.5.0에서 분리)
+const APP_VERSION = 'F2.5.0'; // 고정촬영판(별도 앱, 기존 앱 v3.5.0에서 분리)
 const STORES = ['settings', 'exams', 'exercises', 'logs', 'errors', 'models', 'blobs', 'validations'];
 
 const DB = (() => {
@@ -71,7 +71,8 @@ async function loadSettings() {
   if (!S.settings.fovKF1) { S.settings.fovK = null; S.settings.fovKF1 = Date.now(); try { await saveSettings(); } catch (e) { /* */ } }
   if (typeof window !== 'undefined' && window.FOOTARCH_STICKER_MM > 0) { S.settings.stickerDiameterMm = window.FOOTARCH_STICKER_MM; S.settings.diameterSource = 'user'; } // 시험용
   S.settings.mapping = Object.assign({ normal: [], mild: [], moderate: [], severe: [] }, S.settings.mapping);
-  if (!S.settings.seeded) await seedContent();
+  S.settings.seeded = true;
+  try { await installInterventions(); } catch (e) { console.warn('interventions', e); }
 }
 async function saveSettings() { return save('settings', S.settings); }
 // 지난 결과를 새 스티커 지름으로 다시 계산(픽셀 측정값은 그대로, 길이 환산만 다시)
@@ -91,7 +92,23 @@ async function rescaleExams(fromMm, toMm) {
   return n;
 }
 
-// 초기 운동 콘텐츠: 이름·일반 설명만 초안으로 제공, 처방 수치·영상은 비워둔다(연구 프로토콜 입력 필요)
+// 중재 운동 영상(F2.5.0): 앱에 들어 있는 영상 3개를 기기 운동 목록에 넣고(매번 최신 내용으로 덮어씀),
+// 정상·유연성 평발 결과 모두에 연결한다. 예전 '영상 없는 초안'은 중복되므로 지운다.
+const IV_VER = 1;
+async function installInterventions() {
+  const all = await DB.all('exercises');
+  for (const x of all) if (x.draft && !x.server && !x.videoBlobId && !x.videoUrl) await DB.del('exercises', x.id);
+  for (const [i, d] of C.INTERVENTION_EXERCISES.entries()) {
+    const prev = all.find(x => x.id === d.id) || {};
+    await save('exercises', Object.assign({}, prev, d, { builtin: true, order: i, videoUrl: `videos/${d.file}?v=${IV_VER}`, videoBlobId: null, perWeek: '', source: '', reviewed: true, draft: false, createdAt: prev.createdAt || Date.now(), updatedAt: Date.now() }));
+  }
+  const ids = C.INTERVENTION_EXERCISES.map(d => d.id), m = S.settings.mapping;
+  for (const k of ['normal', 'severe']) m[k] = ids.concat((m[k] || []).filter(id => !ids.includes(id)));
+  await saveSettings();
+}
+/** 운동 목록 순서: 앱에 든 중재 영상 → 관리자가 서버에 올린 운동 → 기기에서 만든 운동 */
+function exOrder(x) { return x.builtin ? x.order - 1e3 : x.server ? x.order : 1e3; }
+// 초기 운동 콘텐츠(예전 판): 이름·일반 설명만 초안으로 제공, 처방 수치·영상은 비워둔다(연구 프로토콜 입력 필요)
 async function seedContent() {
   const drafts = C.EXERCISE_DRAFTS;
   for (const d of drafts) await save('exercises', Object.assign({ id: uid(), reps: '', sets: '', holdSec: '', perWeek: '', source: '', reviewed: false, videoBlobId: null, videoUrl: '', draft: true, createdAt: Date.now() }, d));

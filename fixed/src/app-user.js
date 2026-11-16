@@ -376,7 +376,7 @@ route('/result/:id', '측정 결과', async (v, p) => {
   const e = await examById(p.id); if (!e) { v.innerHTML = '<div class="note bad">결과를 찾을 수 없습니다.</div>'; return; }
   const c = e.comparison, cat = e.category && c.status === '측정 가능' && isFinite(c.changeMm) ? C.classify(c.changeMm) : e.category;
   if (cat && typeof Account !== 'undefined') await Promise.race([Account.syncContent(), new Promise(r => setTimeout(r, 2000))]);
-  const exs = cat ? (await DB.all('exercises')).filter(x => (S.settings.mapping[cat.key] || []).includes(x.id)) : [];
+  const exs = cat ? (await DB.all('exercises')).filter(x => (S.settings.mapping[cat.key] || []).includes(x.id)).sort((a, b) => exOrder(a) - exOrder(b)) : [];
   const valOrPx = (m) => m.heightMm != null ? mm(m.heightMm) : px(m.heightPx);
   const preV = c.preMm != null ? mm(c.preMm) : valOrPx(e.pre.measure), postV = c.postMm != null ? mm(c.postMm) : valOrPx(e.post.measure);
   const explain = cat ? `체중부하 전·후 P2(발배뼈 부위)와 P1–P3 기준선 사이 거리가 ${mm(c.changeMm)} 변했습니다. 기준(${cat.range})에 따라 “${cat.label}”으로 판정됩니다. 이 판정은 참고용이며 진단을 대신하지 않습니다.`
@@ -522,15 +522,15 @@ route('/exercise/:id', '운동', async (v, p) => {
   let src = null;
   if (x.videoBlobId) { const b = await DB.get('blobs', x.videoBlobId).catch(() => null); if (b) src = URL.createObjectURL(b.blob); }
   if (!src && x.videoUrl) src = x.videoUrl;
-  const pv = (val, unit) => val === '' || val == null ? '<span class="badge b-warn">연구 프로토콜 값 미입력</span>' : esc(val) + (unit ? ' ' + unit : '');
+  const pv = (val, unit) => val === '' || val == null ? (x.builtin ? '—' : '<span class="badge b-warn">연구 프로토콜 값 미입력</span>') : esc(val) + (unit ? ' ' + unit : '');
   v.innerHTML = `<h2>${esc(x.name)}</h2>
     ${x.reviewed ? '' : '<div class="note warn small">이 콘텐츠는 초안이며 아직 연구자 검토를 거치지 않았습니다.</div>'}
     ${src && C.youtubeId(src) ? `<div class="ex yt"><iframe src="https://www.youtube-nocookie.com/embed/${C.youtubeId(src)}?playsinline=1&rel=0" title="${esc(x.name)} 영상" allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; fullscreen" allowfullscreen></iframe></div><div class="tiny" id="watch"></div>`
-      : src ? `<video class="ex" id="vid" src="${esc(src)}" controls playsinline preload="metadata"></video><div class="grid2" style="margin-top:6px"><button class="btn" id="play">재생</button><button class="btn" id="replay">처음부터 다시 보기</button></div><p class="tiny" id="watch">시청 시간 0초</p>`
+      : src ? `<video class="ex" id="vid" src="${esc(src)}" controls playsinline preload="metadata"></video><div class="grid2" style="margin-top:6px"><button class="btn" id="play">재생</button><button class="btn" id="replay">처음부터 다시 보기</button></div><p class="tiny" id="watch">시청 시간 0초</p><div id="vErr" class="note warn small hide">영상을 불러오지 못했습니다. 인터넷 연결을 확인한 뒤 <button class="btn sm" id="vRetry">다시 불러오기</button></div>`
       : '<div class="placeholder"><b>영상 등록 필요</b><br><span class="small">관리자가 아직 이 운동의 영상을 등록하지 않았습니다. 관리자 화면 › 운동 영상에서 올릴 수 있습니다.</span></div>'}
     <div class="card"><dl class="kv">
       <dt>반복 횟수</dt><dd>${pv(x.reps, '회')}</dd><dt>세트 수</dt><dd>${pv(x.sets, '세트')}</dd>
-      <dt>유지 시간</dt><dd>${pv(x.holdSec, '초')}</dd><dt>주당 빈도</dt><dd>${pv(x.perWeek, '회/주')}</dd>
+      <dt>유지 시간</dt><dd>${pv(x.holdSec, '초')}</dd>${x.builtin ? `<dt>세트 사이 휴식</dt><dd>${pv(x.restSec, '초')}</dd>` : `<dt>주당 빈도</dt><dd>${pv(x.perWeek, '회/주')}</dd>`}
     </dl>${x.source ? `<p class="tiny">근거: ${esc(x.source)}</p>` : ''}</div>
     <div class="card"><b>운동 목적</b><p class="small">${esc(x.purpose || '—')}</p><b>올바른 자세</b><p class="small">${esc(x.posture || '—')}</p>
       <b>수행 방법</b><ol class="steps small">${(x.steps || []).map(s => `<li>${esc(s)}</li>`).join('')}</ol>
@@ -542,6 +542,9 @@ route('/exercise/:id', '운동', async (v, p) => {
   let watched = 0, last = null;
   const vid = $('#vid', v);
   if (vid) {
+    // 영상 오류(연결 끊김 등) → 안내 + 다시 불러오기. 재생 버튼의 play() 실패도 조용히 처리
+    vid.addEventListener('error', () => { const n = $('#vErr', v); if (n) n.classList.remove('hide'); });
+    const rt = $('#vRetry', v); if (rt) rt.onclick = () => { $('#vErr', v).classList.add('hide'); const t = vid.currentTime || 0; vid.load(); vid.addEventListener('loadedmetadata', () => { try { vid.currentTime = t; } catch (e) { /* */ } }, { once: true }); };
     vid.addEventListener('timeupdate', () => { if (!vid.paused && last != null) { const d = vid.currentTime - last; if (d > 0 && d < 1.5) watched += d; } last = vid.currentTime; $('#watch', v).textContent = `시청 시간 ${Math.round(watched)}초`; });
     vid.addEventListener('seeking', () => { last = null; });
     vid.addEventListener('error', () => { vid.replaceWith(Object.assign(document.createElement('div'), { className: 'note bad', textContent: '영상을 재생할 수 없습니다. 파일 형식이나 주소를 관리자에게 확인해 주세요.' })); });

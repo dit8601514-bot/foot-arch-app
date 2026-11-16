@@ -56,6 +56,18 @@ let pass = 0, fail = 0; const ok = (n, c, x) => { c ? pass++ : fail++; console.l
   // 같은 기록을 기본 측정에도
   await pg.click('#rSeg button[data-v="0"]'); await pg.click('#rSave'); await pg.waitForTimeout(1000);
   ok('기본 측정에도 저장', Object.keys(rounds).length === 2);
+  // 중재 운동 영상 3개: 결과 화면 연결 → 운동 목록 → 각 영상 실제 재생
+  { const rt = await pg.textContent('main'); ok('결과 화면 운동 중재에 영상 3개 연결', ['짧은 발 운동', '수건 당기기', '발가락 벌리기'].every(n => rt.includes(n)) && !rt.includes('영상 등록 필요'), (rt.match(/운동 중재[\s\S]{0,200}/) || [''])[0].replace(/\s+/g, ' ').slice(0, 160));
+    await pg.goto(base + '#/exercises'); await pg.waitForTimeout(3200);
+    const names = await pg.$$eval('a.vcard b', b => b.map(x => x.textContent)); ok('운동 목록: 중재 영상 3개만(초안 없음)', names.length === 3 && names[0].startsWith('짧은 발 운동') && names[1].startsWith('수건 당기기') && names[2].startsWith('발가락 벌리기'), JSON.stringify(names));
+    for (const [id, dur] of [['iv-short-foot', 307.8], ['iv-towel-curl', 270.5], ['iv-toe-spread', 316.4]]) {
+      await pg.goto(base + '#/exercise/' + id); await pg.waitForSelector('#vid');
+      await pg.click('#play'); await pg.waitForTimeout(2500);
+      const vs = await pg.evaluate(() => { const v = document.getElementById('vid'); return { d: v.duration, t: v.currentTime, err: v.error && v.error.code, w: v.videoWidth, errShown: !document.getElementById('vErr').classList.contains('hide'), txt: document.querySelector('main').textContent }; });
+      ok(`영상 재생 ${id}`, Math.abs(vs.d - dur) < 1 && vs.t > 0.5 && !vs.err && vs.w === 1280 && !vs.errShown && vs.txt.includes('10 회') && vs.txt.includes('3 세트') && vs.txt.includes('30 초') && !vs.txt.includes('미입력'), JSON.stringify({ d: vs.d, t: vs.t, err: vs.err, w: vs.w }));
+    }
+    await pg.screenshot({ path: '/tmp/ex-detail.png' });
+    await pg.goto(base + '#/exercises'); await pg.waitForTimeout(3500); await pg.screenshot({ path: '/tmp/ex-list.png' }); }
   // 측정 화면은 오른발 고정
   await pg.goto(base + '#/self'); await pg.waitForTimeout(800); const st = await pg.textContent('#view');
   ok('측정 화면 오른발 고정(왼발 선택 없음)', st.includes('측정하는 발: 오른발') && !(await pg.$('#feetSeg button')));

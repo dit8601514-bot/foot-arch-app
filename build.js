@@ -46,6 +46,7 @@ console.log('built', build, html.length, 'bytes');
   fs.writeFileSync(path.join(fo, 'sw.js'), fs.readFileSync(pf('sw.js'), 'utf8').replace('__BUILD__', fb));
   for (const f of ['manifest.webmanifest', 'config.js']) fs.copyFileSync(pf(f), path.join(fo, f));
   for (const f of fs.readdirSync(pf('icons'))) fs.copyFileSync(path.join(pf('icons'), f), path.join(fo, 'icons', f));
+  if (fs.existsSync(pf('videos'))) { fs.mkdirSync(path.join(fo, 'videos'), { recursive: true }); for (const f of fs.readdirSync(pf('videos'))) fs.copyFileSync(path.join(pf('videos'), f), path.join(fo, 'videos', f)); } // 중재 운동 영상
   fs.writeFileSync(path.join(fo, 'calib-model.json'), JSON.stringify({ trainedFrom: 'fixed/calib/samples.json', samples: seed.length, popCalib, result: L }, null, 1));
   fs.writeFileSync(path.join(fo, 'version.json'), JSON.stringify({ build: fb, version: (rf('app-base.js').match(/APP_VERSION = '([^']+)'/) || [])[1] || '', alg: (fcore.match(/ALGORITHM_VERSION = '([^']+)'/) || [])[1] || '' }));
   // 고정촬영판 관리자 앱(F2.1.0 다시 살림): 측정 시트 + 기존 관리 기능. 표본 파일도 넣음(AI 보정 화면용)
