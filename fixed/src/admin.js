@@ -86,7 +86,7 @@ const userOf = id => D.profiles.find(p => p.id === id);
 const pcode = id => 'P-' + String(id).replace(/-/g, '').slice(0, 8).toUpperCase();
 // 고정촬영판: 저장소 표본 파일(fixed/calib/samples.json)을 빌드할 때 넣음 → 서버 자료와 합쳐 학습(참여자 이름 앞에 seed:)
 const SEED_SAMPLES = /*__SEED_SAMPLES__*/[];
-function seedRows() { return SEED_SAMPLES.map(s => ({ participantId: 'seed:' + s.participant, examId: 'seed:' + s.id, f: { ai: s.ai, floorDrop: s.floorDrop == null ? null : s.floorDrop }, ref: s.ref, seed: true })); }
+function seedRows() { return SEED_SAMPLES.filter(s => Number.isFinite(s.ai)).map(s => ({ participantId: 'seed:' + s.participant, examId: 'seed:' + s.id, f: { ai: s.ai, floorDrop: s.floorDrop == null ? null : s.floorDrop }, ref: s.ref, seed: true })); }
 function trainingRows() {
   return serverRows().concat(seedRows());
 }
@@ -309,17 +309,62 @@ function blandAltmanSvg(pairs, m) {
 const metricsRow = (name, m) => `<tr><td>${name}</td><td>${m.n || 0}</td><td>${f2(m.me)}</td><td><b>${f2(m.mae)}</b></td><td>${f2(m.rmse)}</td><td>${m.loaLow != null ? f2(m.loaLow) + ' ~ ' + f2(m.loaHigh) : '—'}</td></tr>`;
 const metricsHead = '<thead><tr><th>방법</th><th>n</th><th>평균 차이(ME)</th><th>평균 절대 오차(MAE)</th><th>RMSE</th><th>95% 일치 한계</th></tr></thead>';
 
+// ───── 공통 보정 검증(고정촬영판): 관리자가 넣은 임상 NDT로 '처음 재는 사람' 기준 오차를 계산 ─────
+// 개인별 보정 없음. 한 사람씩 빼고 나머지로 공식을 정한 뒤 뺀 사람에게 적용(LOPO) → 새 사람이 쓸 때의 오차.
+function serverPairs() {
+  const out = [];
+  for (const r of D.refs) {
+    const e = D.exams.find(x => x.id === r.exam_id), c = e && e.data && e.data.comparison, p2 = c && c.p2;
+    if (!p2 || !isFinite(p2.rawMoveMm) || !isFinite(p2.p3MoveMm)) continue; // P2 방식(ALG-3.0.0~) 측정만
+    out.push({ participant: pcode(r.user_id), exam: String(e.id).slice(0, 8), date: e.created_at, saved: c.changeMm, p2Drop: Math.max(0, p2.dropMm), p2Raw: p2.rawMoveMm, p3Move: p2.p3MoveMm, ref: Number(r.clinical_mm) });
+  }
+  return out;
+}
+function commonCheck() {
+  const rows = serverPairs(), POP = C.POP_CALIB_INFO || null;
+  const seedP3 = SEED_SAMPLES.filter(x => isFinite(x.p3Move) && isFinite(x.p2Drop)).map(x => ({ participant: x.participant, p2Drop: x.p2Drop, p3Move: x.p3Move, ref: x.ref, exam: x.exam }));
+  const fresh = rows.filter(r => !seedP3.some(sd => sd.exam && sd.exam === r.exam)); // 이미 표본 파일에 들어간 측정은 중복 제외
+  const all = seedP3.concat(fresh.map(r => ({ participant: r.participant, p2Drop: r.p2Raw, p3Move: r.p3Move, ref: r.ref })));
+  const flat = 8, agree = (a, f) => a.filter(r => (f(r) >= flat) === (r.ref >= flat)).length + '/' + a.length;
+  const stat = (a, f) => { const e = a.map(r => f(r) - r.ref); return a.length ? { mae: e.reduce((s, x) => s + Math.abs(x), 0) / e.length, me: e.reduce((s, x) => s + x, 0) / e.length, ag: agree(a, f) } : null; };
+  const cur = r => { const pc = C.populationCorrect({ p2Mm: r.p2Drop, p2RawMm: r.p2Raw, p3Mm: r.p3Move }, POP); return pc ? pc.mm : r.p2Drop; };
+  const sSaved = stat(rows.filter(r => isFinite(r.saved)), r => r.saved), sCur = stat(rows, cur), sNone = stat(rows, r => r.p2Drop);
+  const H = all.length ? C.learnHeelCalib(all) : null, heel = POP && POP.heel;
+  const tr = (name, st, note) => st ? `<tr><td>${name}</td><td><b>${f2(st.mae)}</b></td><td>${st.me >= 0 ? '+' : ''}${f2(st.me)}</td><td>${st.ag}</td><td class="small muted">${note || ''}</td></tr>` : '';
+  const people = new Set(rows.map(r => r.participant)).size;
+  const html = `<h1>공통 보정 검증 <span class="small muted">· 모든 사용자 같은 공식, 개인별 보정 없음</span></h1>
+    <div class="card small"><b>오차 범위를 잡는 방법</b><ol class="small" style="margin:6px 0 0 18px">
+      <li>'환자·측정'에서 측정마다 치료사가 자로 잰 <b>임상 NDT</b>를 넣으면, 그 측정의 <b>보정 전 P2 이동</b>·<b>발꿈치(P3) 이동</b>과 짝이 됩니다.</li>
+      <li>짝들로 '앱 값 − 실측' 오차를 계산합니다. 사람마다 표본 수가 달라도 한 사람이 결과를 끌고 가지 않게 사람별 중간값을 씁니다.</li>
+      <li><b>한 사람씩 빼고</b> 나머지 사람들로 공식을 정한 뒤, 뺀 사람에게 적용해 오차를 잽니다(LOPO). 이것이 <b>처음 재는 새 사람</b>의 예상 오차입니다. 같은 사람의 값으로 그 사람을 맞추는 일은 없습니다.</li>
+      <li>보정 없음보다 새 사람 오차가 10% 이상 줄 때만 공식을 바꿉니다. 바뀐 공식은 앱 업데이트로 <b>모든 사용자에게 똑같이</b> 적용됩니다.</li></ol></div>
+    <div class="card"><b>지금 앱 공식</b>: ${heel ? esc(heel.label) + ` <span class="small muted">(학습 ${heel.participants}명 ${heel.n}건 · 새 사람 평균 오차 ${f2(heel.baseMae)} → ${f2(heel.cvMae)} mm · 8 mm 판정 일치 ${heel.baseAgree} → ${heel.agree} · 95% 오차 범위 약 ±${f2(heel.piMm)} mm)</span>` : '보정 없음'}
+      <p class="small muted" style="margin:6px 0 0">발꿈치 스티커는 앉았다 일어설 때 보통 4~5 mm 움직입니다. 그보다 더 움직였다면 휴대폰이나 발이 함께 움직인 것이므로 그만큼 P2 이동에서 뺍니다.</p></div>
+    <div class="card scroll"><b>입력된 임상 NDT로 본 오차</b> <span class="small muted">(P2 방식 측정 ${rows.length}건 · ${people}명)</span>
+      ${rows.length ? `<table><thead><tr><th>계산 방법</th><th>평균 절대 오차(mm)</th><th>평균 치우침</th><th>8 mm 판정 일치</th><th></th></tr></thead><tbody>
+        ${tr('측정 당시 앱 값(저장된 값)', sSaved, '그때 공식(예: +1.2 mm)')}${tr('보정 없음(P2 이동 그대로)', sNone)}${tr('지금 앱 공식으로 다시 계산', sCur, '학습에 쓴 자료 포함 → 실제보다 좋게 나옴')}</tbody></table>` : '<p class="muted small">P2 방식 측정에 임상 NDT가 아직 없습니다.</p>'}
+      ${H ? `<p class="small" style="margin-top:10px"><b>새 사람 기준(한 사람씩 빼고 검증, 표본 파일 + 서버 ${all.length}건 · ${new Set(all.map(r => r.participant)).size}명)</b></p>
+        <table><thead><tr><th>공식</th><th>새 사람 평균 절대 오차</th><th>평균 치우침</th><th>8 mm 판정 일치</th></tr></thead><tbody>
+        <tr><td>보정 없음</td><td>${f2(H.base.mae)}</td><td>${f2(H.base.me)}</td><td>${H.base.agree}/${H.base.n}</td></tr>
+        ${H.cands.map(c => `<tr><td>${c.k ? `P2 이동 − 발꿈치 이동${c.k === 1 ? '' : '×' + c.k} + 상수` : 'P2 이동 + 상수'}</td><td><b>${f2(c.mae)}</b></td><td>${f2(c.me)}</td><td>${c.agree}/${c.n}</td></tr>`).join('')}</tbody></table>
+        <p class="small muted">${H.ok ? `지금 자료로 다시 학습하면: <b>${esc(H.model.label)}</b>. 앱 공식과 다르면 아래 파일을 내려받아 보내 주세요(앱 업데이트 때 반영).` : esc(H.reason || '')}</p>` : ''}
+      <div class="row" style="margin-top:8px"><button class="btn sm" id="ccJson" ${rows.length ? '' : 'disabled'}>표본 파일 내려받기(JSON, 이름 없이 참여자 코드)</button></div></div>`;
+  const bind = v => { const b = $('#ccJson', v); if (b) b.onclick = () => { const data = rows.map(r => ({ participant: r.participant, foot: 'right', date: String(r.date).slice(0, 16).replace('T', ' '), p2Drop: +r.p2Raw.toFixed(2), p3Move: +r.p3Move.toFixed(2), ai: null, ref: r.ref, floorDrop: null, source: 'admin', exam: r.exam })); const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' })); a.download = `공통보정_표본_${ymd(Date.now()).replace(/\./g, '')}.json`; a.click(); }; };
+  return { html, bind };
+}
+
 route('errors', '오차 분석', async (v) => {
   await loadAll(true);
   const rows = trainingRows(), pairs = rows.map(r => ({ ai: r.f.ai, ref: r.ref })), m = C.errorMetrics(pairs);
   const am = D.models.find(x => x.active), corr = am ? rows.map(r => ({ ai: C.applyErrorModel(am.data, r.f), ref: r.ref })) : null;
-  v.innerHTML = `<h1>오차 분석: 앱 NDT vs 임상 NDT</h1>
+  const cc = commonCheck();
+  v.innerHTML = `${cc.html}<h1>오차 분석: 앱 NDT vs 임상 NDT <span class="small muted">(측정 당시 저장된 값)</span></h1>
     ${pairs.length ? '' : '<div class="note warn">임상 NDT 기준값이 입력된 측정이 없습니다. "사용자·측정"에서 입력해 주세요.</div>'}
     <div class="card scroll"><table>${metricsHead}<tbody>${metricsRow('앱 측정값 그대로', m)}${corr ? metricsRow(`AI 보정 v${am.version} 적용(학습에 쓴 자료 포함 — 참고용)`, C.errorMetrics(corr)) : ''}</tbody></table>
       <p class="small muted">학습에 쓴 자료로 잰 보정 후 오차는 실제보다 좋게 나옵니다. 모델 성능은 "AI 보정 모델"의 교차검증 값을 보세요.</p></div>
     ${pairs.length ? `<div class="card"><b>Bland–Altman</b>${blandAltmanSvg(pairs, m)}</div>` : ''}
     ${reliabilityHtml(pairs)}`;
-  bindReliability(v);
+  bindReliability(v); cc.bind(v);
 });
 
 // ───── 논문용 신뢰도 리포트: 타당도(앱 vs 임상) + 검사-재검사(같은 사람·발·24시간 안) ─────
@@ -356,6 +401,7 @@ route('ai', 'AI 보정 모델', async (v) => {
   await loadAll(true);
   const rows = trainingRows(), nP = new Set(rows.map(r => r.participantId)).size;
   v.innerHTML = `<h1>AI 오차 보정 모델</h1>
+    <div class="note warn small"><b>고정촬영판은 이 화면의 모델을 쓰지 않습니다.</b> 측정값 보정은 모든 사용자 공통 '발꿈치 보정'이 측정 알고리즘 안에서 합니다. 현재 공식과 새 사람 기준 오차는 <a href="#/errors">오차·신뢰도</a> 맨 위 '공통 보정 검증'에서 확인하세요.</div>
     <div class="card small"><b>어떻게 동작하나요?</b>
       <p>앱이 재는 값 9가지(앱 NDT, 바닥 기준 하강, 앉은 자세 높이, 발활 각도 변화, 발 길이 변화, 촬영 거리, 발 기울기, 원근 왜곡, 스티커 부착 높이 오차)로 <b>임상 NDT를 예측</b>하는 모델을 학습합니다. 후보: 보정 없음 · 평균 차이 보정 · 선형 보정 · 다변량 릿지 회귀.</p>
       <p>성능은 <b>참여자 한 명씩 빼고 학습해 그 사람을 예측</b>하는 교차검증(LOPO)으로만 판단합니다. 보정 없음보다 평균 오차가 10% 이상 줄고, 참여자 재표집(2,000회) 95% 기준으로도 개선이 유지될 때만 배포를 권합니다.</p></div>

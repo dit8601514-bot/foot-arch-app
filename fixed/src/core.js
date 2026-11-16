@@ -9,7 +9,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  const ALGORITHM_VERSION = 'ALG-3.1.0'; // 고정촬영판: 치료사 방식 = 앉음→섬 P2 스티커 이동 거리 + 공통 보정계수
+  const ALGORITHM_VERSION = 'ALG-3.2.0'; // 고정촬영판: 치료사 방식 = 앉음→섬 P2 스티커 이동 거리 + 공통 보정계수
 
   // 기본 검출 파라미터 (휴리스틱 값 — 실제 사진으로 검증 후 연구자가 조정해야 함)
   const DEFAULT_DETECT = {
@@ -886,10 +886,11 @@
     if (r.p2) { r.changeMm = Math.max(0, r.p2.dropMm); r.primary = 'p2'; for (const f of r.p2.flags) r.flags.push(f); }
     // 모든 사용자 공통 보정계수(ALG-2.8.0): 촬영 거리 25 cm 고정 → 같은 조건의 계통 오차를 여러 사람의 실측 표본으로 학습한 계수로 줄인다.
     // 개인별 보정이 아님 — 처음 재는 사람에게도 똑같이 적용. 원래 값은 r.raw에 남겨 표본·검증에 쓴다.
-    r.raw = { p2Mm: r.p2 ? Math.max(0, r.p2.dropMm) : null, lineMm: r.lineChangeMm, floorMm: r.floor && isFinite(r.floor.dropMm) ? Math.abs(r.floor.dropMm) : null };
+    r.raw = { p2Mm: r.p2 ? Math.max(0, r.p2.dropMm) : null, p2RawMm: r.p2 && isFinite(r.p2.rawMoveMm) ? r.p2.rawMoveMm : null, p3Mm: r.p2 && isFinite(r.p2.p3MoveMm) ? r.p2.p3MoveMm : null, lineMm: r.lineChangeMm, floorMm: r.floor && isFinite(r.floor.dropMm) ? Math.abs(r.floor.dropMm) : null };
     const pc = populationCorrect(r.raw, (options && options.popCalib !== undefined) ? options.popCalib : POP_CALIB);
     if (pc) { r.changeMm = pc.mm; r.primary = pc.method; r.calib = pc;
       if (pc.method === 'line') r.notes.push(`P2 움직임을 잴 수 없어 P1–P3 기준선 ${pc.rawMm.toFixed(1)} mm에 공통 보정계수(${pc.label} · 표본 ${pc.n}개)를 적용한 추정값입니다.`);
+      else if (pc.model === 'heel') r.notes.push(`P2 이동 ${pc.rawMm.toFixed(1)} mm · 발꿈치(P3) 이동 ${pc.p3Mm.toFixed(1)} mm → 모든 사용자 공통 발꿈치 보정(${pc.label}, ${pc.participants}명 실측으로 학습)을 적용했습니다.`);
       else if (pc.label && !/보정 없음/.test(pc.label)) r.notes.push(`P2 이동 ${pc.rawMm.toFixed(1)} mm에 공통 보정계수 ${pc.label}(표본 ${pc.n}개)를 적용했습니다.`); }
     r.status = '측정 가능';
     return r;
@@ -1413,6 +1414,10 @@
     if (!P || !raw) return null;
     // 기본: P2 움직임(치료사 방식). P2 움직임을 못 잰 경우에만 기준선 추정.
     const useP2 = raw.p2Mm != null && isFinite(raw.p2Mm);
+    // 발꿈치 보정(ALG-3.2.0): 발꿈치(P3)가 보통보다 더 움직인 만큼 = 촬영 중 휴대폰·발이 함께 움직인 양 → P2 이동에서 뺀다
+    const h = P.heel, p2r = raw.p2RawMm != null && isFinite(raw.p2RawMm) ? raw.p2RawMm : raw.p2Mm;
+    if (useP2 && h && h.method === 'heel' && raw.p3Mm != null && isFinite(raw.p3Mm) && isFinite(p2r))
+      return { mm: Math.max(0, p2r - h.k * raw.p3Mm + h.c), rawMm: raw.p2Mm, p3Mm: raw.p3Mm, method: 'p2', model: 'heel', label: h.label, id: P.id, n: h.n, participants: h.participants, cvMae: h.cvMae, baseMae: h.baseMae, piMm: h.piMm, agree: h.agree };
     const method = useP2 ? 'p2' : 'line', m = useP2 ? P.p2 : P.line, v = useP2 ? raw.p2Mm : raw.lineMm;
     if (!m || !isFinite(v) || (m.method === 'identity' && !useP2)) return null;
     return { mm: Math.max(0, applyErrorModel(m, { ai: v })), rawMm: v, method, label: m.label, id: P.id, n: P.n, participants: P.participants, cvMae: m.cvMae, baseMae: m.baseMae, piMm: m.piMm };
@@ -1429,7 +1434,31 @@
     const p2 = ps.length >= o.minP2 ? learnSeedCorrection(ps.map(x => Object.assign({}, x, { ai: x.p2Drop })), o) : null;
     const p2Model = p2 && p2.ok ? p2.model : { method: 'identity', label: '보정 없음(치료사 방식과 같은 정의)', n: ps.length, participants: new Set(ps.map(x => x.participant)).size, cvMae: null, baseMae: null, piMm: null };
     const parts = new Set(S.map(x => x.participant)).size;
-    return { line, p2, prefer: 'p2', calib: { prefer: 'p2', p2: p2Model, line: line && line.ok ? line.model : null, n: S.length, nP2: ps.length, participants: parts } };
+    const heel = learnHeelCalib(ps.filter(x => Number.isFinite(x.p3Move)), o);
+    return { line, p2, heel, prefer: 'p2', calib: { prefer: 'p2', p2: p2Model, heel: heel.ok ? heel.model : null, line: line && line.ok ? line.model : null, n: S.length, nP2: ps.length, participants: parts } };
+  }
+
+  /**
+   * 발꿈치 보정 학습(ALG-3.2.0): 값 = P2 이동 − k × 발꿈치(P3) 이동 + c, 모든 사용자 공통.
+   * 근거(2026-11-16, 4명 13건): 오차가 발꿈치가 많이 움직인 측정에서 커짐(사람마다 기울기 약 1) → 같이 움직인 양을 빼면 새 사람 오차가 줄어듦.
+   * k 후보 0(더하기만)·0.5·1, c = 사람별 중간값의 중간값(한 사람이 표본을 많이 내도 끌려가지 않음).
+   * 검증: 한 사람씩 빼고 나머지로 학습 → 뺀 사람에게 적용(LOPO). 사람 3명 이상일 때만, 보정 없음보다 평균 오차가 10% 이상 줄 때만 채택.
+   */
+  function learnHeelCalib(samples, options) {
+    const o = Object.assign({ minPeople: 3, minGain: 0.10, ks: [0, 0.5, 1], flatMm: 8 }, options || {});
+    const rows = (samples || []).filter(x => [x.p2Drop, x.p3Move, x.ref].every(Number.isFinite));
+    const people = [...new Set(rows.map(r => r.participant))];
+    if (people.length < o.minPeople) return { ok: false, reason: `발꿈치 이동이 있는 표본의 사람이 ${people.length}명(최소 ${o.minPeople}명).`, n: rows.length, participants: people.length };
+    const fitC = (rs, k) => median([...new Set(rs.map(r => r.participant))].map(p => median(rs.filter(r => r.participant === p).map(r => r.ref - (r.p2Drop - k * r.p3Move)))));
+    const pred = (r, k, c) => Math.max(0, r.p2Drop - k * r.p3Move + c);
+    const lopo = k => { const e = [], ag = []; for (const p of people) { const tr = rows.filter(r => r.participant !== p), c = k == null ? 0 : fitC(tr, k); for (const r of rows.filter(x => x.participant === p)) { const v = k == null ? Math.max(0, r.p2Drop) : pred(r, k, c); e.push(v - r.ref); ag.push((v >= o.flatMm) === (r.ref >= o.flatMm)); } } return { mae: mean(e.map(Math.abs)), me: mean(e), sd: e.length > 1 ? Math.sqrt(mean(e.map(x => (x - mean(e)) ** 2)) * e.length / (e.length - 1)) : null, agree: ag.filter(Boolean).length, n: e.length }; };
+    const base = lopo(null), cands = o.ks.map(k => Object.assign({ k }, lopo(k)));
+    const best = cands.slice().sort((a, b) => a.mae - b.mae)[0];
+    const res = { ok: false, n: rows.length, participants: people.length, base, cands };
+    if (!(best.mae <= base.mae * (1 - o.minGain))) return Object.assign(res, { reason: `보정해도 새 사람 평균 오차가 충분히 줄지 않음(보정 없음 ${base.mae.toFixed(2)} → ${best.mae.toFixed(2)} mm).` });
+    const c = fitC(rows, best.k), r1 = x => Math.round(x * 100) / 100;
+    const label = best.k ? `P2 이동 − 발꿈치 이동${best.k === 1 ? '' : '×' + best.k} ${c >= 0 ? '+' : '−'} ${Math.abs(c).toFixed(1)} mm` : `P2 이동 ${c >= 0 ? '+' : '−'} ${Math.abs(c).toFixed(1)} mm`;
+    return Object.assign(res, { ok: true, model: { method: 'heel', k: best.k, c: r1(c), label, n: rows.length, participants: people.length, validation: 'LOPO', cvMae: r1(best.mae), baseMae: r1(base.mae), piMm: best.sd != null ? r1(1.96 * best.sd) : null, agree: `${best.agree}/${best.n}`, baseAgree: `${base.agree}/${base.n}` } });
   }
 
   // ───────────────────────── 기본 보정 학습(표본 파일 → 모든 사용자) ─────────────────────────
@@ -1993,6 +2022,6 @@
     rgbToHsv, detectStickers, labelLandmarks, signedDistanceToLine, distanceToLine, projectionT,
     measureImage, comparePrePost, classify, roundMm, errorMetrics,
     splitByParticipant, trainCalibration, applyCalibration, fitMethod, validateConversion,
-    motionBetween, framingCheck, laplacianVariance, archAngle, cropImage, detectInRoi, labelsConsistent, combineDetections, shapeDelta, AI_FEATURES, errorFeatures, trainErrorModel, applyErrorModel, learnSeedCorrection, learnPopulationCalib, populationCorrect, p2Movement, fitRidge, createLandmarkKalman, chromaMap, ALIGN, alignmentCheck, LOAD, loadEvidence, shapeOf, FOOT_MODEL, GUIDE_LAYOUT, guideGeometry, guideCheck, fitFootModel, snapOutline, densify, segmentFoot, appHeights, INTERVENTION_EXERCISES, EXERCISE_DRAFTS, EXERCISE_CATEGORIES, youtubeId, resampleClosed, personalCare, measurementWeight, CARE, detectSoleLine, heightAboveSole, appHeightsAll, reliabilityStats, retestPairs, normalizedIndices, NNH_REF, distanceAdvice, calibrateFovK, DIST
+    motionBetween, framingCheck, laplacianVariance, archAngle, cropImage, detectInRoi, labelsConsistent, combineDetections, shapeDelta, AI_FEATURES, errorFeatures, trainErrorModel, applyErrorModel, learnSeedCorrection, learnPopulationCalib, learnHeelCalib, POP_CALIB_INFO: POP_CALIB, populationCorrect, p2Movement, fitRidge, createLandmarkKalman, chromaMap, ALIGN, alignmentCheck, LOAD, loadEvidence, shapeOf, FOOT_MODEL, GUIDE_LAYOUT, guideGeometry, guideCheck, fitFootModel, snapOutline, densify, segmentFoot, appHeights, INTERVENTION_EXERCISES, EXERCISE_DRAFTS, EXERCISE_CATEGORIES, youtubeId, resampleClosed, personalCare, measurementWeight, CARE, detectSoleLine, heightAboveSole, appHeightsAll, reliabilityStats, retestPairs, normalizedIndices, NNH_REF, distanceAdvice, calibrateFovK, DIST
   };
 });

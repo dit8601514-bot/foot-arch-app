@@ -37,6 +37,7 @@ console.log('built', build, html.length, 'bytes');
   if (fcore2 === fcore) throw new Error('fixed: __POP_CALIB__ 자리를 찾지 못함');
   const fapp2 = fapp;
   const lm = L.calib.line;
+  if (L.calib.heel) console.log(`fixed 발꿈치 보정 ${L.calib.heel.label} · ${L.calib.heel.participants}명 ${L.calib.heel.n}건 · 새 사람 평균 오차 ${L.calib.heel.baseMae} → ${L.calib.heel.cvMae} mm · 판정 일치 ${L.calib.heel.baseAgree} → ${L.calib.heel.agree}`); else if (L.heel) console.log('fixed 발꿈치 보정 안 함: ' + L.heel.reason);
   console.log(`fixed 공통 보정계수 ${popCalib.id}: 기본 = P2 이동(치료사 방식) ${L.calib.p2.label} · P2 표본 ${L.calib.nP2}개${L.calib.nP2 < 5 ? '(5개부터 학습)' : ''} · 대체 기준선 ${lm ? lm.label : '없음'} · 표본 ${L.calib.n}개 ${L.calib.participants}명`);
   let fh = rf('index.html').replace('<!--CORE-->', () => '<script id="core-script">\n' + safe(fcore2) + '\n</script>').replace('<!--APP-->', () => '<script>\n' + safe(fapp2) + '\n</script>');
   const fb = crypto.createHash('sha1').update(fh).update(fs.readFileSync(pf('config.js'))).update(fs.readFileSync(pf('sw.js'))).digest('hex').slice(0, 10);
@@ -50,7 +51,7 @@ console.log('built', build, html.length, 'bytes');
   fs.writeFileSync(path.join(fo, 'calib-model.json'), JSON.stringify({ trainedFrom: 'fixed/calib/samples.json', samples: seed.length, popCalib, result: L }, null, 1));
   fs.writeFileSync(path.join(fo, 'version.json'), JSON.stringify({ build: fb, version: (rf('app-base.js').match(/APP_VERSION = '([^']+)'/) || [])[1] || '', alg: (fcore.match(/ALGORITHM_VERSION = '([^']+)'/) || [])[1] || '' }));
   // 고정촬영판 관리자 앱(F2.1.0 다시 살림): 측정 시트 + 기존 관리 기능. 표본 파일도 넣음(AI 보정 화면용)
-  const fadmin = rf('admin.html').replace('<!--CORE-->', () => '<script>\n' + safe(fcore2) + '\n</script>').replace('<!--ADMIN-->', () => '<script>\n' + safe(rf('admin.js').replace('/*__SEED_SAMPLES__*/[]', () => JSON.stringify(seed.filter(x => Number.isFinite(x.ai)).map(x => ({ id: x.id, participant: x.participant, ai: x.ai, ref: x.ref, floorDrop: x.floorDrop }))))) + '\n</script>');
+  const fadmin = rf('admin.html').replace('<!--CORE-->', () => '<script>\n' + safe(fcore2) + '\n</script>').replace('<!--ADMIN-->', () => '<script>\n' + safe(rf('admin.js').replace('/*__SEED_SAMPLES__*/[]', () => JSON.stringify(seed.filter(x => Number.isFinite(x.ai) || (Number.isFinite(x.p2Drop) && Number.isFinite(x.p3Move))).map(x => ({ id: x.id, participant: x.participant, ai: x.ai, ref: x.ref, floorDrop: x.floorDrop, p2Drop: x.p2Drop, p3Move: x.p3Move, exam: x.exam }))))) + '\n</script>');
   fs.mkdirSync(path.join(fo, 'admin'), { recursive: true }); fs.writeFileSync(path.join(fo, 'admin', 'index.html'), fadmin);
   console.log('built fixed', fb, fh.length, 'bytes');
 }

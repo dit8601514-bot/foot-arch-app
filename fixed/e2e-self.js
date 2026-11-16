@@ -67,7 +67,7 @@ async function scenario(tag, video, expectConfirmed, expectMm, opt) {
     await pg.waitForSelector('.verdict'); await shot(`s05-result-${tag}`);
     const big = (await pg.textContent('.mm-note')).replace(/^측정값\s*/, '').trim(), main = await pg.textContent('main');
     if (expectConfirmed) {
-      { const pc = JSON.parse(require('fs').readFileSync(require('path').join(__dirname, '..', 'dist', 'fixed', 'calib-model.json'), 'utf8')).popCalib.p2, add = pc && pc.method === 'bias' ? -pc.bias : 0; // 학습된 공통 보정계수(P2 이동)
+      { const PC = JSON.parse(require('fs').readFileSync(require('path').join(__dirname, '..', 'dist', 'fixed', 'calib-model.json'), 'utf8')).popCalib, pc = PC.p2, add = PC.heel ? PC.heel.c : pc && pc.method === 'bias' ? -pc.bias : 0; // 발꿈치 보정: 합성 영상은 발꿈치가 안 움직임(P3 0) → +c // 학습된 공통 보정계수(P2 이동)
       log(`[${tag}] 결과: P2 이동 ${expectMm} mm + 공통 보정계수 ${add.toFixed(1)} = ${(expectMm + add).toFixed(1)} mm · 판정`, big.includes('mm') && Math.abs(parseFloat(big) - (expectMm + add)) <= 0.6 && main.includes((expectMm + add) >= 8 ? '유연성 평발입니다' : '정상입니다') && main.includes((expectMm + add) >= 8 ? '위험도 높음' : '위험도 낮음') && main.includes('P2 스티커 이동'), big); }
       if (tag === 'C') {
         const ex = await pg.evaluate(async () => { const e = (await DB.all('exams'))[0]; return { line: e.comparison.lineChangeMm, floor: e.comparison.floor, pl: e.pre.measure.floor && e.pre.measure.floor.placement }; });

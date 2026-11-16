@@ -65,10 +65,23 @@ ok('표본 1개 → 학습 안 함', C.learnSeedCorrection([{ ai: 3, ref: 7 }]).
   ok('실측이 한 값뿐이면 선형 안 씀', r.chosen !== 'linear', r.model.label); }
 
 // 7-5) 현재 표본(P2 이동 11개, 1명, 측정 묶음 3개): 묶음 단위로 빼고 검증(LOSO), 더하기, 오차 감소
-{ const L = C.learnPopulationCalib(S), m = L.calib.p2;
+{ const L = C.learnPopulationCalib(S.filter(x => x.participant === 'U01')), m = L.calib.p2; // 첫 사용자(U01) 표본만
   ok('현재 P2 표본 → 묶음 단위 검증(LOSO)', m.validation === 'LOSO' && m.groups >= 3, `${m.groups}묶음`);
   ok('현재 P2 표본 → 더하기 +0.8~+2.2 mm', m.method === 'bias' && -m.bias > 0.8 && -m.bias < 2.2, m.label);
   ok('현재 P2 표본 → 새 묶음 기준 평균 오차 감소', m.cvMae < m.baseMae * 0.9, `${m.baseMae.toFixed(2)} → ${m.cvMae.toFixed(2)}`); }
+
+// 7-7) 발꿈치 보정(ALG-3.2.0): 관리자 임상 NDT 4명 13건 → 사람 단위 검증(LOPO)으로 새 사람 오차·판정 일치 개선
+{ const L = C.learnPopulationCalib(S), h = L.calib.heel;
+  ok('발꿈치 보정 채택(4명, LOPO)', h && h.method === 'heel' && h.validation === 'LOPO' && h.participants >= 4, h && h.label);
+  ok('발꿈치 보정: P2 − 발꿈치 이동 + 약 4~5 mm', h && h.k === 1 && h.c > 4 && h.c < 5.3, h && `k ${h.k} c ${h.c}`);
+  ok('새 사람 평균 오차 40% 이상 감소', h && h.cvMae < h.baseMae * 0.6, h && `${h.baseMae} → ${h.cvMae}`);
+  ok('8 mm 판정 일치 개선', h && parseInt(h.agree) > parseInt(h.baseAgree), h && `${h.baseAgree} → ${h.agree}`);
+  const P = Object.assign({ id: 'T' }, L.calib);
+  const a = C.populationCorrect({ p2Mm: 22.87, p2RawMm: 22.87, p3Mm: 19.7 }, P), b = C.populationCorrect({ p2Mm: 6.0, p2RawMm: 6.0, p3Mm: null }, P);
+  ok('발꿈치가 크게 움직인 측정(P2 22.9·P3 19.7, 실측 7.5)도 바로잡음', a && a.model === 'heel' && Math.abs(a.mm - 7.5) < 1.5, a && a.mm.toFixed(2));
+  ok('발꿈치 이동이 없으면 P2 공식으로 대체', b && b.model !== 'heel', b && b.label);
+  const one = C.learnHeelCalib(S.filter(x => x.participant === 'P-44AF42DE'));
+  ok('사람 3명 미만이면 발꿈치 보정 안 함(개인 맞춤 방지)', !one.ok, one.reason); }
 
 // 7-6) 묶음마다 오차가 다르면(묶음 내부는 비슷) 묶음 단위 검증이 표본 단위보다 엄격 — 한 묶음이 많아도 끌려가지 않음
 { const rows = []; const add = (sess, d, n) => { for (let i = 0; i < n; i++) rows.push({ participant: 'U', session: sess, ai: 4 + i * 0.1, ref: 4 + i * 0.1 + d + 0.1 * gauss() }); };
