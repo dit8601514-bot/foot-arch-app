@@ -78,6 +78,28 @@ function captureScreen({ left, top, w, status, badge = '', chipTop = '1/2 앉은
 const sitFig = `<svg width="300" height="360" viewBox="0 0 300 360"><g stroke="#fff" stroke-width="12" stroke-linecap="round" fill="none"><circle cx="120" cy="60" r="26" fill="#fff" stroke="none"/><line x1="120" y1="100" x2="120" y2="200"/><line x1="120" y1="200" x2="210" y2="200"/><line x1="210" y1="200" x2="210" y2="300"/><line x1="120" y1="130" x2="180" y2="180"/></g><g stroke="#7f8cff" stroke-width="8" fill="none"><line x1="70" y1="215" x2="230" y2="215"/><line x1="80" y1="215" x2="80" y2="320"/><line x1="70" y1="120" x2="70" y2="215"/><line x1="220" y1="215" x2="220" y2="320"/></g><line x1="20" y1="324" x2="280" y2="324" stroke="#8fa0d8" stroke-width="4"/></svg>`;
 const standFig = `<svg width="300" height="360" viewBox="0 0 300 360"><g stroke="#fff" stroke-width="12" stroke-linecap="round" fill="none"><circle cx="150" cy="40" r="26" fill="#fff" stroke="none"/><line x1="150" y1="80" x2="150" y2="190"/><line x1="150" y1="190" x2="130" y2="320"/><line x1="150" y1="190" x2="170" y2="320"/><line x1="150" y1="110" x2="110" y2="180"/><line x1="150" y1="110" x2="190" y2="180"/></g><g fill="#ffd23f"><path d="M118 250 l12 0 l0 34 l10 0 l-16 22 l-16 -22 l10 0z"/><path d="M170 250 l12 0 l0 34 l10 0 l-16 22 l-16 -22 l10 0z"/></g><line x1="20" y1="324" x2="280" y2="324" stroke="#8fa0d8" stroke-width="4"/></svg>`;
 
+// ── 관절 사람 그림: t=0 앉음 → t=1 섬 (의자 그대로, 옆모습 · 오른쪽을 봄) ──
+const POSES = [
+  { t: 0, head: [128, 88], sh: [126, 132], hip: [118, 232], knee: [210, 232], ank: [214, 330], toe: [246, 334], elb: [158, 190], hand: [196, 216] },
+  { t: .42, head: [196, 120], sh: [178, 156], hip: [140, 230], knee: [214, 252], ank: [214, 330], toe: [246, 334], elb: [200, 206], hand: [222, 238] },
+  { t: .72, head: [204, 70], sh: [196, 112], hip: [176, 210], knee: [208, 270], ank: [214, 330], toe: [246, 334], elb: [206, 168], hand: [208, 214] },
+  { t: 1, head: [200, 48], sh: [198, 92], hip: [196, 196], knee: [204, 264], ank: [214, 330], toe: [246, 334], elb: [204, 146], hand: [204, 198] }];
+const ease = x => x < .5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2;
+function poseAt(t) { t = Math.max(0, Math.min(1, t)); let i = 0; while (i < POSES.length - 2 && t > POSES[i + 1].t) i++; const a = POSES[i], b = POSES[i + 1], u = ease((t - a.t) / (b.t - a.t)), o = {}; for (const k in a) if (k !== 't') o[k] = [a[k][0] + (b[k][0] - a[k][0]) * u, a[k][1] + (b[k][1] - a[k][1]) * u]; return o; }
+function personFig(t, load) {
+  const p = poseAt(t), L = (a, b, w, c) => `<line x1="${p[a][0]}" y1="${p[a][1]}" x2="${p[b][0]}" y2="${p[b][1]}" stroke="${c || '#fff'}" stroke-width="${w}" stroke-linecap="round"/>`;
+  const neck = [(p.head[0] + p.sh[0]) / 2, (p.head[1] + p.sh[1]) / 2 + 8];
+  return `<svg width="320" height="360" viewBox="0 0 320 360">
+    <g stroke="#7f8cff" stroke-width="9" stroke-linecap="round" fill="none"><line x1="70" y1="246" x2="168" y2="246"/><line x1="78" y1="246" x2="78" y2="334"/><line x1="160" y1="246" x2="160" y2="334"/><line x1="70" y1="140" x2="70" y2="246"/></g>
+    <line x1="30" y1="338" x2="300" y2="338" stroke="#8fa0d8" stroke-width="4"/>
+    ${L('hip', 'knee', 22)}${L('knee', 'ank', 20)}${L('ank', 'toe', 14)}
+    ${L('sh', 'hip', 26)}<line x1="${neck[0]}" y1="${neck[1]}" x2="${p.sh[0]}" y2="${p.sh[1]}" stroke="#fff" stroke-width="14" stroke-linecap="round"/>
+    ${L('sh', 'elb', 15)}${L('elb', 'hand', 13)}
+    <circle cx="${p.head[0]}" cy="${p.head[1]}" r="25" fill="#fff"/>
+    ${load ? `<g fill="#ffd23f" opacity="${load}"><path d="M266 272 h14 v30 h11 l-18 22 l-18 -22 h11z"/></g><text x="262" y="262" fill="#ffd23f" font-size="20" font-weight="800" opacity="${load}">체중</text>` : ''}
+  </svg>`;
+}
+
 // ── 위에서 본 배치도(휴대폰 25 cm) ──
 const footTop = (x, y, flip, dim) => `<g transform="translate(${x},${y}) scale(${flip ? -1 : 1},1)" opacity="${dim ? .45 : 1}"><path d="M0 -150 C 48 -150 62 -95 58 -30 C 55 30 52 90 40 130 C 30 160 -30 160 -38 125 C -48 80 -42 20 -46 -40 C -50 -100 -45 -150 0 -150 Z" fill="#f2c4a0"/>${[[-30, -158, 13], [-6, -168, 11], [14, -166, 10], [32, -158, 9], [46, -146, 8]].map(([a, b, r]) => `<circle cx="${a}" cy="${b}" r="${r}" fill="#f2c4a0"/>`).join('')}</g>`;
 function topView(stage) {
@@ -140,7 +162,7 @@ add('s01', [['a', 4.5, page(`<div style="position:absolute;inset:0;display:flex;
 
 // S5 앉은 자세
 { const hd = head(4, 'AI 자동 촬영 — 앉은 자세');
-  const side = `<div class="side">${sitFig}<h3>앉은 자세</h3><p>체중을 싣지 않음(비체중부하)</p></div>`;
+  const side = `<div class="side">${personFig(0)}<h3>앉은 자세</h3><p>체중을 싣지 않음(비체중부하)</p></div>`;
   const cs = (status, rec) => captureScreen({ left: 640, top: 105, w: 400, status, rec });
   const pts = `<div style="position:absolute;left:1150px;top:200px;width:700px;display:flex;flex-direction:column;gap:20px">${[['스티커 3개', 'P1·P2·P3를 AI가 찾습니다'], ['거리 25 cm', '25 cm ± 2.5 cm 안에서만 찍습니다'], ['움직임 없음', '세 스티커가 멈추면 자동 촬영']].map(([b, s]) => `<div class="card" style="padding:20px 26px"><div style="font-size:30px;font-weight:800;color:#7ff0c0">✓ ${b}</div><div style="font-size:23px;color:#c8d4ff;margin-top:4px">${s}</div></div>`).join('')}</div>`;
   const vb = t => `<div class="voice" style="left:1150px;top:770px;width:700px">${t}</div>`;
@@ -149,15 +171,17 @@ add('s01', [['a', 4.5, page(`<div style="position:absolute;inset:0;display:flex;
     ['b', 3.5, page(hd + side + cs('촬영 중… 움직이지 마십시오', true) + pts + vb('앉은 자세를 촬영합니다.') + cap('세 스티커가 25 cm 거리에서 움직이지 않으면 자동으로 찍습니다'))],
     ['c', 3.5, page(hd + side + cs('촬영 중… 움직이지 마십시오', true) + pts + vb('촬영되었습니다.') + cap('여러 장을 연속으로 찍어 흔들린 사진은 버리고 평균을 냅니다'))]]); }
 
-// S6 일어서기
+// S6 일어서기 — 앉음에서 서는 동작(0.4초 정지 → 1.6초 동작 → 선 자세)
 { const hd = head(5, '그대로 일어서기 — 선 자세 자동 촬영');
-  const side = `<div class="side">${standFig}<h3>선 자세</h3><p>양발에 체중을 똑같이(체중부하)</p></div>`;
+  const side = (t, load) => `<div class="side">${personFig(t, load)}<h3>${t < 1 ? '일어서는 중…' : '선 자세'}</h3><p>${t < 1 ? '휴대폰은 그대로 두고 일어섭니다' : '양발에 체중을 똑같이(체중부하)'}</p></div>`;
   const cs = status => captureScreen({ left: 640, top: 105, w: 400, status, chipTop: '2/2 선 자세' });
   const vb = t => `<div class="voice" style="left:1150px;top:300px;width:700px">${t}</div>`;
   const note = `<div class="card" style="position:absolute;left:1150px;top:620px;width:700px;font-size:27px;line-height:1.55"><b style="color:#ffd23f">타이머 없음</b><br>AI가 일어서는 동작과 발 모양 변화를 확인한 뒤 선 자세를 찍습니다</div>`;
-  add('s06', [
-    ['a', 4.0, page(hd + side + cs('일어서서 체중부하 해주십시오') + vb('촬영을 마쳤습니다. 이제 일어서서, 체중부하 해주십시오. 양발에 체중을 똑같이 실어 주십시오.') + note + cap('휴대폰은 그대로 두고 일어섭니다'))],
-    ['b', 4.0, page(hd + side + cs('선 자세 확인 중… 그대로 계십시오') + vb('일어서는 동작을 확인했습니다. 가만히 서 계십시오.') + note + cap('체중이 실려 발활이 내려간 것을 확인하면 자동으로 찍습니다'))]]); }
+  const A = (t, load) => page(hd + side(t, load) + cs('일어서서 체중부하 해주십시오') + vb('촬영을 마쳤습니다. 이제 일어서서, 체중부하 해주십시오. 양발에 체중을 똑같이 실어 주십시오.') + note + cap('휴대폰은 그대로 두고 일어섭니다'));
+  const motion = []; const NF = 48; for (let i = 0; i < NF; i++) motion.push(A(i / (NF - 1), i > NF * .8 ? (i - NF * .8) / (NF * .2) : 0));
+  S.push({ scene: 's06', motion: { before: 0.4, frames: motion, startHtml: A(0, 0) }, states: [
+    ['a', 4.0, A(1, 1)],
+    ['b', 4.0, page(hd + side(1, 1) + cs('선 자세 확인 중… 그대로 계십시오') + vb('일어서는 동작을 확인했습니다. 가만히 서 계십시오.') + note + cap('체중이 실려 발활이 내려간 것을 확인하면 자동으로 찍습니다'))]] }); }
 
 // S7 측정 원리
 { const L = 90, T = 200, W = 1000, s = W / PW, x2 = L + ST.P2[0] * s, y2 = T + ST.P2[1] * s, dy = 70;
@@ -217,6 +241,8 @@ if (require.main === module) (async () => {
   const pg = await B.newPage({ viewport: { width: 1920, height: 1080 } });
   for (const { scene, states } of S) {
     if (only && !only.split(',').includes(scene)) continue;
+    const sc = S.find(x => x.scene === scene);
+    if (sc.motion) { const all = [sc.motion.startHtml].concat(sc.motion.frames); for (let i = 0; i < all.length; i++) { const f = `/tmp/vid/html/${scene}_m.html`; fs.writeFileSync(f, all[i]); await pg.goto('file://' + f); await pg.evaluate(() => document.fonts.ready); await pg.screenshot({ path: `${OUT}/${scene}_m_${String(i).padStart(3, '0')}.jpg`, type: 'jpeg', quality: 92 }); } }
     for (const [k, , html] of states) {
       const f = `/tmp/vid/html/${scene}_${k}.html`; fs.writeFileSync(f, html);
       await pg.goto('file://' + f); await pg.waitForTimeout(250); await pg.evaluate(() => document.fonts.ready);
@@ -224,6 +250,6 @@ if (require.main === module) (async () => {
     }
     console.log('frames', scene);
   }
-  fs.writeFileSync('/tmp/vid/frames/plan.json', JSON.stringify(S.map(s => ({ scene: s.scene, states: s.states.map(([k, d]) => [k, d]) }))));
+  if (!only) fs.writeFileSync('/tmp/vid/frames/plan.json', JSON.stringify(S.map(s => ({ scene: s.scene, motion: s.motion ? { before: s.motion.before, n: s.motion.frames.length } : null, states: s.states.map(([k, d]) => [k, d]) }))));
   await B.close();
 })();
