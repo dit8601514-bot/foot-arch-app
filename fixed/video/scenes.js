@@ -182,7 +182,7 @@ add('s01', [['a', 4.5, page(`<div style="position:absolute;inset:0;display:flex;
   const rd = `<div class="card" style="margin-top:26px;font-size:27px;line-height:1.55"><b style="color:#8fb0ff">회차에 저장</b> — 기본 측정·1~4회차를 골라 Y-balance와 함께 저장<br><span style="color:#c8d4ff;font-size:23px">담당 치료사(관리자)의 측정 시트·그래프에 바로 반영됩니다</span></div>`;
   const right = x => `<div style="position:absolute;left:800px;top:220px;width:1050px">${x}</div>`;
   add('s08', [
-    ['a', 4.5, page(hd + ph('result-flat.png') + right(legend) + cap('측정값보다 판정이 먼저 크게 나옵니다'))],
+    ['a', 4.5, page(hd + ph('result-flat.png') + right(legend) + cap('하강된 mm에 맞게 AI 진단이 나옵니다'))],
     ['b', 4.5, page(hd + ph('result-normal.png') + right(legend) + cap('정상은 초록, 유연성 평발은 빨강으로 표시됩니다'))]]); }
 
 // S9 운동·알람
