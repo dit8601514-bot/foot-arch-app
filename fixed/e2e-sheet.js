@@ -68,6 +68,30 @@ let pass = 0, fail = 0; const ok = (n, c, x) => { c ? pass++ : fail++; console.l
     }
     await pg.screenshot({ path: '/tmp/ex-detail.png' });
     await pg.goto(base + '#/exercises'); await pg.waitForTimeout(3500); await pg.screenshot({ path: '/tmp/ex-list.png' }); }
+  // 갤럭시 음성: 가짜 음성 엔진으로 안드로이드 Chrome·삼성 인터넷·소리 안 나는 엔진 흉내
+  for (const [mode, ua] of [['android', 'Mozilla/5.0 (Linux; Android 14; SM-S928N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36'], ['dead', 'Mozilla/5.0 (Linux; Android 14; SM-S928N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36'], ['samsung', 'Mozilla/5.0 (Linux; Android 14; SM-S928N) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/27.0 Chrome/125.0 Mobile Safari/537.36']]) {
+    const c2 = await B.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block', userAgent: ua }); const p2 = await c2.newPage(); const e2 = []; p2.on('pageerror', e => e2.push(e.message));
+    await c2.addInitScript(m => { const log = []; window.__tts = log; const fake = { speaking: false, pending: false, paused: false, onvoiceschanged: null,
+      getVoices: () => [{ name: 'Google 한국의', lang: 'ko-KR', localService: false }, { name: 'Samsung 한국어', lang: 'ko-KR', localService: true }],
+      speak(u) { log.push({ text: u.text, voice: !!u.voice, lang: u.lang }); if (m === 'dead') return; this.speaking = true; setTimeout(() => { u.onstart && u.onstart({}); setTimeout(() => { this.speaking = false; u.onend && u.onend({}); }, 300); }, 50); },
+      cancel() { this.speaking = false; }, resume() {}, pause() {} };
+      Object.defineProperty(window, 'speechSynthesis', { value: fake, configurable: true }); window.SpeechSynthesisUtterance = function (t) { this.text = t; }; }, mode);
+    await p2.goto(base + '#/auth/signup'); await p2.waitForTimeout(600);
+    await p2.fill('#nm', '음성' + mode); await p2.click('#gd button[data-v="여"]'); await p2.fill('#un', 'voice' + mode); await p2.fill('#pw', 'test1234'); await p2.check('#cAll'); await p2.click('#go'); await p2.waitForTimeout(1200);
+    await p2.goto(base + '#/self'); await p2.waitForSelector('#vTest');
+    if (mode === 'samsung') { const h = await p2.textContent('#vHelp'); const href = await p2.getAttribute('#vHelp a.btn', 'href'); ok('삼성 인터넷: Chrome으로 열기 안내', h.includes('삼성 인터넷') && /^intent:\/\/.*package=com\.android\.chrome/.test(href || ''), href); }
+    else {
+      await p2.click('#vTest'); await p2.waitForTimeout(mode === 'dead' ? 6800 : 900);
+      const log = await p2.evaluate(() => window.__tts), h = await p2.textContent('#vHelp');
+      if (mode === 'android') {
+        ok('안드로이드: 목소리 직접 지정 안 함(기본 엔진·한국어)', log.length >= 1 && log.every(x => !x.voice && x.lang === 'ko-KR'), JSON.stringify(log));
+        ok('소리 확인 → 들렸나요?', h.includes('소리가 들렸나요'));
+        await p2.click('#vHelp [data-ans="no"]'); const h2 = await p2.textContent('#vHelp'); ok('안 들린다 → 갤럭시 해결 방법(미디어 음량·Chrome·TTS 설정)', h2.includes('미디어 음량') && h2.includes('텍스트 음성 변환') && h2.includes('Chrome'));
+      } else ok('엔진이 말을 시작 못 함 → 바로 해결 방법 표시', h.includes('미디어 음량') && h.includes('텍스트 음성 변환'), h.slice(0, 80));
+    }
+    ok(`음성(${mode}) 화면 오류 없음`, e2.length === 0, e2.join(' / ')); await c2.close();
+  }
+  for (const k of Object.keys(profiles)) if (String(profiles[k].name).startsWith('음성')) delete profiles[k]; // 시트 시험에 섞이지 않게
   // 측정 화면은 오른발 고정
   await pg.goto(base + '#/self'); await pg.waitForTimeout(800); const st = await pg.textContent('#view');
   ok('측정 화면 오른발 고정(왼발 선택 없음)', st.includes('측정하는 발: 오른발') && !(await pg.$('#feetSeg button')));

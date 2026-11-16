@@ -36,7 +36,8 @@ route('/self', '측정하기', async (v, p) => {
       <div class="bracket"><i></i><div id="svgBox"></div></div>
       <button class="shutter" id="go" aria-label="촬영 시작">${ICON.camera}</button>
       <div class="tiny" id="goHint" style="margin-top:4px"></div>
-      <div class="optrow"><span>음성 안내</span><label class="chk" style="margin:0"><input type="checkbox" id="voiceOn" ${Voice.enabled ? 'checked' : ''}><span class="small">켜기</span></label></div>
+      <div class="optrow"><span>음성 안내</span><label class="chk" style="margin:0"><input type="checkbox" id="voiceOn" ${Voice.enabled ? 'checked' : ''}><span class="small">켜기</span></label><button class="btn sm" id="vTest" type="button">소리 확인</button></div>
+      <div id="vHelp">${voiceHelpHtml(Voice.SAMSUNG_BROWSER ? 'samsung' : !Voice.supported ? 'none' : '')}</div>
     </div>
     <details class="card"><summary>촬영 방법 보기</summary><ol class="steps small" style="margin-top:10px">
       <li>발 안쪽에 지름 ${esc(String(S.settings.stickerDiameterMm || 19))} mm 파란 스티커 3개를 붙입니다. <a href="#/stickers-info">부착 위치 보기</a></li>
@@ -54,6 +55,13 @@ route('/self', '측정하기', async (v, p) => {
   let sel = feetSel;
   const paint = () => { $$('#feetSeg button', v).forEach(b => b.classList.toggle('on', b.dataset.v === sel)); $('#svgBox', v).innerHTML = phoneSetupSvg(sel === 'right' ? 'right' : 'left'); };
   $$('#feetSeg button', v).forEach(b => b.onclick = () => { sel = b.dataset.v; paint(); }); paint();
+  const vHelp = () => { const b = $('#vHelp', v); b.querySelectorAll('[data-ans]').forEach(x => x.onclick = () => { b.innerHTML = voiceHelpHtml(x.dataset.ans === 'yes' ? 'ok' : 'tips'); vHelp(); }); };
+  $('#vTest', v).onclick = async () => {
+    const b = $('#vHelp', v); b.innerHTML = '<p class="tiny">음성으로 말하는 중… 휴대폰 소리를 들어 보세요.</p>';
+    const started = await Voice.test('음성 안내 소리 확인입니다. 잘 들리면 들린다를 눌러 주세요.');
+    b.innerHTML = voiceHelpHtml(Voice.SAMSUNG_BROWSER ? 'samsung' : started ? 'ask' : 'tips'); vHelp();
+  };
+  vHelp();
   $('#go', v).onclick = () => {
     S.settings.postMode = 'ai'; S.settings.privacyAck = true; saveSettings();
     Voice.enabled = $('#voiceOn', v).checked; Voice.unlock(); Orient.request();
@@ -61,6 +69,23 @@ route('/self', '측정하기', async (v, p) => {
     go('#/self/run');
   };
 });
+
+// 음성 안내가 안 들릴 때(특히 갤럭시) 도움말. kind: '' | ask | ok | tips | samsung | none
+function voiceHelpHtml(kind) {
+  if (!kind) return '';
+  if (kind === 'ok') return '<div class="note good small">음성 안내가 잘 나옵니다. 촬영 버튼을 누르세요.</div>';
+  if (kind === 'ask') return '<div class="note small">소리가 들렸나요? <button class="btn sm" data-ans="yes">들린다</button> <button class="btn sm" data-ans="no">안 들린다</button></div>';
+  const chrome = `intent://${location.host}${location.pathname}#Intent;scheme=https;package=com.android.chrome;end`;
+  const openChrome = Voice.ANDROID ? `<a class="btn sm" href="${chrome}">Chrome으로 열기</a>` : '';
+  if (kind === 'samsung') return `<div class="note warn small"><b>삼성 인터넷에서는 음성 안내가 나오지 않을 수 있습니다.</b><br>Chrome(크롬)으로 열어 측정해 주세요. ${openChrome}<br><span class="tiny">알림음(띵동)은 그대로 나옵니다.</span></div>`;
+  if (kind === 'none') return `<div class="note warn small">이 브라우저는 음성 안내를 지원하지 않습니다. Chrome으로 열어 주세요. ${openChrome}</div>`;
+  return `<div class="note warn small"><b>음성이 안 들릴 때(갤럭시)</b><ol class="steps" style="margin:6px 0 0">
+    <li><b>미디어 음량</b>을 올려 주세요. 음량 버튼을 누른 뒤 옆의 <b>⋮(점 세 개)</b>를 눌러 '미디어' 막대를 올립니다. 벨소리 음량과 따로입니다.</li>
+    <li><b>Chrome(크롬)</b>으로 열어 주세요. 삼성 인터넷·카카오톡 안 브라우저에서는 안 나올 수 있습니다. ${openChrome}</li>
+    <li>설정 › 일반 › <b>텍스트 음성 변환(TTS)</b> › 기본 엔진을 <b>삼성 TTS</b> 또는 <b>Google 음성 인식 및 합성</b>으로 하고, 언어를 <b>한국어</b>로 합니다(음성 데이터 다운로드). '재생'을 눌러 소리가 나는지 확인합니다.</li>
+    <li>위를 바꾼 뒤 Chrome을 완전히 닫았다가 다시 열고 <b>소리 확인</b>을 눌러 주세요.</li></ol>
+    <span class="tiny">음성이 안 나와도 알림음(띵동)과 자동 촬영은 그대로 됩니다.</span></div>`;
+}
 
 // 스티커 위치 안내(자가 검사에서 바로 볼 수 있게 별도 경로)
 route('/stickers-info', '스티커 부착 위치', async (v) => {
@@ -97,7 +122,7 @@ route('/self/run', '측정하기', async (v) => {
   let shapeFrames = 0, lastSpoke = 0;
   const T = { preSteady: 0.04, preMaxWait: 6000, plateauMin: 2500, plateauMax: 9000, plateauEps: 0.02, alignHold: 1200, settleHold: 1500, sceneMove: 6, lostMove: 5, standRepeat: 8000, standGiveUp: 30000, recheck: 4500 };
   const setPhase = ph => { phase = ph; phaseStart = performance.now(); readySince = 0; $('#phaseBadge', v).textContent = PHASE_LABEL[ph] || ''; $('#loadCard', v).style.display = ph === 'align' ? 'none' : ''; };
-  const say = (t, o) => Voice.say(t, o);
+  const say = (t, o) => { if (Voice.enabled && Voice.silent) { Voice.beep(880, 180); setTimeout(() => Voice.beep(1175, 220), 230); } return Voice.say(t, o); }; // 음성이 계속 안 나오는 기기: 안내마다 알림음 두 번
   { const cb = $('#distCal', v); if (cb) cb.onclick = () => { const d = lastDist; if (!d) return toast('스티커 3개가 보이게 한 뒤 눌러 주세요.', true);
       const T = TARGET_DIST_CM, k = C.calibrateFovK(d.mmPerPx, d.side, T); if (!k) return;
       S.settings.fovK = +k.toFixed(4); saveSettings(); toast(`거리 보정 완료: 이 휴대폰에서 지금 거리를 ${T} cm로 기억합니다.`); say(`거리를 보정했습니다. 지금 거리가 ${T}센티미터입니다.`, { interrupt: false }); }; }

@@ -8,11 +8,18 @@ const Voice = (() => {
   let enabled = true, unlocked = false, ctx = null, voice = null, gen = 0, talking = false; const keep = [];
   const RATE = 0.88, PAUSE_MS = 350;
   const ok = () => 'speechSynthesis' in window && 'SpeechSynthesisUtterance' in window;
+  // 갤럭시 대응(F2.6.0): 안드로이드는 기기 설정의 기본 음성 엔진(삼성 TTS·Google TTS)으로 말한다.
+  //  · 목소리를 직접 지정하면, 한국어 음성 데이터가 없는 엔진(예: Google 목소리 미설치)이 골라져 소리 없이 끝나는 경우가 있음 → lang만 지정
+  //  · 엔진이 처음 켜질 때 몇 초 걸림 → 다시 시도는 5초 뒤, 새 발화로
+  //  · 소리 없는(볼륨 0) 시작용 발화는 안드로이드에서 볼륨이 무시되고 대기열을 막기도 함 → 안드로이드에선 생략
+  const UA = (typeof navigator !== 'undefined' && navigator.userAgent) || '', ANDROID = /Android/i.test(UA), SAMSUNG_BROWSER = /SamsungBrowser/i.test(UA);
+  let started1 = false, failed = 0; // 실제로 말이 시작된 적이 있는지, 시작 못 한 횟수
   function score(v) {
     let s = 0;
     if (/ko[-_]KR/i.test(v.lang)) s += 10; else if (/^ko/i.test(v.lang)) s += 8; else return -1;
     if (/premium|enhanced|향상|neural|natural|고품질/i.test(v.name)) s += 5;
     if (/google/i.test(v.name)) s += 4;
+    if (v.localService === false) s -= 7; // 인터넷 음성은 끊기거나 소리 없이 끝나는 일이 많음
     if (/yuna|유나|sora|heami|sunhi|injoon|jimin/i.test(v.name)) s += 2;
     if (/compact|eloquence|grandma|grandpa|rocko|shelley|sandy|flo|reed/i.test(v.name)) s -= 6; // 기계음이 강한 목소리
     return s;
@@ -32,17 +39,22 @@ const Voice = (() => {
   function speakOne(text, my) {
     return new Promise(res => {
       if (my !== gen) return res(false);
-      const u = new SpeechSynthesisUtterance(text); u.lang = 'ko-KR'; if (voice) u.voice = voice; u.rate = RATE; u.pitch = 1; u.volume = 1;
-      keep.push(u); if (keep.length > 8) keep.shift(); // Chrome: 참조가 없으면 말하는 도중 사라져 onend가 오지 않는 문제
-      let started = false, tries = 0;
-      const t = setTimeout(() => res(true), Math.min(10000, 1800 + text.length * 190)); // onend가 오지 않는 기기 대비
-      u.onstart = () => { started = true; };
-      u.onend = () => { clearTimeout(t); res(true); }; u.onerror = () => { clearTimeout(t); res(false); };
-      const go = () => { try { if (speechSynthesis.paused) speechSynthesis.resume(); speechSynthesis.speak(u); } catch (e) { clearTimeout(t); res(false); } };
+      let started = false, tries = 0, done = false;
+      const finish = v => { if (done) return; done = true; clearTimeout(t); if (!started) failed++; res(v); };
+      const t = setTimeout(() => finish(true), Math.min(12000, (ANDROID ? 5500 : 1800) + text.length * 190)); // onend가 오지 않는 기기 대비
+      const make = () => {
+        const u = new SpeechSynthesisUtterance(text); u.lang = 'ko-KR'; if (voice && !ANDROID) u.voice = voice; u.rate = RATE; u.pitch = 1; u.volume = 1; if (tries) u.retry = true; // 다시 시도한 발화 표시
+        keep.push(u); if (keep.length > 8) keep.shift(); // Chrome: 참조가 없으면 말하는 도중 사라져 onend가 오지 않는 문제
+        u.onstart = () => { started = true; started1 = true; failed = 0; };
+        u.onend = () => finish(true);
+        u.onerror = (ev) => { const er = ev && ev.error; if (er === 'interrupted' || er === 'canceled') return finish(false); if (!started && tries < 1) return kick(true); finish(false); };
+        return u;
+      };
+      const go = () => { try { if (speechSynthesis.paused) speechSynthesis.resume(); speechSynthesis.speak(make()); } catch (e) { finish(false); } };
       go();
-      // 음성 엔진이 멈춰 말을 시작하지 않으면 한 번 초기화하고 다시 말한다
-      const kick = () => { if (started || my !== gen || tries >= 1 || speechSynthesis.speaking) return; tries++; try { speechSynthesis.cancel(); } catch (e) {} setTimeout(go, 120); };
-      setTimeout(kick, 3000);
+      // 음성 엔진이 멈춰 말을 시작하지 않으면 한 번 초기화하고 새 발화로 다시 말한다
+      function kick(force) { if (done || started || my !== gen || tries >= 1 || (!force && speechSynthesis.speaking)) return; tries++; try { speechSynthesis.cancel(); } catch (e) {} setTimeout(go, 150); }
+      setTimeout(() => kick(false), ANDROID ? 5000 : 3000);
     });
   }
   async function say(text, opts) {
@@ -80,8 +92,25 @@ const Voice = (() => {
   }
   function beep(freq, ms) { try { tone(freq, ms); } catch (e) { /* 소리 미지원 */ } }
   function chime() { try { tone(784, 120, 0, 0.12); tone(1175, 160, 0.11, 0.12); } catch (e) {} }
-  function unlock() { unlocked = true; beep(660, 60); if (ok()) { try { const u = new SpeechSynthesisUtterance(' '); u.lang = 'ko-KR'; u.volume = 0; speechSynthesis.speak(u); } catch (e) {} } }
-  return { say, beep, unlock, speakable, get supported() { return ok(); }, get hasKorean() { return !!voice; }, get voiceName() { return voice ? voice.name : ''; }, get enabled() { return enabled; }, set enabled(v) { enabled = !!v; if (!v && ok()) { gen++; speechSynthesis.cancel(); } }, get unlocked() { return unlocked; } };
+  function unlock() {
+    unlocked = true; beep(660, 60);
+    try { if (ctx && ctx.state === 'suspended') ctx.resume(); } catch (e) { /* */ }
+    if (ok() && !ANDROID) { try { const u = new SpeechSynthesisUtterance(' '); u.lang = 'ko-KR'; u.volume = 0; speechSynthesis.speak(u); } catch (e) {} }
+    if (ok()) { try { speechSynthesis.getVoices(); } catch (e) { /* 엔진 깨우기 */ } }
+  }
+  /** 소리 확인: 짧게 말해 보고, 실제로 말이 시작됐는지 알려 준다(true/false). 버튼을 누른 순간에 불러야 한다. */
+  function test(text) {
+    return new Promise(res => {
+      if (!ok()) return res(false);
+      unlock(); chime(); gen++; try { if (speechSynthesis.speaking || speechSynthesis.pending) speechSynthesis.cancel(); } catch (e) { /* */ }
+      const u = new SpeechSynthesisUtterance(text || '음성 안내가 잘 들리나요?'); u.lang = 'ko-KR'; if (voice && !ANDROID) u.voice = voice; u.rate = RATE; u.volume = 1;
+      keep.push(u); let fin = false; const end = v => { if (!fin) { fin = true; res(v); } };
+      u.onstart = () => { started1 = true; failed = 0; end(true); }; u.onerror = () => end(false);
+      setTimeout(() => end(false), ANDROID ? 6000 : 4000);
+      try { speechSynthesis.speak(u); } catch (e) { end(false); }
+    });
+  }
+  return { say, beep, unlock, test, speakable, ANDROID, SAMSUNG_BROWSER, get supported() { return ok(); }, get silent() { return !started1 && failed >= 2; }, get hasKorean() { return !!voice; }, get voiceName() { return voice ? voice.name : ''; }, get enabled() { return enabled; }, set enabled(v) { enabled = !!v; if (!v && ok()) { gen++; speechSynthesis.cancel(); } }, get unlocked() { return unlocked; } };
 })();
 
 // 휴대폰 방향: 화면이 세로로 고정된 채 휴대폰을 가로로 눕히면 카메라 영상이 세로로 들어온다.
