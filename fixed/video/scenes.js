@@ -183,7 +183,7 @@ add('s01', [['a', 4.5, page(`<div style="position:absolute;inset:0;display:flex;
   const right = x => `<div style="position:absolute;left:800px;top:220px;width:1050px">${x}</div>`;
   add('s08', [
     ['a', 4.5, page(hd + ph('result-flat.png') + right(legend) + cap('측정값보다 판정이 먼저 크게 나옵니다'))],
-    ['b', 4.5, page(hd + ph('result-normal.png') + right(legend + rd) + cap('결과는 참고 정보이며 진단이 아닙니다 · 통증이 있으면 전문가와 상담하세요'))]]); }
+    ['b', 4.5, page(hd + ph('result-normal.png') + right(legend) + cap('정상은 초록, 유연성 평발은 빨강으로 표시됩니다'))]]); }
 
 // S9 운동·알람
 { const hd = head(7, '중재 운동과 운동 알람');
@@ -207,7 +207,7 @@ add('s11', [['a', 4.5, page(`<div style="position:absolute;inset:0;display:flex;
   <div style="font-size:120px;font-weight:900">AI Footarch</div>
   <div style="font-size:44px;font-weight:800;color:#a9bbff;margin-top:12px">오른발, 앉은 자세 → 선 자세 · 버튼 한 번이면 끝</div>
   <div style="font-size:32px;color:#fff;margin-top:34px;background:rgba(255,255,255,.08);padding:12px 30px;border-radius:14px">dit8601514-bot.github.io/foot-arch-app/fixed</div>
-  <div style="position:absolute;bottom:60px;font-size:22px;color:#9aa6d8">개인 건강관리용 참고 정보이며 진단이 아닙니다</div></div>`)]]);
+</div>`)]]);
 
 module.exports = S;
 if (require.main === module) (async () => {
