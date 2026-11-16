@@ -91,8 +91,7 @@ async function scenario(tag, video, expectConfirmed, expectMm, opt) {
       log(`[${tag}] 결과: 발 크기 정규화 지표·PDF 리포트 버튼`, await pg.isVisible('#normCard') && (await pg.textContent('#normCard')).includes('발 길이 대비 하강률') && await pg.isVisible('#printBtn'));
       await pg.locator('#normCard').screenshot({ path: path.join(__dirname, '..', 'test', 'shots', 's05b-norm.png') }).catch(() => {});
       await pg.goto(U + '#/manage'); await pg.waitForSelector('text=최근 하강'); await shot('s06-manage'); log(`[${tag}] 관리 현황`, true);
-      await pg.click('#progStart'); await pg.waitForSelector('#progCard .badge'); log(`[${tag}] 6주 숏풋 프로그램 시작 → 주차 표시`, (await pg.textContent('#progCard')).includes('1/6주'));
-      await pg.locator('#progCard').screenshot({ path: path.join(__dirname, '..', 'test', 'shots', 's06b-program.png') }).catch(() => {});
+      { const mt = await pg.textContent('main'); log(`[${tag}] 관리 현황: 오른발만·6주 프로그램 없음`, !mt.includes('왼발') && !mt.includes('6주') && !(await pg.$('#progStart'))); }
     } else {
       log(`[${tag}] 결과: 변화량 ≈0 · 정상 범위`, parseFloat(big) <= 0.3 && main.includes('정상 범위'), big);
       log(`[${tag}] 결과: "형태 변화 작음"으로 정직하게 기록`, main.includes('형태 변화 작음'));

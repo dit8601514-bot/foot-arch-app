@@ -95,6 +95,14 @@ let pass = 0, fail = 0; const ok = (n, c, x) => { c ? pass++ : fail++; console.l
     ok(`음성(${mode}) 화면 오류 없음`, e2.length === 0, e2.join(' / ')); await c2.close();
   }
   for (const k of Object.keys(profiles)) if (String(profiles[k].name).startsWith('음성')) delete profiles[k]; // 시트 시험에 섞이지 않게
+  // 변화 추이(유연성 평발 관리): 오른발만, 6주 프로그램 없음 / 운동 화면: 숏풋 좋은 점·근거
+  { await pg.goto(base + '#/manage'); await pg.waitForTimeout(1200); const mt = await pg.textContent('main');
+    ok('변화 추이: 왼발 없음·6주 프로그램 없음·오른발 표시', !mt.includes('왼발') && !mt.includes('6주') && !mt.includes('숏풋 운동 프로그램') && mt.includes('오른발'), mt.replace(/\s+/g, ' ').slice(0, 120));
+    await pg.goto(base + '#/exercises'); await pg.waitForTimeout(3000); const et = await pg.textContent('main'), links = await pg.$$eval('details a[target=_blank]', a => a.map(x => x.href));
+    ok('운동 화면: 숏풋 좋은 점·근거 출처 5개', et.includes('짧은 발(숏풋) 운동의 좋은 점과 근거') && links.length === 5 && links.every(h => /^https:\/\/(doi\.org|pmc\.ncbi\.nlm\.nih\.gov|journals\.sagepub\.com)\//.test(h)), JSON.stringify(links));
+    await pg.goto(base + '#/exercise/iv-short-foot'); await pg.waitForTimeout(800);
+    ok('짧은 발 운동 상세: 근거 펼쳐 표시', await pg.$eval('details', d => d.open && d.textContent.includes('Unver')));
+    await pg.screenshot({ path: '/tmp/sf-evidence.png', fullPage: true }); }
   // 운동 알람: 요일·시간 저장 → 서버 reminders, 캘린더(.ics), 푸시 켜기(가짜 구독)·시험·끄기
   { await pg.goto(base + '#/exercises'); await pg.waitForTimeout(2800); ok('운동 화면에 알람 카드', !!(await pg.$('a[href="#/reminder"]')));
     await pg.addInitScript(() => { const fake = { endpoint: 'https://push.example/abc', toJSON() { return { endpoint: this.endpoint, keys: { p256dh: 'x', auth: 'y' } }; }, unsubscribe: async () => { window.__unsub = true; return true; } };

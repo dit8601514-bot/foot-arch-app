@@ -1,7 +1,7 @@
 'use strict';
 /* ═════════════ 기본: 저장소 · 상태 · 유틸 · 라우터 ═════════════ */
 const C = window.FootCore;
-const APP_VERSION = 'F2.9.0'; // 고정촬영판(별도 앱, 기존 앱 v3.5.0에서 분리)
+const APP_VERSION = 'F2.10.0'; // 고정촬영판(별도 앱, 기존 앱 v3.5.0에서 분리)
 const STORES = ['settings', 'exams', 'exercises', 'logs', 'errors', 'models', 'blobs', 'validations'];
 
 const DB = (() => {
@@ -108,6 +108,31 @@ async function installInterventions() {
 }
 /** 운동 목록 순서: 앱에 든 중재 영상 → 관리자가 서버에 올린 운동 → 기기에서 만든 운동 */
 /** 환자에게 보일 운동: 앱 내장 중재 영상, 또는 관리자가 서버에 영상까지 올린 운동(영상 없는 초안·기기에서 만든 운동은 숨김) */
+// 짧은 발(숏풋) 운동의 좋은 점과 근거(F2.10.0, 2026-11-16 웹에서 출처 확인). 운동 화면·짧은 발 운동 상세에 표시
+const SHORT_FOOT_EVIDENCE = {
+  benefits: [
+    '발바닥 안쪽의 작은 근육(엄지벌림근 등)을 써서, 무너지는 안쪽 아치를 스스로 받쳐 주는 힘을 기릅니다.',
+    '평발인 사람이 6주 동안 매일 했을 때 발배뼈 하강(NDT)·발 자세 지수·발 통증과 불편감이 줄었습니다.',
+    '4주 훈련 뒤 발배뼈 하강이 줄고 아치 높이가 높아졌습니다.',
+    '유연성 평발 대학생에서 아치 깔창보다 발배뼈 하강과 Y-balance(동적 균형)가 더 좋아졌습니다.',
+    '여러 연구를 모아 보면 발 안쪽 근육 운동은 발배뼈 하강을 줄이고 균형·근력을 높였고, 그중 짧은 발 운동이 가장 효과적이었습니다.'
+  ],
+  caution: '여러 연구를 합친 분석에서는 6주 이상 꾸준히 했을 때만 발배뼈 하강이 의미 있게 줄었습니다. 최소 6주 이상 꾸준히 하세요. 효과는 사람마다 다르며 진단·치료를 대신하지 않습니다.',
+  refs: [
+    ['Unver B, Erdem EU, Akbas E. Effects of Short-Foot Exercises on Foot Posture, Pain, Disability, and Plantar Pressure in Pes Planus. J Sport Rehabil. 2020;29(4):436-440.', 'https://doi.org/10.1123/jsr.2018-0363'],
+    ['Mulligan EP, Cook PG. Effect of plantar intrinsic muscle training on medial longitudinal arch morphology and dynamic function. Man Ther. 2013;18(5):425-430.', 'https://doi.org/10.1016/j.math.2013.02.007'],
+    ['Kim EK, Kim JS. The effects of short foot exercises and arch support insoles on improvement in the medial longitudinal arch and dynamic balance of flexible flatfoot patients. J Phys Ther Sci. 2016.', 'https://pmc.ncbi.nlm.nih.gov/articles/PMC5140815/'],
+    ['발 내재근 운동 무작위 대조 연구 13편 체계적 문헌고찰(발배뼈 하강·발 자세 지수·균형·근력)', 'https://pmc.ncbi.nlm.nih.gov/articles/PMC10784881/'],
+    ['짧은 발 운동과 평발 메타분석(6주 이상에서 발배뼈 하강 개선). J Back Musculoskelet Rehabil.', 'https://journals.sagepub.com/doi/10.3233/BMR-230226']
+  ]
+};
+function shortFootEvidenceHtml(open) {
+  const E = SHORT_FOOT_EVIDENCE;
+  return `<details class="card" ${open ? 'open' : ''}><summary><b>짧은 발(숏풋) 운동의 좋은 점과 근거</b></summary>
+    <ul class="list small" style="margin-top:8px">${E.benefits.map(b => `<li>${esc(b)}</li>`).join('')}</ul>
+    <div class="note small">${esc(E.caution)}</div>
+    <b class="small">출처</b><ol class="tiny" style="margin:4px 0 0 18px;padding:0">${E.refs.map(([t, u]) => `<li style="margin:3px 0">${esc(t)} <a href="${esc(u)}" target="_blank" rel="noopener">원문 보기</a></li>`).join('')}</ol></details>`;
+}
 function showExercise(x) { return !!x && (x.builtin || (x.server && !!x.videoUrl)); }
 function exOrder(x) { return x.builtin ? x.order - 1e3 : x.server ? x.order : 1e3; }
 // 초기 운동 콘텐츠(예전 판): 이름·일반 설명만 초안으로 제공, 처방 수치·영상은 비워둔다(연구 프로토콜 입력 필요)

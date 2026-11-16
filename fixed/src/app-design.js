@@ -59,6 +59,7 @@ route('/exercises', '발활 재활영상', async (v) => {
     <p class="muted small">${rec.length ? '최근 측정 결과에 연결된 운동입니다. 발활 강화에 도움이 되는 운동을 따라해 보세요.' : '발활 강화에 도움이 되는 운동을 따라해 보세요.'}</p>
     ${rec.map(card).join('')}
     ${rec.length && rest.length ? '<h3>전체 운동</h3>' : ''}${rest.map(card).join('')}
+    ${shortFootEvidenceHtml(false)}
     ${!exs.length ? '<div class="placeholder">등록된 운동이 없습니다.</div>' : ''}
     <a class="btn block" href="#/logs">${ICON.check} 운동 수행 기록</a>`;
   // 썸네일: 영상 첫 장면과 길이(메타데이터)를 비동기로 채운다

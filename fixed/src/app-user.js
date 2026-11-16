@@ -16,7 +16,7 @@ route('/home', 'AI Footarch 고정촬영', async (v) => {
   const exams = (await DB.all('exams')).filter(e => !e.isTest).sort((a, b) => b.createdAt - a.createdAt);
   const latest = f => exams.find(e => e.foot === f);
   const cv = convSettings(), me = typeof Account !== 'undefined' ? Account.user() : null;
-  const mgmt = ['left', 'right'].map(f => exams.find(e => e.foot === f && e.category)).filter(e => e && e.category.key !== 'normal').map(e => FOOT[e.foot]).join('·');
+  const mgmt = ['right'].map(f => exams.find(e => e.foot === f && e.category)).filter(e => e && e.category.key !== 'normal').map(e => FOOT[e.foot]).join('·');
   v.innerHTML = `
     <section class="home-hero">
       <div class="bar">${logoHtml(false)}<a href="#/settings" aria-label="설정·알림">${ICON.bell}</a></div>
@@ -535,6 +535,7 @@ route('/exercise/:id', '운동', async (v, p) => {
     <div class="card"><b>운동 목적</b><p class="small">${esc(x.purpose || '—')}</p><b>올바른 자세</b><p class="small">${esc(x.posture || '—')}</p>
       <b>수행 방법</b><ol class="steps small">${(x.steps || []).map(s => `<li>${esc(s)}</li>`).join('')}</ol>
       <b>주의사항</b><ul class="list small">${(x.cautions || []).map(s => `<li>${esc(s)}</li>`).join('')}</ul></div>
+    ${x.id === 'iv-short-foot' ? shortFootEvidenceHtml(true) : ''}
     <div class="card"><b>수행 기록</b>
       <div class="grid2"><div><label class="f" for="aSets">실제 세트 수(선택)</label><input id="aSets" inputmode="numeric"></div><div><label class="f" for="aReps">세트당 반복(선택)</label><input id="aReps" inputmode="numeric"></div></div>
       <label class="f" for="memo">메모(선택)</label><input id="memo" maxlength="200">
