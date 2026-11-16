@@ -82,8 +82,8 @@ const standFig = `<svg width="300" height="360" viewBox="0 0 300 360"><g stroke=
 const POSES = [
   { t: 0, head: [128, 88], sh: [126, 132], hip: [118, 232], knee: [210, 232], ank: [214, 330], toe: [246, 334], elb: [158, 190], hand: [196, 216] },
   { t: .42, head: [196, 120], sh: [178, 156], hip: [140, 230], knee: [214, 252], ank: [214, 330], toe: [246, 334], elb: [200, 206], hand: [222, 238] },
-  { t: .72, head: [204, 70], sh: [196, 112], hip: [176, 210], knee: [208, 270], ank: [214, 330], toe: [246, 334], elb: [206, 168], hand: [208, 214] },
-  { t: 1, head: [200, 48], sh: [198, 92], hip: [196, 196], knee: [204, 264], ank: [214, 330], toe: [246, 334], elb: [204, 146], hand: [204, 198] }];
+  { t: .72, head: [218, 72], sh: [212, 114], hip: [196, 210], knee: [216, 270], ank: [214, 330], toe: [246, 334], elb: [218, 168], hand: [220, 214] },
+  { t: 1, head: [222, 46], sh: [222, 92], hip: [220, 196], knee: [219, 264], ank: [216, 330], toe: [246, 334], elb: [226, 146], hand: [224, 198] }];
 const ease = x => x < .5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2;
 function poseAt(t) { t = Math.max(0, Math.min(1, t)); let i = 0; while (i < POSES.length - 2 && t > POSES[i + 1].t) i++; const a = POSES[i], b = POSES[i + 1], u = ease((t - a.t) / (b.t - a.t)), o = {}; for (const k in a) if (k !== 't') o[k] = [a[k][0] + (b[k][0] - a[k][0]) * u, a[k][1] + (b[k][1] - a[k][1]) * u]; return o; }
 function personFig(t, load) {
