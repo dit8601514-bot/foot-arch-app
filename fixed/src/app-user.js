@@ -56,7 +56,6 @@ route('/guide', '검사 안내', async (v, p) => {
         <li>카메라 위치를 그대로 두고 <b>체중부하 후</b>(서서 체중을 실은 자세) 사진을 찍습니다.</li>
         <li>앱이 P2(발배뼈 부위)와 P1–P3 기준선 사이 거리 변화를 계산합니다.</li>
       </ol>
-      <p class="small muted">왼발과 오른발은 각각 따로 검사합니다. 한쪽 결과는 다른 쪽에 적용되지 않습니다.</p>
     </div>
     <div class="note info small">검사할 발: <b>오른발</b>(측정·Y-balance 모두 오른발로 통일)</div>
     <div class="card">
@@ -105,29 +104,6 @@ function footSvg(toe, highlight) {
     <text x="${left ? 12 : W - 12}" y="14" font-size="10" fill="#4a5a5c" text-anchor="${left ? 'start' : 'end'}">발가락 쪽 ${left ? '←' : '→'}</text>
   </svg>`;
 }
-// 인쇄용 부착 자(실제 크기): 바닥에 세워 2 cm 높이와 발꿈치에서 4 cm 지점을 표시
-function placementRulerSvg() {
-  const ticks = [];
-  for (let mm = 0; mm <= 60; mm++) ticks.push(`<line x1="8" y1="${70 - mm}" x2="${mm % 10 === 0 ? 16 : mm % 5 === 0 ? 13 : 11}" y2="${70 - mm}" stroke="#000" stroke-width="0.2"/>`);
-  for (let mm = 0; mm <= 100; mm++) ticks.push(`<line x1="${8 + mm}" y1="70" x2="${8 + mm}" y2="${mm % 10 === 0 ? 66 : mm % 5 === 0 ? 67.5 : 68.5}" stroke="#000" stroke-width="0.2"/>`);
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="150mm" height="95mm" viewBox="0 0 150 95">
-<rect width="150" height="95" fill="#fff"/>
-<rect x="8" y="10" width="110" height="60" fill="none" stroke="#000" stroke-width="0.4"/>
-${ticks.join('')}
-<line x1="8" y1="50" x2="118" y2="50" stroke="#d00" stroke-width="0.6"/>
-<text x="20" y="48" font-size="3.6" font-family="sans-serif" fill="#d00">← 바닥에서 2 cm: P1·P3 스티커 중심 높이</text>
-<line x1="48" y1="10" x2="48" y2="70" stroke="#00f" stroke-width="0.5" stroke-dasharray="2 1"/>
-<text x="50" y="16" font-size="3.4" font-family="sans-serif" fill="#00f">발꿈치 뒤끝에서 4 cm: P3 중심</text>
-<circle cx="48" cy="50" r="2" fill="none" stroke="#d00" stroke-width="0.5"/>
-<text x="8" y="6" font-size="3.6" font-family="sans-serif">발활 앱 스티커 부착 자 — "실제 크기(100%)"로 인쇄 후 아래 100 mm 눈금을 자로 확인하세요</text>
-<text x="8" y="77" font-size="3.1" font-family="sans-serif">사용법: ① 아래 선(0)을 바닥에 대고 카드를 발 안쪽에 세웁니다. ② 왼쪽 끝을 발꿈치 뒤끝에 맞춥니다.</text>
-<text x="8" y="82" font-size="3.1" font-family="sans-serif">③ 파란 점선과 빨간 선이 만나는 ○ 위치에 P3 스티커 중심을 붙입니다. ④ 첫째발허리뼈머리 안쪽에도 빨간 선 높이(2 cm)로 P1을 붙입니다.</text>
-<text x="8" y="87" font-size="3.1" font-family="sans-serif">⑤ P2는 발배뼈거친면(안쪽 복사뼈 아래 앞쪽의 가장 튀어나온 뼈)에 붙입니다. 기준: Nielsen 등(2009) 3마커 방법.</text>
-<line x1="8" y1="91" x2="108" y2="91" stroke="#000" stroke-width="0.3"/><text x="110" y="92" font-size="3" font-family="sans-serif">100 mm</text>
-</svg>`;
-}
-
 const STICKER_STANDARD_HTML = `
     <div class="card">
       <b>표준 부착 위치</b> <span class="tiny">(Nielsen 등, 2009 · J Foot Ankle Res 2:12의 3마커 방법)</span>
@@ -137,18 +113,16 @@ const STICKER_STANDARD_HTML = `
         <dt>P3</dt><dd style="text-align:left">발꿈치뼈 안쪽 면, <b>바닥에서 2 cm 위</b>, <b>발꿈치 뒤끝에서 4 cm 앞</b></dd>
       </dl>
       <p class="tiny">앱은 P2에서 P1–P3 기준선까지의 수직거리 변화를 잽니다(위 논문과 같은 정의). 바닥선이 보이면 바닥 기준 발배뼈 높이(표준 NDT 방식)도 함께 계산하고, P1·P3가 2 cm 높이에 붙었는지 점검합니다.</p>
-      <button class="btn block" id="rulerBtn">인쇄용 부착 자 내려받기(SVG)</button>
     </div>
     <h3>부착 방법</h3>
     <ol class="steps">
       <li>피부의 땀·로션을 닦고 말립니다.</li>
       <li>의자에 앉아 발을 바닥에 편하게 둡니다(체중을 싣지 않음).</li>
       <li><b>발배뼈거친면 찾기:</b> 안쪽 복사뼈에서 엄지발가락 쪽 아래로 손가락을 미끄러뜨리면 처음 만져지는 단단한 돌출부입니다. 발을 안쪽으로 살짝 돌리면 더 잘 튀어나옵니다.</li>
-      <li>부착 자를 발 안쪽에 세워 <b>P3</b>(발꿈치 뒤끝에서 4 cm, 높이 2 cm)와 <b>P1</b>(첫째발허리뼈머리, 높이 2 cm)을 붙입니다.</li>
+      <li>자로 재어 <b>P3</b>(발꿈치 뒤끝에서 4 cm, 바닥에서 2 cm)와 <b>P1</b>(첫째발허리뼈머리, 바닥에서 2 cm)을 붙입니다.</li>
       <li><b>P2</b>는 스티커 중심이 발배뼈거친면의 가장 튀어나온 곳에 오도록 붙입니다.</li>
       <li>세 스티커는 같은 크기의 파란색 원형 스티커를 씁니다(지름은 연구자 설정과 같아야 합니다).</li>
     </ol>`;
-function bindRuler(root) { const b = $('#rulerBtn', root); if (b) b.onclick = () => download('foot-arch-placement-ruler.svg', placementRulerSvg(), 'image/svg+xml'); }
 // ───── 스티커 부착 위치 안내 ─────
 route('/stickers', '스티커 부착 위치', async (v) => {
   if (!S.exam) return go('#/guide');
@@ -167,7 +141,6 @@ route('/stickers', '스티커 부착 위치', async (v) => {
       <li><b>위치가 잘못되었다면</b> 스티커를 떼고 다시 붙인 후 처음부터 촬영하세요. 촬영 후 앱이 위치가 이상하다고 안내하는 경우에도 다시 부착하세요.</li>
     </ul>
     <button class="btn primary block big" id="next">다음: 촬영 자세 안내</button>`;
-  bindRuler(v);
   $('#next', v).onclick = () => go('#/posture');
 });
 
@@ -187,13 +160,11 @@ route('/posture', '촬영 자세 안내', async (v) => {
       </ol>
       <p class="small muted">자세의 세부 기준(무릎 각도·체중 분배 등)은 연구 프로토콜에 따르세요.</p>
     </div>
-    <label class="f">화면에서 발가락이 향하는 방향</label>
-    <div class="seg" id="toeSeg"><button data-v="left">← 왼쪽</button><button data-v="right">오른쪽 →</button></div>
-    <p class="tiny">${FOOT[S.exam.foot]} 안쪽 면을 촬영하면 보통 ${S.exam.foot === 'left' ? '오른쪽' : '왼쪽'}입니다. 이 방향과 스티커 배치(가운데 점의 위치·높이)를 함께 사용해 P1·P2·P3를 구분합니다.</p>
+    <p class="small muted">오른발 안쪽 면을 찍으면 화면에서 발가락이 <b>왼쪽</b>을 향합니다.</p>
     <div id="svgBox"></div>
     <button class="btn primary block big" id="next">체중부하 전 촬영 시작</button>`;
-  const paint = () => { $$('#toeSeg button', v).forEach(b => b.classList.toggle('on', b.dataset.v === S.exam.toeDirection)); $('#svgBox', v).innerHTML = footSvg(S.exam.toeDirection); };
-  $$('#toeSeg button', v).forEach(b => b.onclick = () => { S.exam.toeDirection = b.dataset.v; paint(); }); paint();
+  S.exam.toeDirection = defaultToe('right'); // 고정촬영판: 오른발만 → 발가락 방향 선택 없음
+  $('#svgBox', v).innerHTML = footSvg(S.exam.toeDirection);
   $('#next', v).onclick = () => go('#/capture/pre');
 });
 
@@ -437,7 +408,7 @@ route('/result/:id', '측정 결과', async (v, p) => {
       <dt>바닥 기준 하강</dt><dd>${c.floor ? mm(c.floor.dropMm) : '—'}</dd>
       ${c.floor ? `<dt>기준선 자체 내려앉음</dt><dd>${mm(c.floor.lineHeightChangeMm)}</dd>` : ''}
       <dt>분류에 쓴 값</dt><dd>${c.primary === 'floor' ? '바닥 기준 하강' : 'P1–P3 기준선 하강'}</dd>
-    </dl>${(() => { const pl = (e.pre.measure.floor && e.pre.measure.floor.placementNotes) || []; const why = !c.floor ? [e.pre.measure.floor, e.post.measure.floor].filter(f => f && !f.ok).map(f => f.reason)[0] : null; return (pl.length ? `<div class="note warn small">${pl.map(esc).join('<br>')} 다음 검사에서는 부착 자로 위치를 맞춰 주세요.</div>` : '') + (why ? `<p class="tiny">바닥선을 쓰지 못한 이유: ${esc(why)}</p>` : ''); })()}
+    </dl>${(() => { const pl = (e.pre.measure.floor && e.pre.measure.floor.placementNotes) || []; const why = !c.floor ? [e.pre.measure.floor, e.post.measure.floor].filter(f => f && !f.ok).map(f => f.reason)[0] : null; return (pl.length ? `<div class="note warn small">${pl.map(esc).join('<br>')} 다음 검사에서는 자로 재어 위치를 맞춰 주세요.</div>` : '') + (why ? `<p class="tiny">바닥선을 쓰지 못한 이유: ${esc(why)}</p>` : ''); })()}
     </div>
     </div>
     <div class="card"><b>결과 설명</b><p class="small">${esc(explain)}</p></div>

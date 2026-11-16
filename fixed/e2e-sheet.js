@@ -103,6 +103,12 @@ let pass = 0, fail = 0; const ok = (n, c, x) => { c ? pass++ : fail++; console.l
     await pg.goto(base + '#/exercise/iv-short-foot'); await pg.waitForTimeout(800);
     ok('짧은 발 운동 상세: 근거 펼쳐 표시', await pg.$eval('details', d => d.open && d.textContent.includes('Unver')));
     await pg.screenshot({ path: '/tmp/sf-evidence.png', fullPage: true }); }
+  // 스티커 안내: 오른발만, 인쇄용 부착 자 없음, 발가락 방향 선택 없음
+  { await pg.goto(base + '#/stickers-info'); await pg.waitForTimeout(800); const t1 = await pg.textContent('main');
+    ok('스티커 부착 위치: 오른발만·부착 자 내려받기 없음', !t1.includes('왼발') && t1.includes('오른발') && !t1.includes('부착 자') && !(await pg.$('#rulerBtn')) && !(await pg.$('#fs')), t1.replace(/\s+/g, ' ').slice(0, 80));
+    await pg.goto(base + '#/guide'); await pg.waitForTimeout(600); await pg.evaluate(() => { S.exam = S.exam || { foot: 'right', toeDirection: 'left' }; });
+    await pg.goto(base + '#/posture'); await pg.waitForTimeout(800); const t2 = await pg.textContent('main');
+    ok('촬영 자세: 발가락 방향 선택 없음(오른발 기준 왼쪽 고정)', !(await pg.$('#toeSeg')) && t2.includes('발가락이 왼쪽') && !!(await pg.$('#svgBox svg')), t2.replace(/\s+/g, ' ').slice(0, 60)); }
   // 운동 알람: 요일·시간 저장 → 서버 reminders, 캘린더(.ics), 푸시 켜기(가짜 구독)·시험·끄기
   { await pg.goto(base + '#/exercises'); await pg.waitForTimeout(2800); ok('운동 화면에 알람 카드', !!(await pg.$('a[href="#/reminder"]')));
     await pg.addInitScript(() => { const fake = { endpoint: 'https://push.example/abc', toJSON() { return { endpoint: this.endpoint, keys: { p256dh: 'x', auth: 'y' } }; }, unsubscribe: async () => { window.__unsub = true; return true; } };

@@ -89,13 +89,11 @@ function voiceHelpHtml(kind) {
 
 // 스티커 위치 안내(자가 검사에서 바로 볼 수 있게 별도 경로)
 route('/stickers-info', '스티커 부착 위치', async (v) => {
-  v.innerHTML = `<h2>스티커 부착 위치</h2>
-    <div class="seg" id="fs"><button data-v="left" class="on">왼발</button><button data-v="right">오른발</button></div><div id="box" style="margin-top:10px"></div>
+  // 고정촬영판: 오른발만 → 왼발 그림 없음
+  v.innerHTML = `<h2>오른발 스티커 부착 위치</h2><p class="muted small">오른발 <b>안쪽 면</b>을 옆에서 본 그림입니다(발가락이 왼쪽).</p>
+    ${footSvg(defaultToe('right'))}
     ${STICKER_STANDARD_HTML}
     <a class="btn block" href="#/self">자가 검사로 돌아가기</a>`;
-  bindRuler(v);
-  const paint = f => { $$('#fs button', v).forEach(b => b.classList.toggle('on', b.dataset.v === f)); $('#box', v).innerHTML = footSvg(defaultToe(f)); };
-  $$('#fs button', v).forEach(b => b.onclick = () => paint(b.dataset.v)); paint('left');
 });
 
 route('/self/run', '측정하기', async (v) => {
