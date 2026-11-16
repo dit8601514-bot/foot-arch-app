@@ -376,7 +376,7 @@ route('/result/:id', '측정 결과', async (v, p) => {
   const e = await examById(p.id); if (!e) { v.innerHTML = '<div class="note bad">결과를 찾을 수 없습니다.</div>'; return; }
   const c = e.comparison, cat = e.category && c.status === '측정 가능' && isFinite(c.changeMm) ? C.classify(c.changeMm) : e.category;
   if (cat && typeof Account !== 'undefined') await Promise.race([Account.syncContent(), new Promise(r => setTimeout(r, 2000))]);
-  const exs = cat ? (await DB.all('exercises')).filter(x => (S.settings.mapping[cat.key] || []).includes(x.id)).sort((a, b) => exOrder(a) - exOrder(b)) : [];
+  const exs = cat ? (await DB.all('exercises')).filter(x => showExercise(x) && (S.settings.mapping[cat.key] || []).includes(x.id)).sort((a, b) => exOrder(a) - exOrder(b)) : [];
   const valOrPx = (m) => m.heightMm != null ? mm(m.heightMm) : px(m.heightPx);
   const preV = c.preMm != null ? mm(c.preMm) : valOrPx(e.pre.measure), postV = c.postMm != null ? mm(c.postMm) : valOrPx(e.post.measure);
   const explain = cat ? `체중부하 전·후 P2(발배뼈 부위)와 P1–P3 기준선 사이 거리가 ${mm(c.changeMm)} 변했습니다. 기준(${cat.range})에 따라 “${cat.label}”으로 판정됩니다. 이 판정은 참고용이며 진단을 대신하지 않습니다.`
@@ -630,30 +630,13 @@ route('/compare', '중재 전·후 비교', async (v, p) => {
 });
 
 // ───── 설정 · 개인정보 ─────
-// ───── 운동 알람(F2.8.0): 환자가 요일·시간을 정함 → 푸시 알림(서버) + 휴대폰 캘린더 알람(.ics) ─────
-const DAY_NAMES = ['일', '월', '화', '수', '목', '금', '토'], DAY_ORDER = [1, 2, 3, 4, 5, 6, 0], ICS_DAYS = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+// ───── 운동 알람(F2.8.0~): 환자가 요일·시간을 정함 → 푸시 알림(서버). 캘린더 알람은 F2.9.0에서 뺌(사용자 요청) ─────
+const DAY_NAMES = ['일', '월', '화', '수', '목', '금', '토'], DAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
 function reminderCfg() { const r = S.settings.reminder || {}; return { days: Array.isArray(r.days) ? r.days : [1, 3, 5], times: Array.isArray(r.times) && r.times.length ? r.times : ['20:00'], push: !!r.push, enabled: r.enabled !== false }; }
 function reminderText(r) { r = r || reminderCfg(); if (!r.days.length || !r.times.length) return '꺼짐'; const ds = DAY_ORDER.filter(d => r.days.includes(d)); return `${ds.length === 7 ? '매일' : ds.map(d => DAY_NAMES[d]).join('·')} ${r.times.join(', ')}`; }
 const isIOS = () => /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
 function b64ToU8(b) { const p = '='.repeat((4 - b.length % 4) % 4), s = atob((b + p).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(s, c => c.charCodeAt(0)); }
-/** 휴대폰 캘린더용 반복 일정(.ics): 정한 요일마다 정한 시간, 시작 시각에 알림. 기기 현지 시간(floating) 사용 */
-function reminderIcs(r) {
-  const pad = n => String(n).padStart(2, '0'), now = new Date();
-  const stamp = `${now.getUTCFullYear()}${pad(now.getUTCMonth() + 1)}${pad(now.getUTCDate())}T${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}00Z`;
-  let first = new Date(now.getFullYear(), now.getMonth(), now.getDate()); for (let i = 0; i < 7 && !r.days.includes(first.getDay()); i++) first.setDate(first.getDate() + 1);
-  const ymd = `${first.getFullYear()}${pad(first.getMonth() + 1)}${pad(first.getDate())}`, byday = DAY_ORDER.filter(d => r.days.includes(d)).map(d => ICS_DAYS[d]).join(',');
-  const app = location.origin + location.pathname + '#/exercises';
-  const ev = r.times.map(t => { const [h, m] = t.split(':'); return ['BEGIN:VEVENT', `UID:footarch-exercise-${h}${m}@footarch.app`, `DTSTAMP:${stamp}`, `DTSTART:${ymd}T${pad(+h)}${pad(+m)}00`, 'DURATION:PT20M', `RRULE:FREQ=WEEKLY;BYDAY=${byday}`,
-    'SUMMARY:발 운동 시간 (AI Footarch)', 'DESCRIPTION:짧은 발 운동 · 수건 당기기 · 발가락 벌리기 (각 10회 × 3세트)\\n' + app, `URL:${app}`,
-    'BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:발 운동 시간이에요', 'TRIGGER:PT0M', 'END:VALARM', 'END:VEVENT'].join('\r\n'); });
-  return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//AI Footarch//Exercise Reminder//KO', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', 'X-WR-CALNAME:AI Footarch 운동'].concat(ev, ['END:VCALENDAR']).join('\r\n') + '\r\n';
-}
-function downloadIcs(text) {
-  const name = 'footarch-exercise-alarm.ics';
-  if (isIOS()) { location.href = 'data:text/calendar;charset=utf-8,' + encodeURIComponent(text); return; } // 아이폰: 바로 '캘린더에 추가' 화면
-  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'text/calendar;charset=utf-8' })); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
-}
 async function currentPushSub() { try { const reg = await navigator.serviceWorker.getRegistration(); return reg && reg.pushManager ? await reg.pushManager.getSubscription() : null; } catch (e) { return null; } }
 
 route('/reminder', '운동 알람', async (v) => {
@@ -676,14 +659,10 @@ route('/reminder', '운동 알람', async (v) => {
         <p class="small">정한 시간에 휴대폰 알림으로 “발 운동 시간이에요”가 옵니다. 앱을 닫아 두어도 옵니다.</p>
         ${!logged ? '<div class="note warn small">로그인해야 앱 알림을 켤 수 있습니다.</div>'
         : iosNeedInstall ? `<div class="note warn small"><b>아이폰은 홈 화면에 추가한 앱에서만 알림을 받을 수 있습니다.</b><ol class="steps" style="margin:6px 0 0"><li>Safari 아래쪽 <b>공유</b> 버튼(네모에 위 화살표)을 누릅니다.</li><li><b>홈 화면에 추가</b>를 누릅니다.</li><li>홈 화면의 <b>AI Footarch</b> 아이콘으로 앱을 열고, 이 화면에서 <b>알림 켜기</b>를 누릅니다.</li></ol></div>`
-        : !pushSupported() ? '<div class="note warn small">이 브라우저는 앱 알림을 지원하지 않습니다. Chrome(갤럭시)이나 홈 화면에 추가한 앱(아이폰)에서 열어 주세요. 아래 캘린더 알람은 쓸 수 있습니다.</div>'
+        : !pushSupported() ? '<div class="note warn small">이 브라우저는 앱 알림을 지원하지 않습니다. Chrome(갤럭시)이나 홈 화면에 추가한 앱(아이폰)에서 열어 주세요.</div>'
         : perm === 'denied' ? '<div class="note warn small">알림이 차단되어 있습니다. 휴대폰 설정 › 앱(Chrome 또는 AI Footarch) › 알림에서 허용한 뒤 다시 눌러 주세요.</div>'
         : `<div class="row" style="gap:8px">${pushOn ? '<button class="btn" id="pushOff">알림 끄기</button><button class="btn" id="pushTest">시험 알림 보내기</button>' : '<button class="btn primary" id="pushOn">알림 켜기</button>'}</div>`}
-        <p class="tiny" id="pmsg"></p></div>
-      <div class="card"><b>휴대폰 캘린더 알람</b>
-        <p class="small">휴대폰 기본 캘린더에 반복 일정을 넣어, 정한 요일·시간에 캘린더가 알람을 울립니다. 인터넷이 없어도 울립니다.</p>
-        <button class="btn block" id="ics">캘린더에 추가 (${esc(reminderText(r))})</button>
-        <p class="tiny">${isIOS() ? '누르면 나오는 화면에서 <b>모두 추가</b>를 누릅니다.' : '내려받은 파일을 누른 뒤 <b>캘린더</b>(삼성 캘린더·Google 캘린더)로 열어 <b>저장</b>합니다.'} 요일·시간을 바꾸면 캘린더의 예전 “발 운동 시간” 일정은 지우고 다시 추가해 주세요.</p></div>`;
+        <p class="tiny" id="pmsg"></p></div>`;
     $$('#days button', v).forEach(b => b.onclick = () => { const d = +b.dataset.d; r.days = r.days.includes(d) ? r.days.filter(x => x !== d) : r.days.concat(d); b.classList.toggle('on'); });
     $$('[data-preset]', v).forEach(b => b.onclick = () => { r.days = b.dataset.preset === 'all' ? [0, 1, 2, 3, 4, 5, 6] : b.dataset.preset === 'wk' ? [1, 2, 3, 4, 5] : [1, 3, 5]; readTimes(); draw(); });
     const readTimes = () => { r.times = [...new Set($$('.tm', v).map(i => i.value).filter(x => /^\d{2}:\d{2}$/.test(x)))].sort(); if (!r.times.length) r.times = ['20:00']; };
@@ -697,7 +676,6 @@ route('/reminder', '운동 알람', async (v) => {
       return true;
     };
     $('#save', v).onclick = async () => { if (await persist($('#saved', v))) toast('운동 알람을 저장했습니다.'); };
-    $('#ics', v).onclick = async () => { if (!await persist(null)) return; downloadIcs(reminderIcs(r)); };
     const pm = t => { const el = $('#pmsg', v); if (el) el.textContent = t; };
     const on = $('#pushOn', v); if (on) on.onclick = async () => {
       on.disabled = true; pm('알림 권한을 요청하는 중…');

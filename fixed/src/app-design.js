@@ -46,7 +46,7 @@ route('/exercises', '발활 재활영상', async (v) => {
   if (typeof Account !== 'undefined') await Promise.race([Account.syncContent(true), new Promise(r => setTimeout(r, 2500))]);
   const all = await DB.all('exercises'), hasSrv = all.some(x => x.server);
   // 관리자가 서버에 운동을 올렸으면 그것을 보여 준다(기기에만 있는 초안은 연구자가 영상을 넣은 것만 함께 표시)
-  const exs = (hasSrv ? all.filter(x => x.server || x.builtin || x.videoBlobId || (x.videoUrl && !x.draft)) : all).sort((a, b) => exOrder(a) - exOrder(b));
+  const exs = all.filter(showExercise).sort((a, b) => exOrder(a) - exOrder(b)); // 앱 내장 중재 영상 3개 + 관리자가 영상까지 올린 운동만
   const exams = (await DB.all('exams')).filter(e => !e.isTest && e.category).sort((a, b) => b.createdAt - a.createdAt);
   const cats = [...new Set(exams.slice(0, 4).map(e => e.category.key))];
   const rec = exs.filter(x => cats.some(k => (S.settings.mapping[k] || []).includes(x.id)));

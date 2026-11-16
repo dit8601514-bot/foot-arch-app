@@ -1,7 +1,7 @@
 'use strict';
 /* ═════════════ 기본: 저장소 · 상태 · 유틸 · 라우터 ═════════════ */
 const C = window.FootCore;
-const APP_VERSION = 'F2.8.0'; // 고정촬영판(별도 앱, 기존 앱 v3.5.0에서 분리)
+const APP_VERSION = 'F2.9.0'; // 고정촬영판(별도 앱, 기존 앱 v3.5.0에서 분리)
 const STORES = ['settings', 'exams', 'exercises', 'logs', 'errors', 'models', 'blobs', 'validations'];
 
 const DB = (() => {
@@ -107,6 +107,8 @@ async function installInterventions() {
   await saveSettings();
 }
 /** 운동 목록 순서: 앱에 든 중재 영상 → 관리자가 서버에 올린 운동 → 기기에서 만든 운동 */
+/** 환자에게 보일 운동: 앱 내장 중재 영상, 또는 관리자가 서버에 영상까지 올린 운동(영상 없는 초안·기기에서 만든 운동은 숨김) */
+function showExercise(x) { return !!x && (x.builtin || (x.server && !!x.videoUrl)); }
 function exOrder(x) { return x.builtin ? x.order - 1e3 : x.server ? x.order : 1e3; }
 // 초기 운동 콘텐츠(예전 판): 이름·일반 설명만 초안으로 제공, 처방 수치·영상은 비워둔다(연구 프로토콜 입력 필요)
 async function seedContent() {

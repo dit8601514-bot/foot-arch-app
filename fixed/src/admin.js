@@ -454,20 +454,14 @@ route('content', '운동 영상', async (v, arg) => {
   const catLabel = k => (CATS.find(c => c[0] === k) || [k, (k === 'mild' || k === 'moderate') ? '유연성 평발' : k])[1];
   v.innerHTML = `<div class="row"><h1 class="grow">운동 영상 <span class="muted small">(중재 콘텐츠)</span></h1><a class="btn primary" href="#/content/new">+ 운동 추가</a></div>
     <p class="small muted">여기서 올린 운동과 영상은 <b>모든 사용자 앱</b>의 ‘발활 재활영상’과, 연결한 분류의 <b>측정 결과 화면</b>에 바로 나타납니다.</p>
-    ${rows.length ? '' : `<div class="card"><b>아직 등록된 운동이 없습니다.</b><p class="small">기본 운동(짧은 발 운동·수건 당기기·발꿈치 들기)을 불러온 뒤 영상만 올려도 됩니다.</p><button class="btn" id="seed">기본 운동 3개 불러오기</button></div>`}
+    <div class="card small"><b>앱에 들어 있는 중재 영상 3개</b> <span class="badge b-good">항상 표시</span><br>${C.INTERVENTION_EXERCISES.map(x => esc(x.name)).join(' · ')}<p class="small muted" style="margin:6px 0 0">이 3개는 앱에 직접 들어 있어 여기서 따로 등록하지 않아도 됩니다. 아래 표에는 추가로 올린 운동만 나오며, <b>영상이 있는 운동만</b> 환자 앱에 보입니다.</p></div>
     <div class="card scroll"><table><tr><th>순서</th><th>운동</th><th>연결 분류</th><th>영상</th><th>공개</th><th></th></tr>
     ${rows.map(r => `<tr><td>${r.sort}</td><td><b>${esc(r.name)}</b><div class="small muted">${esc(r.purpose || '')}</div></td>
       <td>${(r.categories || []).map(k => `<span class="badge">${esc(catLabel(k))}</span>`).join(' ') || '<span class="badge b-warn">연결 없음</span>'}</td>
       <td>${r.video_path ? '<span class="badge b-good">파일</span>' : r.video_url ? `<span class="badge b-good">${C.youtubeId(r.video_url) ? '유튜브' : '주소'}</span>` : '<span class="badge b-warn">영상 없음</span>'}</td>
       <td>${r.published ? '<span class="badge b-good">공개</span>' : '<span class="badge">숨김</span>'}</td>
       <td><a class="btn sm" href="#/content/${r.id}">편집</a></td></tr>`).join('')}</table></div>`;
-  const sb = $('#seed'); if (sb) sb.onclick = async () => {
-    sb.disabled = true;
-    try {
-      const body = C.EXERCISE_DRAFTS.map((d, i) => ({ id: crypto.randomUUID(), name: d.name, purpose: d.purpose || '', posture: d.posture || '', steps: d.steps || [], cautions: d.cautions || [], categories: i === 0 ? ['normal', 'severe'] : ['severe'], sort: (i + 1) * 10, published: true }));
-      await Api.call('/rest/v1/exercise_content', { method: 'POST', body, headers: { Prefer: 'return=minimal' } }); toast('기본 운동을 불러왔습니다. 이제 영상을 올려 주세요.'); render();
-    } catch (e) { toast(e.message, true); sb.disabled = false; }
-  };
+
 });
 function contentEdit(v, x0, rows) {
   const isNew = !x0, x = Object.assign({ id: crypto.randomUUID(), name: '', purpose: '', posture: '', steps: [], cautions: [], reps: '', sets: '', hold_sec: '', per_week: '', source: '', categories: [], video_path: null, video_url: '', sort: ((rows.length ? Math.max(...rows.map(r => r.sort || 0)) : 0) + 10), published: true }, x0 || {});

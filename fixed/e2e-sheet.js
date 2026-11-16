@@ -104,9 +104,7 @@ let pass = 0, fail = 0; const ok = (n, c, x) => { c ? pass++ : fail++; console.l
     await pg.goto(base + '#/reminder'); await pg.waitForSelector('#days'); await pg.reload(); await pg.waitForSelector('#days');
     await pg.click('[data-preset="wk"]'); await pg.click('#days button[data-d="6"]'); await pg.fill('.tm', '07:30'); await pg.click('#addT'); await pg.fill('.tm >> nth=1', '21:00'); await pg.click('#save'); await pg.waitForTimeout(800);
     const rem = Object.values(reminders)[0]; ok('알람 저장 → 서버 reminders(평일+토, 07:30·21:00)', rem && JSON.stringify([...rem.days].sort()) === '[1,2,3,4,5,6]' && rem.times.join(',') === '07:30,21:00' && rem.enabled === true && !!rem.tz, JSON.stringify(rem));
-    const ics = await pg.evaluate(() => reminderIcs(reminderCfg()));
-    ok('캘린더 파일: 시간마다 반복 일정 + 알림', (ics.match(/BEGIN:VEVENT/g) || []).length === 2 && ics.includes('RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR,SA') && /DTSTART:\d{8}T073000/.test(ics) && /DTSTART:\d{8}T210000/.test(ics) && ics.includes('TRIGGER:PT0M') && ics.includes('\r\n'), ics.split('\r\n').filter(l => /RRULE|DTSTART/.test(l)).join(' '));
-    const [dl] = await Promise.all([pg.waitForEvent('download'), pg.click('#ics')]); ok('캘린더에 추가 → .ics 내려받기', /\.ics$/.test(dl.suggestedFilename()), dl.suggestedFilename());
+    ok('캘린더 알람 없음(사용자 요청으로 뺌)', !(await pg.$('#ics')) && !(await pg.textContent('main')).includes('캘린더'));
     await pg.click('#pushOn'); await pg.waitForTimeout(1200);
     ok('알림 켜기 → 공개 키로 구독 + 서버 저장', await pg.evaluate(() => window.__subOpt) && Object.keys(pushSubs).length === 1 && Object.values(pushSubs)[0].sub.endpoint === 'https://push.example/abc' && (await pg.textContent('main')).includes('켜짐'));
     await pg.click('#pushTest'); await pg.waitForTimeout(700); ok('시험 알림 요청', pushTests.length === 1 && (await pg.textContent('#pmsg')).includes('시험 알림을 보냈습니다'));
