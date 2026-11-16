@@ -3,6 +3,17 @@ const CACHE = 'footfixed-__BUILD__'; // 기존 앱(foot-arch-…)과 캐시 이�
 const ASSETS = ['./', './index.html', './manifest.webmanifest', './config.js', './icons/icon-192.png', './icons/icon-512.png', './icons/maskable-512.png', './icons/apple-touch-icon.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k.startsWith('footfixed-') && k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim())); });
+// 운동 알람 푸시(F2.8.0): 서버(send-reminders)가 보낸 알림을 띄우고, 누르면 운동 화면을 연다
+self.addEventListener('push', e => {
+  let d = {}; try { d = e.data ? e.data.json() : {}; } catch (er) { d = { body: e.data && e.data.text() }; }
+  const title = d.title || '발 운동 시간이에요';
+  e.waitUntil(self.registration.showNotification(title, { body: d.body || '오늘의 중재 운동을 해 주세요.', icon: './icons/icon-192.png', badge: './icons/icon-192.png', tag: d.tag || 'footarch-exercise', renotify: true, data: { url: d.url || './#/exercises' } }));
+});
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  const url = new URL((e.notification.data && e.notification.data.url) || './#/exercises', self.registration.scope).href;
+  e.waitUntil(clients.matchAll({ type: 'window', includeUncontrolled: true }).then(ws => { for (const w of ws) if (w.url.startsWith(self.registration.scope) && 'focus' in w) { w.navigate(url).catch(() => {}); return w.focus(); } return clients.openWindow(url); }));
+});
 self.addEventListener('fetch', e => {
   const req = e.request; if (req.method !== 'GET' || new URL(req.url).origin !== location.origin) return;
   const u = new URL(req.url);

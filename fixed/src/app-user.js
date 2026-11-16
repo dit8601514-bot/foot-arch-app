@@ -630,6 +630,90 @@ route('/compare', '중재 전·후 비교', async (v, p) => {
 });
 
 // ───── 설정 · 개인정보 ─────
+// ───── 운동 알람(F2.8.0): 환자가 요일·시간을 정함 → 푸시 알림(서버) + 휴대폰 캘린더 알람(.ics) ─────
+const DAY_NAMES = ['일', '월', '화', '수', '목', '금', '토'], DAY_ORDER = [1, 2, 3, 4, 5, 6, 0], ICS_DAYS = ['SU', 'MO', 'TU', 'WE', 'TH', 'FR', 'SA'];
+function reminderCfg() { const r = S.settings.reminder || {}; return { days: Array.isArray(r.days) ? r.days : [1, 3, 5], times: Array.isArray(r.times) && r.times.length ? r.times : ['20:00'], push: !!r.push, enabled: r.enabled !== false }; }
+function reminderText(r) { r = r || reminderCfg(); if (!r.days.length || !r.times.length) return '꺼짐'; const ds = DAY_ORDER.filter(d => r.days.includes(d)); return `${ds.length === 7 ? '매일' : ds.map(d => DAY_NAMES[d]).join('·')} ${r.times.join(', ')}`; }
+const isIOS = () => /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const pushSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+function b64ToU8(b) { const p = '='.repeat((4 - b.length % 4) % 4), s = atob((b + p).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from(s, c => c.charCodeAt(0)); }
+/** 휴대폰 캘린더용 반복 일정(.ics): 정한 요일마다 정한 시간, 시작 시각에 알림. 기기 현지 시간(floating) 사용 */
+function reminderIcs(r) {
+  const pad = n => String(n).padStart(2, '0'), now = new Date();
+  const stamp = `${now.getUTCFullYear()}${pad(now.getUTCMonth() + 1)}${pad(now.getUTCDate())}T${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}00Z`;
+  let first = new Date(now.getFullYear(), now.getMonth(), now.getDate()); for (let i = 0; i < 7 && !r.days.includes(first.getDay()); i++) first.setDate(first.getDate() + 1);
+  const ymd = `${first.getFullYear()}${pad(first.getMonth() + 1)}${pad(first.getDate())}`, byday = DAY_ORDER.filter(d => r.days.includes(d)).map(d => ICS_DAYS[d]).join(',');
+  const app = location.origin + location.pathname + '#/exercises';
+  const ev = r.times.map(t => { const [h, m] = t.split(':'); return ['BEGIN:VEVENT', `UID:footarch-exercise-${h}${m}@footarch.app`, `DTSTAMP:${stamp}`, `DTSTART:${ymd}T${pad(+h)}${pad(+m)}00`, 'DURATION:PT20M', `RRULE:FREQ=WEEKLY;BYDAY=${byday}`,
+    'SUMMARY:발 운동 시간 (AI Footarch)', 'DESCRIPTION:짧은 발 운동 · 수건 당기기 · 발가락 벌리기 (각 10회 × 3세트)\\n' + app, `URL:${app}`,
+    'BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:발 운동 시간이에요', 'TRIGGER:PT0M', 'END:VALARM', 'END:VEVENT'].join('\r\n'); });
+  return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//AI Footarch//Exercise Reminder//KO', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', 'X-WR-CALNAME:AI Footarch 운동'].concat(ev, ['END:VCALENDAR']).join('\r\n') + '\r\n';
+}
+function downloadIcs(text) {
+  const name = 'footarch-exercise-alarm.ics';
+  if (isIOS()) { location.href = 'data:text/calendar;charset=utf-8,' + encodeURIComponent(text); return; } // 아이폰: 바로 '캘린더에 추가' 화면
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'text/calendar;charset=utf-8' })); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+}
+async function currentPushSub() { try { const reg = await navigator.serviceWorker.getRegistration(); return reg && reg.pushManager ? await reg.pushManager.getSubscription() : null; } catch (e) { return null; } }
+
+route('/reminder', '운동 알람', async (v) => {
+  let r = reminderCfg();
+  const logged = typeof Account !== 'undefined' && Account.configured() && Account.user();
+  if (logged) { try { const sr = await Account.myReminder(); if (sr && !S.settings.reminder) r = Object.assign(r, { days: sr.days, times: sr.times, enabled: sr.enabled }); } catch (e) { /* 서버 표 없음·오프라인 */ } }
+  let keyP = null; if (logged && pushSupported()) keyP = Account.pushKey().catch(e => { throw e; }); if (keyP) keyP.catch(() => {}); // 미리 받아 둠(아이폰은 버튼 누른 순간에 구독해야 함)
+  const draw = async () => {
+    const sub = pushSupported() ? await currentPushSub() : null, perm = 'Notification' in window ? Notification.permission : 'unsupported';
+    const pushOn = !!sub && perm === 'granted';
+    const iosNeedInstall = isIOS() && !isStandalone();
+    v.innerHTML = `<h2>운동 알람</h2><p class="muted small">운동할 요일과 시간을 정하면 그 시간에 알려 드립니다.</p>
+      <div class="card"><b>요일</b><div class="seg" id="days" style="margin-top:8px">${DAY_ORDER.map(d => `<button type="button" data-d="${d}" class="${r.days.includes(d) ? 'on' : ''}">${DAY_NAMES[d]}</button>`).join('')}</div>
+        <div class="row" style="gap:6px;margin-top:8px"><button class="btn sm" type="button" data-preset="all">매일</button><button class="btn sm" type="button" data-preset="wk">평일</button><button class="btn sm" type="button" data-preset="mwf">월·수·금</button></div>
+        <b style="display:block;margin-top:14px">시간 <span class="tiny">(최대 3개)</span></b>
+        <div id="times">${r.times.map((t, i) => `<div class="row" style="gap:8px;margin-top:8px"><input type="time" class="tm" value="${esc(t)}" style="flex:1"><button type="button" class="btn sm" data-rm="${i}" ${r.times.length < 2 ? 'disabled' : ''}>삭제</button></div>`).join('')}</div>
+        ${r.times.length < 3 ? '<button type="button" class="btn sm" id="addT" style="margin-top:8px">+ 시간 추가</button>' : ''}
+        <button class="btn primary block" id="save" style="margin-top:14px">저장</button><p class="tiny" id="saved"></p></div>
+      <div class="card"><b>앱 알림(푸시)</b> ${pushOn ? '<span class="badge b-good">켜짐</span>' : '<span class="badge">꺼짐</span>'}
+        <p class="small">정한 시간에 휴대폰 알림으로 “발 운동 시간이에요”가 옵니다. 앱을 닫아 두어도 옵니다.</p>
+        ${!logged ? '<div class="note warn small">로그인해야 앱 알림을 켤 수 있습니다.</div>'
+        : iosNeedInstall ? `<div class="note warn small"><b>아이폰은 홈 화면에 추가한 앱에서만 알림을 받을 수 있습니다.</b><ol class="steps" style="margin:6px 0 0"><li>Safari 아래쪽 <b>공유</b> 버튼(네모에 위 화살표)을 누릅니다.</li><li><b>홈 화면에 추가</b>를 누릅니다.</li><li>홈 화면의 <b>AI Footarch</b> 아이콘으로 앱을 열고, 이 화면에서 <b>알림 켜기</b>를 누릅니다.</li></ol></div>`
+        : !pushSupported() ? '<div class="note warn small">이 브라우저는 앱 알림을 지원하지 않습니다. Chrome(갤럭시)이나 홈 화면에 추가한 앱(아이폰)에서 열어 주세요. 아래 캘린더 알람은 쓸 수 있습니다.</div>'
+        : perm === 'denied' ? '<div class="note warn small">알림이 차단되어 있습니다. 휴대폰 설정 › 앱(Chrome 또는 AI Footarch) › 알림에서 허용한 뒤 다시 눌러 주세요.</div>'
+        : `<div class="row" style="gap:8px">${pushOn ? '<button class="btn" id="pushOff">알림 끄기</button><button class="btn" id="pushTest">시험 알림 보내기</button>' : '<button class="btn primary" id="pushOn">알림 켜기</button>'}</div>`}
+        <p class="tiny" id="pmsg"></p></div>
+      <div class="card"><b>휴대폰 캘린더 알람</b>
+        <p class="small">휴대폰 기본 캘린더에 반복 일정을 넣어, 정한 요일·시간에 캘린더가 알람을 울립니다. 인터넷이 없어도 울립니다.</p>
+        <button class="btn block" id="ics">캘린더에 추가 (${esc(reminderText(r))})</button>
+        <p class="tiny">${isIOS() ? '누르면 나오는 화면에서 <b>모두 추가</b>를 누릅니다.' : '내려받은 파일을 누른 뒤 <b>캘린더</b>(삼성 캘린더·Google 캘린더)로 열어 <b>저장</b>합니다.'} 요일·시간을 바꾸면 캘린더의 예전 “발 운동 시간” 일정은 지우고 다시 추가해 주세요.</p></div>`;
+    $$('#days button', v).forEach(b => b.onclick = () => { const d = +b.dataset.d; r.days = r.days.includes(d) ? r.days.filter(x => x !== d) : r.days.concat(d); b.classList.toggle('on'); });
+    $$('[data-preset]', v).forEach(b => b.onclick = () => { r.days = b.dataset.preset === 'all' ? [0, 1, 2, 3, 4, 5, 6] : b.dataset.preset === 'wk' ? [1, 2, 3, 4, 5] : [1, 3, 5]; readTimes(); draw(); });
+    const readTimes = () => { r.times = [...new Set($$('.tm', v).map(i => i.value).filter(x => /^\d{2}:\d{2}$/.test(x)))].sort(); if (!r.times.length) r.times = ['20:00']; };
+    $$('[data-rm]', v).forEach(b => b.onclick = () => { readTimes(); r.times.splice(+b.dataset.rm, 1); if (!r.times.length) r.times = ['20:00']; draw(); });
+    const add = $('#addT', v); if (add) add.onclick = () => { readTimes(); r.times.push('08:00'); r.times = [...new Set(r.times)].slice(0, 3); draw(); };
+    const persist = async (msgEl) => {
+      readTimes(); if (!r.days.length) { toast('요일을 하나 이상 골라 주세요.', true); return false; }
+      S.settings.reminder = { days: r.days, times: r.times, push: r.push, enabled: true }; await saveSettings();
+      if (logged) { try { await Account.saveReminder({ enabled: true, days: r.days, times: r.times, tz: Intl.DateTimeFormat().resolvedOptions().timeZone || 'Asia/Seoul' }); if (msgEl) msgEl.textContent = `저장했습니다: ${reminderText(r)}`; } catch (e) { if (msgEl) msgEl.textContent = '이 기기에 저장했습니다. 서버 저장은 실패했습니다: ' + e.message; } }
+      else if (msgEl) msgEl.textContent = `이 기기에 저장했습니다: ${reminderText(r)}`;
+      return true;
+    };
+    $('#save', v).onclick = async () => { if (await persist($('#saved', v))) toast('운동 알람을 저장했습니다.'); };
+    $('#ics', v).onclick = async () => { if (!await persist(null)) return; downloadIcs(reminderIcs(r)); };
+    const pm = t => { const el = $('#pmsg', v); if (el) el.textContent = t; };
+    const on = $('#pushOn', v); if (on) on.onclick = async () => {
+      on.disabled = true; pm('알림 권한을 요청하는 중…');
+      try {
+        const p = await Notification.requestPermission(); if (p !== 'granted') { pm('알림을 허용해야 받을 수 있습니다.'); on.disabled = false; return; }
+        const key = await (keyP || Account.pushKey()); const reg = await navigator.serviceWorker.ready;
+        const sub = await reg.pushManager.getSubscription() || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64ToU8(key) });
+        await Account.savePushSub(sub.toJSON()); r.push = true; await persist(null); toast('앱 알림을 켰습니다.'); draw();
+      } catch (e) { pm('알림을 켜지 못했습니다: ' + e.message); on.disabled = false; }
+    };
+    const off = $('#pushOff', v); if (off) off.onclick = async () => { try { const s = await currentPushSub(); if (s) { await Account.deletePushSub(s.endpoint).catch(() => {}); await s.unsubscribe(); } r.push = false; await persist(null); toast('앱 알림을 껐습니다.'); draw(); } catch (e) { pm(e.message); } };
+    const tst = $('#pushTest', v); if (tst) tst.onclick = async () => { tst.disabled = true; try { const j = await Account.testPush(); pm(j && j.ok ? '시험 알림을 보냈습니다. 몇 초 안에 휴대폰 알림을 확인하세요.' : '보낼 기기가 없습니다. 알림을 껐다가 다시 켜 주세요.'); } catch (e) { pm('보내지 못했습니다: ' + e.message); } tst.disabled = false; };
+  };
+  await draw();
+});
+
 route('/settings', '설정 및 개인정보', async (v) => {
   const est = navigator.storage && navigator.storage.estimate ? await navigator.storage.estimate().catch(() => null) : null;
   const accHtml = await accountCardHtml();

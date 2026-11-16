@@ -3,7 +3,7 @@ const { chromium } = require('playwright'); const http = require('http'), fs = r
 const root = '/home/claude/foot-arch-app/dist';
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.png': 'image/png' };
 // ── 가짜 Supabase ──
-const users = {}, profiles = {}, rounds = {}; let nid = 1; const admins = new Set();
+const users = {}, profiles = {}, rounds = {}, reminders = {}, pushSubs = {}, pushTests = []; const VAPID = require('crypto').createECDH('prime256v1').generateKeys().toString('base64url'); let nid = 1; const admins = new Set();
 const tok = id => 'tok-' + id, uidOf = q => { const a = (q.headers.authorization || '').replace('Bearer tok-', ''); return users[a] ? a : null; };
 const J = (s, code, o, cors) => { s.writeHead(code, Object.assign({ 'content-type': 'application/json' }, cors)); s.end(o === undefined ? '' : JSON.stringify(o)); };
 http.createServer((q, s) => {
@@ -19,6 +19,9 @@ http.createServer((q, s) => {
     if (u.pathname === '/rest/v1/rpc/is_admin') return J(s, 200, admins.has(me), cors);
     if (u.pathname === '/rest/v1/rpc/admin_stats') return J(s, 200, {}, cors);
     if (u.pathname === '/rest/v1/profiles') return J(s, 200, admins.has(me) ? Object.values(profiles) : Object.values(profiles).filter(p => p.id === me), cors);
+    if (u.pathname === '/rest/v1/reminders') { if (q.method === 'POST') { if (!me || b.user_id !== me) return J(s, 403, { message: 'RLS' }, cors); reminders[me] = Object.assign({}, reminders[me] || {}, b); return J(s, 201, undefined, cors); } return J(s, 200, Object.values(reminders).filter(r => r.user_id === me), cors); }
+    if (u.pathname === '/rest/v1/push_subscriptions') { if (q.method === 'POST') { if (!me) return J(s, 401, { message: 'auth' }, cors); pushSubs[b.endpoint] = b; return J(s, 201, undefined, cors); } if (q.method === 'DELETE') { for (const k in pushSubs) if (pushSubs[k].user_id === me) delete pushSubs[k]; return J(s, 204, undefined, cors); } return J(s, 200, Object.values(pushSubs).filter(x => x.user_id === me), cors); }
+    if (u.pathname === '/functions/v1/send-reminders') { if (u.searchParams.has('vapid')) return J(s, 200, { publicKey: VAPID }, cors); if (b.test) { pushTests.push(me); return J(s, 200, { ok: Object.values(pushSubs).filter(x => x.user_id === me).length, total: 1 }, cors); } return J(s, 200, { ok: true }, cors); }
     if (u.pathname === '/rest/v1/rounds') {
       if (q.method === 'POST') { if (!me || (b.user_id !== me && !admins.has(me))) return J(s, 403, { message: 'RLS' }, cors); const k = b.user_id + ':' + b.round; rounds[k] = Object.assign({}, rounds[k] || {}, b); return J(s, 201, undefined, cors); }
       let list = Object.values(rounds); if (!admins.has(me)) list = list.filter(r => r.user_id === me); const ue = u.searchParams.get('user_id'); if (ue) list = list.filter(r => 'eq.' + r.user_id === ue); return J(s, 200, list, cors);
@@ -92,6 +95,23 @@ let pass = 0, fail = 0; const ok = (n, c, x) => { c ? pass++ : fail++; console.l
     ok(`음성(${mode}) 화면 오류 없음`, e2.length === 0, e2.join(' / ')); await c2.close();
   }
   for (const k of Object.keys(profiles)) if (String(profiles[k].name).startsWith('음성')) delete profiles[k]; // 시트 시험에 섞이지 않게
+  // 운동 알람: 요일·시간 저장 → 서버 reminders, 캘린더(.ics), 푸시 켜기(가짜 구독)·시험·끄기
+  { await pg.goto(base + '#/exercises'); await pg.waitForTimeout(2800); ok('운동 화면에 알람 카드', !!(await pg.$('a[href="#/reminder"]')));
+    await pg.addInitScript(() => { const fake = { endpoint: 'https://push.example/abc', toJSON() { return { endpoint: this.endpoint, keys: { p256dh: 'x', auth: 'y' } }; }, unsubscribe: async () => { window.__unsub = true; return true; } };
+      let cur = null; window.Notification = { permission: 'default', requestPermission: async () => (window.Notification.permission = 'granted') };
+      window.PushManager = function () {}; const pm = { getSubscription: async () => cur, subscribe: async o => { window.__subOpt = !!(o && o.applicationServerKey && o.applicationServerKey.length === 65); cur = fake; return fake; } };
+      Object.defineProperty(navigator, 'serviceWorker', { configurable: true, value: { ready: Promise.resolve({ pushManager: pm }), getRegistration: async () => ({ pushManager: pm }), register: async () => ({}), addEventListener() {}, controller: null } }); });
+    await pg.goto(base + '#/reminder'); await pg.waitForSelector('#days'); await pg.reload(); await pg.waitForSelector('#days');
+    await pg.click('[data-preset="wk"]'); await pg.click('#days button[data-d="6"]'); await pg.fill('.tm', '07:30'); await pg.click('#addT'); await pg.fill('.tm >> nth=1', '21:00'); await pg.click('#save'); await pg.waitForTimeout(800);
+    const rem = Object.values(reminders)[0]; ok('알람 저장 → 서버 reminders(평일+토, 07:30·21:00)', rem && JSON.stringify([...rem.days].sort()) === '[1,2,3,4,5,6]' && rem.times.join(',') === '07:30,21:00' && rem.enabled === true && !!rem.tz, JSON.stringify(rem));
+    const ics = await pg.evaluate(() => reminderIcs(reminderCfg()));
+    ok('캘린더 파일: 시간마다 반복 일정 + 알림', (ics.match(/BEGIN:VEVENT/g) || []).length === 2 && ics.includes('RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR,SA') && /DTSTART:\d{8}T073000/.test(ics) && /DTSTART:\d{8}T210000/.test(ics) && ics.includes('TRIGGER:PT0M') && ics.includes('\r\n'), ics.split('\r\n').filter(l => /RRULE|DTSTART/.test(l)).join(' '));
+    const [dl] = await Promise.all([pg.waitForEvent('download'), pg.click('#ics')]); ok('캘린더에 추가 → .ics 내려받기', /\.ics$/.test(dl.suggestedFilename()), dl.suggestedFilename());
+    await pg.click('#pushOn'); await pg.waitForTimeout(1200);
+    ok('알림 켜기 → 공개 키로 구독 + 서버 저장', await pg.evaluate(() => window.__subOpt) && Object.keys(pushSubs).length === 1 && Object.values(pushSubs)[0].sub.endpoint === 'https://push.example/abc' && (await pg.textContent('main')).includes('켜짐'));
+    await pg.click('#pushTest'); await pg.waitForTimeout(700); ok('시험 알림 요청', pushTests.length === 1 && (await pg.textContent('#pmsg')).includes('시험 알림을 보냈습니다'));
+    await pg.click('#pushOff'); await pg.waitForTimeout(800); ok('알림 끄기 → 구독 해제·서버 삭제', await pg.evaluate(() => window.__unsub) && Object.keys(pushSubs).length === 0);
+    await pg.screenshot({ path: '/tmp/reminder.png', fullPage: true }); }
   // 측정 화면은 오른발 고정
   await pg.goto(base + '#/self'); await pg.waitForTimeout(800); const st = await pg.textContent('#view');
   ok('측정 화면 오른발 고정(왼발 선택 없음)', st.includes('측정하는 발: 오른발') && !(await pg.$('#feetSeg button')));

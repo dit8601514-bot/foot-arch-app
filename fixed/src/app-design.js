@@ -54,6 +54,7 @@ route('/exercises', '발활 재활영상', async (v) => {
   const card = x => `<a class="vcard" href="#/exercise/${x.id}"><span class="vthumb" data-vid="${x.id}"><span class="play">${ICON.play}</span><span class="dur hide"></span></span>
     <span class="vt"><b>${esc(x.name)}</b><span>${esc(x.purpose || '')}</span><br>${x.videoBlobId || x.videoUrl ? '' : '<span class="badge b-warn" style="margin-top:4px">영상 등록 필요</span>'}${hasPrescription(x) ? '' : ' <span class="badge">처방 미입력</span>'}</span><span style="color:var(--ink-3)">${ICON.chev}</span></a>`;
   v.innerHTML = `
+    <a class="list-item card" href="#/reminder" style="margin:0 0 10px"><span class="grow"><b>⏰ 운동 알람</b><br><span class="tiny">${esc(S.settings.reminder ? reminderText() : '요일·시간을 정하면 운동할 때 알려 드려요')}</span></span>›</a>
     <h2>${rec.length ? '추천 운동 영상' : '운동 영상'}</h2>
     <p class="muted small">${rec.length ? '최근 측정 결과에 연결된 운동입니다. 발활 강화에 도움이 되는 운동을 따라해 보세요.' : '발활 강화에 도움이 되는 운동을 따라해 보세요.'}</p>
     ${rec.map(card).join('')}

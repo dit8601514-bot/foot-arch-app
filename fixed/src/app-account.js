@@ -163,9 +163,23 @@ const Account = (() => {
     await call('/rest/v1/rounds?on_conflict=user_id,round', { method: 'POST', body: row, headers: { Prefer: 'resolution=merge-duplicates,return=minimal' } });
     return row;
   }
+  // ───── 운동 알람(F2.8.0): 요일·시간 설정은 reminders, 기기 푸시 구독은 push_subscriptions, 발송은 Edge Function send-reminders ─────
+  const FN = '/functions/v1/send-reminders';
+  async function saveReminder({ enabled, days, times, tz }) {
+    const u = user(); if (!configured() || !u) throw new Error('로그인해야 알람을 서버에 저장할 수 있습니다.');
+    await call('/rest/v1/reminders?on_conflict=user_id', { method: 'POST', body: { user_id: u.id, enabled: !!enabled, days, times, tz: tz || 'Asia/Seoul', updated_at: new Date().toISOString() }, headers: { Prefer: 'resolution=merge-duplicates,return=minimal' } });
+  }
+  async function myReminder() { const u = user(); if (!configured() || !u) return null; const r = await call(`/rest/v1/reminders?user_id=eq.${u.id}&select=*`); return r && r[0] || null; }
+  async function pushKey() { const j = await call(FN + '?vapid=1', { auth: false }); if (!j || !j.publicKey) throw new Error('알림 서버가 아직 준비되지 않았습니다.'); return j.publicKey; }
+  async function savePushSub(sub) {
+    const u = user(); if (!u) throw new Error('로그인해야 알림을 켤 수 있습니다.');
+    await call('/rest/v1/push_subscriptions?on_conflict=endpoint', { method: 'POST', body: { endpoint: sub.endpoint, user_id: u.id, sub, ua: navigator.userAgent.slice(0, 200) }, headers: { Prefer: 'resolution=merge-duplicates,return=minimal' } });
+  }
+  async function deletePushSub(endpoint) { if (!user()) return; await call('/rest/v1/push_subscriptions?endpoint=eq.' + encodeURIComponent(endpoint), { method: 'DELETE' }); }
+  async function testPush() { return call(FN, { method: 'POST', body: { test: true } }); }
   async function myRounds() { const u = user(); if (!configured() || !u) return []; return (await call(`/rest/v1/rounds?user_id=eq.${u.id}&select=*&order=round`)) || []; }
   return {
-    ROUND_NAMES, saveRound, myRounds,
+    ROUND_NAMES, saveRound, myRounds, saveReminder, myReminder, pushKey, savePushSub, deletePushSub, testPush,
     aiModel, fetchAiModel, syncContent, videoPublicUrl,
     configured, user, signUp, signIn, signOut, sync, syncSoon, deleteAccount, pendingCount, cfg, removeRemote,
     isGuest: () => ls.get(GUEST) === '1', setGuest: v2 => v2 ? ls.set(GUEST, '1') : ls.del(GUEST),
