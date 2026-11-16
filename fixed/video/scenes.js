@@ -200,14 +200,15 @@ add('s01', [['a', 4.5, page(`<div style="position:absolute;inset:0;display:flex;
 // S8 결과
 { const hd = head(6, '결과 확인');
   const ph = img => phone({ left: 250, top: 105, w: 400, img });
-  const legend = `<div class="card" style="padding:30px 34px"><div style="font-size:28px;color:#c8d4ff;font-weight:700;margin-bottom:18px">판정 기준 (오른발 발배뼈 하강)</div>
-    <div style="display:flex;align-items:center;gap:22px;margin-bottom:18px"><div style="width:180px;font-size:30px;font-weight:800">8 mm 미만</div><div style="font-size:38px;font-weight:900;color:#3ee39a">정상입니다</div><div style="font-size:24px;color:#3ee39a;font-weight:700">● 위험도 낮음</div></div>
-    <div style="display:flex;align-items:center;gap:22px"><div style="width:180px;font-size:30px;font-weight:800">8 mm 이상</div><div style="font-size:38px;font-weight:900;color:#ff6b6b">유연성 평발입니다</div><div style="font-size:24px;color:#ff6b6b;font-weight:700">● 위험도 높음</div></div></div>`;
+  const legend = `<div class="card" style="padding:30px 34px"><div style="font-size:28px;color:#c8d4ff;font-weight:700;margin-bottom:20px">AI 진단 결과는 두 가지</div>
+    <div style="display:flex;align-items:center;gap:22px;margin-bottom:16px"><div style="font-size:40px;font-weight:900;color:#3ee39a">정상입니다</div><div style="font-size:26px;color:#3ee39a;font-weight:700">● 위험도 낮음</div></div>
+    <div style="display:flex;align-items:center;gap:22px"><div style="font-size:40px;font-weight:900;color:#ff6b6b">유연성 평발입니다</div><div style="font-size:26px;color:#ff6b6b;font-weight:700">● 위험도 높음</div></div></div>`;
+  const next = `<div class="card" style="margin-top:26px;padding:26px 34px;font-size:28px;line-height:1.6"><b style="color:#8fb0ff">결과 다음에는</b><br>· 결과에 맞는 <b>중재 운동 영상</b>이 바로 연결됩니다<br>· <b>기록</b> 탭에서 하강량 변화 추이를 볼 수 있습니다</div>`;
   const rd = `<div class="card" style="margin-top:26px;font-size:27px;line-height:1.55"><b style="color:#8fb0ff">회차에 저장</b> — 기본 측정·1~4회차를 골라 Y-balance와 함께 저장<br><span style="color:#c8d4ff;font-size:23px">담당 치료사(관리자)의 측정 시트·그래프에 바로 반영됩니다</span></div>`;
   const right = x => `<div style="position:absolute;left:800px;top:220px;width:1050px">${x}</div>`;
   add('s08', [
     ['a', 4.5, page(hd + ph('result-flat.png') + right(legend) + cap('하강된 mm에 맞게 AI 진단이 나옵니다'))],
-    ['b', 4.5, page(hd + ph('result-normal.png') + right(legend) + cap('정상은 초록, 유연성 평발은 빨강으로 표시됩니다'))]]); }
+    ['b', 4.5, page(hd + ph('result-normal.png') + right(legend + next) + cap('정상은 초록, 유연성 평발은 빨강으로 표시됩니다'))]]); }
 
 // S9 운동·알람
 { const hd = head(7, '중재 운동과 운동 알람');
