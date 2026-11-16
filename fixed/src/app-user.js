@@ -419,14 +419,14 @@ route('/result/:id', '측정 결과', async (v, p) => {
       : `<a class="btn block" href="#/exercises">발활 재활영상(운동) 보기</a>`)
       : '<p class="small muted">유효한 분류 결과가 있을 때 맞춤 운동이 연결됩니다.</p>'}
     <p class="tiny">${esc(DISCLAIMER)}</p>
-    <div class="grid2"><button class="btn primary" id="other">${FOOT[e.foot === 'left' ? 'right' : 'left']} 검사</button><a class="btn" href="#/history">검사 이력</a></div>
+    <div class="grid2"><button class="btn primary" id="other">다시 측정</button><a class="btn" href="#/history">검사 이력</a></div>
     <button class="btn ghost block" id="del">이 결과 삭제</button>`;
   bindFlexSection(v, e);
   renderRoundBox($('#roundBox', v), e);
   await renderRefBox($('#careBox', v), e); // 측정 결과에는 AI 1:1 맞춤 창을 두지 않음(사용자 요청 2026-11-05) — 실측 입력만
   $('#detailBtn', v).onclick = () => { const d = $('#detail', v); d.classList.toggle('hide'); $('#detailBtn', v).textContent = d.classList.contains('hide') ? '상세 리포트 보기' : '상세 리포트 접기'; };
   $('#printBtn', v).onclick = () => printReport(e);
-  $('#other', v).onclick = () => go(e.method === 'voice' ? '#/self?feet=' + (e.foot === 'left' ? 'right' : 'left') : '#/guide?foot=' + (e.foot === 'left' ? 'right' : 'left'));
+  $('#other', v).onclick = () => go(e.method === 'voice' ? '#/self' : '#/guide'); // 고정촬영판: 오른발만 → 반대 발 검사 없음
   $('#del', v).onclick = async () => { if (await confirmModal('이 검사 결과를 삭제할까요? 되돌릴 수 없습니다.', '삭제', true)) { await deleteExam(e); toast('삭제했습니다.'); go('#/history'); } };
   // 저장된 사진이 있으면 저장된 좌표와 함께 표시
   for (const ph of ['pre', 'post']) if (e[ph].imageId) {
@@ -545,25 +545,19 @@ route('/logs', '운동 수행 기록', async (v) => {
 // ───── 검사 이력 ─────
 route('/history', '검사 이력', async (v, p) => {
   const f = p.q.foot || 'all';
-  const all = (await DB.all('exams')).filter(e => !e.isTest).sort((a, b) => b.createdAt - a.createdAt);
-  const list = all.filter(e => f === 'all' || e.foot === f);
+  const all = (await DB.all('exams')).filter(e => !e.isTest && e.foot !== 'left').sort((a, b) => b.createdAt - a.createdAt); // 고정촬영판: 오른발만
+  const list = all;
   const valid = all.filter(e => e.comparison.changeMm != null);
   const latest = ft => valid.find(e => e.foot === ft);
-  const L = latest('left'), R = latest('right');
   v.innerHTML = `<h2>검사 이력</h2>
-    <div class="seg" id="fseg">${[['all', '전체'], ['left', '왼발'], ['right', '오른발']].map(([k, l]) => `<button data-v="${k}" class="${f === k ? 'on' : ''}">${l}</button>`).join('')}</div>
-    <div class="card"><b>발활 높이 변화량 추이 (mm)</b>
-      ${valid.length ? `<div class="legend"><span><i style="background:var(--series-1)"></i>왼발</span><span><i style="background:var(--series-2)"></i>오른발</span></div><canvas class="chart" id="ch" aria-label="변화량 그래프"></canvas><p class="tiny">길이 환산이 유효한 검사만 표시합니다. 점선은 판정 경계(8 mm)입니다.</p>`
+    <div class="card"><b>오른발 하강량 추이 (mm)</b>
+      ${valid.length ? `<canvas class="chart" id="ch" aria-label="변화량 그래프"></canvas><p class="tiny">길이 환산이 유효한 검사만 표시합니다. 점선은 판정 경계(8 mm)입니다.</p>`
       : '<p class="muted small">mm 값이 확보된 검사가 아직 없어 그래프를 그릴 수 없습니다.</p>'}</div>
-    <div class="card"><b>좌우 발 비교(가장 최근 유효 결과)</b>
-      <div class="grid2" style="margin-top:8px">${[['left', L], ['right', R]].map(([ft, e]) => `<div><div class="tiny">${FOOT[ft]}</div>${e ? `<div style="margin:2px 0">${catBadge(e.category)}</div><div class="tiny">측정값 ${mm(e.comparison.changeMm)} · ${fmtDate(e.createdAt, false)}</div>` : '<div class="muted small">유효 결과 없음</div>'}</div>`).join('')}</div>
-      ${L && R ? `<p class="small">좌우 차이 ${mm(Math.abs(L.comparison.changeMm - R.comparison.changeMm))}. 측정 오차와 촬영 조건 차이를 함께 고려하세요.</p>` : ''}</div>
     <a class="btn block" href="#/compare">중재 전·후 결과 비교</a>
     <h3>전체 기록 (${list.length})</h3>
-    <div class="card">${list.length ? list.map(e => `<a class="list-item" href="#/result/${e.id}"><span class="badge b-info">${FOOT[e.foot]}</span><span class="grow small">${fmtDate(e.createdAt)}<br>${e.comparison.changeMm != null ? catBadge(e.category) + ' <span class="tiny">' + mm(e.comparison.changeMm) + '</span>' : statusBadge(e.comparison.status)}</span>›</a>`).join('') : '<p class="muted">검사 기록이 없습니다.</p>'}</div>`;
-  $$('#fseg button', v).forEach(b => b.onclick = () => go('#/history?foot=' + b.dataset.v));
+    <div class="card">${list.length ? list.map(e => `<a class="list-item" href="#/result/${e.id}"><span class="grow small">${fmtDate(e.createdAt)}<br>${e.comparison.changeMm != null ? catBadge(e.category) + ' <span class="tiny">' + mm(e.comparison.changeMm) + '</span>' : statusBadge(e.comparison.status)}</span>›</a>`).join('') : '<p class="muted">검사 기록이 없습니다.</p>'}</div>`;
   if (valid.length) {
-    const ser = ['left', 'right'].filter(ft => f === 'all' || f === ft).map(ft => ({ name: FOOT[ft], color: ft === 'left' ? '#2a78d6' : '#eb6834', points: valid.filter(e => e.foot === ft).map(e => ({ x: e.createdAt, y: C.roundMm(e.comparison.changeMm), label: `${fmtDate(e.createdAt)} ${mm(e.comparison.changeMm)}` })) })).filter(s => s.points.length);
+    const ser = ['right'].map(ft => ({ name: FOOT[ft], color: '#eb6834', points: valid.filter(e => e.foot === ft).map(e => ({ x: e.createdAt, y: C.roundMm(e.comparison.changeMm), label: `${fmtDate(e.createdAt)} ${mm(e.comparison.changeMm)}` })) })).filter(s => s.points.length);
     if (ser.length) lineChart($('#ch', v), ser, { yMin: 0, bands: CLASS_BANDS() });
   }
 });
@@ -576,13 +570,13 @@ async function knownErrorMae() {
   return null;
 }
 route('/compare', '중재 전·후 비교', async (v, p) => {
-  const foot = p.q.foot || 'left';
+  const foot = 'right'; // 고정촬영판: 오른발만(왼발 선택 없음)
   const valid = (await DB.all('exams')).filter(e => !e.isTest && e.foot === foot && e.comparison.changeMm != null).sort((a, b) => a.createdAt - b.createdAt);
   const logs = await DB.all('logs');
   const err = await knownErrorMae();
   const a = valid.find(e => e.id === p.q.a) || valid[0], b = valid.find(e => e.id === p.q.b) || valid[valid.length - 1];
   const opt = (sel) => valid.map(e => `<option value="${e.id}" ${sel && sel.id === e.id ? 'selected' : ''}>${fmtDate(e.createdAt)} · ${mm(e.comparison.changeMm)}</option>`).join('');
-  let body = '<p class="muted">비교하려면 같은 발의 유효(길이 환산) 검사가 2건 이상 필요합니다.</p>';
+  let body = '<p class="muted">비교하려면 오른발 유효 검사가 2건 이상 필요합니다.</p>';
   if (valid.length >= 2 && a && b && a.id !== b.id) {
     const d = b.comparison.changeMm - a.comparison.changeMm;
     const between = logs.filter(l => l.date > a.createdAt && l.date < b.createdAt).length;
@@ -594,10 +588,9 @@ route('/compare', '중재 전·후 비교', async (v, p) => {
       <div class="note info small">${esc(interp)}</div>`;
   }
   v.innerHTML = `<h2>중재 전·후 비교</h2>
-    <div class="seg" id="fseg">${['left', 'right'].map(k => `<button data-v="${k}" class="${foot === k ? 'on' : ''}">${FOOT[k]}</button>`).join('')}</div>
+    <p class="muted small">오른발 검사끼리 비교합니다.</p>
     ${valid.length >= 2 ? `<label class="f">중재 전 검사</label><select id="sa">${opt(a)}</select><label class="f">중재 후 검사</label><select id="sb">${opt(b)}</select>` : ''}
     <div style="margin-top:12px">${body}</div>`;
-  $$('#fseg button', v).forEach(bt => bt.onclick = () => go('#/compare?foot=' + bt.dataset.v));
   if (valid.length >= 2) { const upd = () => go(`#/compare?foot=${foot}&a=${$('#sa', v).value}&b=${$('#sb', v).value}`); $('#sa', v).onchange = upd; $('#sb', v).onchange = upd; }
 });
 
@@ -727,7 +720,6 @@ function careHtml(pc, e) {
   rows.push(['내 측정 흔들림', `± ${cmTxt(pc.sdMm)} <span class="tiny">${pc.nPairs ? `(반복 ${pc.nPairs}쌍 학습)` : '(기본값 · 3일 안에 한 번 더 재면 학습)'}</span>`]);
   if (F.changeSincePrevMm != null) rows.push(['지난번보다', `${sign(F.changeSincePrevMm)} <span class="tiny">${F.realChange ? '실제 변화로 보입니다' : `측정 흔들림 범위(±${cmTxt(pc.mdcMm)}) 안`}</span>`]);
   if (F.slopePer30 != null) rows.push(['한 달 추세', `${sign(F.slopePer30)} / 30일`]);
-  if (pc.asymMm != null) rows.push(['좌우 차이', `${cmTxt(pc.asymMm)}${pc.asymReal ? ' · 차이 있음' : ''}`]);
   return `<div class="card care-card">
     <div class="row"><span class="badge b-info">AI 1:1 맞춤 케어</span><span class="grow"></span><span class="tiny">내 기록 ${pc.learnedFrom}회 학습</span></div>
     <h3 style="margin:10px 0 4px">${esc(pl.headline)}</h3>
@@ -844,7 +836,7 @@ route('/care', 'AI 1:1 맞춤 케어', async (v) => {
   const exams = (await DB.all('exams')).filter(x => !x.isTest), logs = await DB.all('logs');
   const pc = C.personalCare(exams, { logs });
   if (!pc.learnedFrom) { v.innerHTML = '<div class="card"><b>아직 기록이 없습니다</b><p class="small">첫 검사를 하면 AI가 나에게 맞춘 관리 계획을 만듭니다.</p><a class="btn primary block" href="#/self">측정하기</a></div>'; return; }
-  v.innerHTML = `<h2>AI 1:1 맞춤 케어</h2>${['left', 'right'].filter(f => pc.feet[f]).map(f => `<div class="sec-title">${FOOT[f]}</div><div class="care-foot" data-f="${f}"></div>`).join('')}
+  v.innerHTML = `<h2>AI 1:1 맞춤 케어</h2>${['right'].filter(f => pc.feet[f]).map(f => `<div class="sec-title">${FOOT[f]}</div><div class="care-foot" data-f="${f}"></div>`).join('')}
     <div class="card small"><b>AI가 나에게 맞추는 방법</b><ul class="list">
       <li>측정할 때마다 사진 품질(스티커 인식·선명도·휴대폰 움직임·체중부하)을 보고 얼마나 믿을지 정합니다.</li>
       <li>가까운 날 다시 잰 값의 차이로 <b>내 측정 흔들림</b>을 배우고, 그보다 큰 변화만 “실제 변화”로 봅니다.</li>

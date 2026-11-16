@@ -109,6 +109,11 @@ let pass = 0, fail = 0; const ok = (n, c, x) => { c ? pass++ : fail++; console.l
     await pg.goto(base + '#/guide'); await pg.waitForTimeout(600); await pg.evaluate(() => { S.exam = S.exam || { foot: 'right', toeDirection: 'left' }; });
     await pg.goto(base + '#/posture'); await pg.waitForTimeout(800); const t2 = await pg.textContent('main');
     ok('촬영 자세: 발가락 방향 선택 없음(오른발 기준 왼쪽 고정)', !(await pg.$('#toeSeg')) && t2.includes('발가락이 왼쪽') && !!(await pg.$('#svgBox svg')), t2.replace(/\s+/g, ' ').slice(0, 60)); }
+  // 왼발 화면 정리: 중재 전·후 비교·검사 이력에 왼발 없음
+  { await pg.goto(base + '#/compare'); await pg.waitForTimeout(800); const c1 = await pg.textContent('main');
+    ok('중재 전·후 비교: 왼발 선택 없음', !c1.includes('왼발') && !(await pg.$('#fseg')) && c1.includes('오른발'), c1.replace(/\s+/g, ' ').slice(0, 80));
+    await pg.goto(base + '#/history'); await pg.waitForTimeout(800); const h1 = await pg.textContent('main');
+    ok('검사 이력: 왼발·좌우 비교 없음', !h1.includes('왼발') && !h1.includes('좌우') && !(await pg.$('#fseg')), h1.replace(/\s+/g, ' ').slice(0, 80)); }
   // 운동 알람: 요일·시간 저장 → 서버 reminders, 캘린더(.ics), 푸시 켜기(가짜 구독)·시험·끄기
   { await pg.goto(base + '#/exercises'); await pg.waitForTimeout(2800); ok('운동 화면에 알람 카드', !!(await pg.$('a[href="#/reminder"]')));
     await pg.addInitScript(() => { const fake = { endpoint: 'https://push.example/abc', toJSON() { return { endpoint: this.endpoint, keys: { p256dh: 'x', auth: 'y' } }; }, unsubscribe: async () => { window.__unsub = true; return true; } };
