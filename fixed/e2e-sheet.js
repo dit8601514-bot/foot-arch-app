@@ -114,6 +114,10 @@ let pass = 0, fail = 0; const ok = (n, c, x) => { c ? pass++ : fail++; console.l
     ok('중재 전·후 비교: 왼발 선택 없음', !c1.includes('왼발') && !(await pg.$('#fseg')) && c1.includes('오른발'), c1.replace(/\s+/g, ' ').slice(0, 80));
     await pg.goto(base + '#/history'); await pg.waitForTimeout(800); const h1 = await pg.textContent('main');
     ok('검사 이력: 왼발·좌우 비교 없음', !h1.includes('왼발') && !h1.includes('좌우') && !(await pg.$('#fseg')), h1.replace(/\s+/g, ' ').slice(0, 80)); }
+  // 촬영 방법 영상: 측정 탭·검사 안내에서 재생
+  for (const r of ['#/self', '#/guide']) { await pg.goto(base + r); await pg.waitForSelector('video.howto');
+    const vs = await pg.evaluate(async () => { const v = document.querySelector('video.howto'); v.muted = true; await v.play(); await new Promise(z => setTimeout(z, 1500)); return { d: v.duration, t: v.currentTime, err: v.error && v.error.code, w: v.videoWidth }; });
+    ok(`촬영 방법 영상 재생(${r})`, Math.abs(vs.d - 83.5) < 1 && vs.t > 0.5 && !vs.err && vs.w === 1280, JSON.stringify(vs)); }
   // 운동 알람: 요일·시간 저장 → 서버 reminders, 캘린더(.ics), 푸시 켜기(가짜 구독)·시험·끄기
   { await pg.goto(base + '#/exercises'); await pg.waitForTimeout(2800); ok('운동 화면에 알람 카드', !!(await pg.$('a[href="#/reminder"]')));
     await pg.addInitScript(() => { const fake = { endpoint: 'https://push.example/abc', toJSON() { return { endpoint: this.endpoint, keys: { p256dh: 'x', auth: 'y' } }; }, unsubscribe: async () => { window.__unsub = true; return true; } };

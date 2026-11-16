@@ -1,7 +1,7 @@
 'use strict';
 /* ═════════════ 기본: 저장소 · 상태 · 유틸 · 라우터 ═════════════ */
 const C = window.FootCore;
-const APP_VERSION = 'F2.12.0'; // 고정촬영판(별도 앱, 기존 앱 v3.5.0에서 분리)
+const APP_VERSION = 'F2.13.0'; // 고정촬영판(별도 앱, 기존 앱 v3.5.0에서 분리)
 const STORES = ['settings', 'exams', 'exercises', 'logs', 'errors', 'models', 'blobs', 'validations'];
 
 const DB = (() => {
@@ -133,6 +133,14 @@ function shortFootEvidenceHtml(open) {
     <div class="note small">${esc(E.caution)}</div>
     <b class="small">출처</b><ol class="tiny" style="margin:4px 0 0 18px;padding:0">${E.refs.map(([t, u]) => `<li style="margin:3px 0">${esc(t)} <a href="${esc(u)}" target="_blank" rel="noopener">원문 보기</a></li>`).join('')}</ol></details>`;
 }
+// 촬영 방법 영상(F2.13.0, 고정촬영판 F2.12 기준 1분 23초, 720p). 측정 탭·검사 안내에서 재생
+const HOWTO_VER = 1;
+function guideVideoHtml() {
+  return `<div class="card" style="padding:12px"><b>▶ 촬영 방법 영상</b> <span class="tiny">1분 23초</span>
+    <video class="howto" src="videos/how-to.mp4?v=${HOWTO_VER}" poster="videos/how-to.jpg?v=${HOWTO_VER}" controls playsinline preload="none" style="width:100%;border-radius:12px;margin-top:8px;background:#0b0d3d;aspect-ratio:16/9"></video>
+    <p class="tiny howto-err hide">영상을 불러오지 못했습니다. 인터넷 연결을 확인해 주세요.</p></div>`;
+}
+function bindGuideVideo(root) { root.querySelectorAll('video.howto').forEach(vd => vd.addEventListener('error', () => { const n = vd.parentNode.querySelector('.howto-err'); if (n) n.classList.remove('hide'); })); }
 function showExercise(x) { return !!x && (x.builtin || (x.server && !!x.videoUrl)); }
 function exOrder(x) { return x.builtin ? x.order - 1e3 : x.server ? x.order : 1e3; }
 // 초기 운동 콘텐츠(예전 판): 이름·일반 설명만 초안으로 제공, 처방 수치·영상은 비워둔다(연구 프로토콜 입력 필요)

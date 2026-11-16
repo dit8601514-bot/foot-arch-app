@@ -39,6 +39,7 @@ route('/self', '측정하기', async (v, p) => {
       <div class="optrow"><span>음성 안내</span><label class="chk" style="margin:0"><input type="checkbox" id="voiceOn" ${Voice.enabled ? 'checked' : ''}><span class="small">켜기</span></label><button class="btn sm" id="vTest" type="button">소리 확인</button></div>
       <div id="vHelp">${voiceHelpHtml(Voice.SAMSUNG_BROWSER ? 'samsung' : !Voice.supported ? 'none' : '')}</div>
     </div>
+    ${guideVideoHtml()}
     <details class="card"><summary>촬영 방법 보기</summary><ol class="steps small" style="margin-top:10px">
       <li>발 안쪽에 지름 ${esc(String(S.settings.stickerDiameterMm || 19))} mm 파란 스티커 3개를 붙입니다. <a href="#/stickers-info">부착 위치 보기</a></li>
       <li>의자에 앉아 두 발을 바닥에 편하게 둡니다.</li>
@@ -51,6 +52,7 @@ route('/self', '측정하기', async (v, p) => {
     </ol></details>
     <div class="links"><a href="#/guide">단계별 검사(직접 촬영)</a><a href="#/settings">스티커 지름 ${esc(String(S.settings.stickerDiameterMm || 19))} mm</a></div>
     <p class="tiny" style="text-align:center">${esc(DISCLAIMER)}</p>`;
+  bindGuideVideo(v);
   $('#goHint', v).textContent = '누르면 “준비해 주세요” 음성 안내 후 바로 시작합니다';
   let sel = feetSel;
   const paint = () => { $$('#feetSeg button', v).forEach(b => b.classList.toggle('on', b.dataset.v === sel)); $('#svgBox', v).innerHTML = phoneSetupSvg(sel === 'right' ? 'right' : 'left'); };

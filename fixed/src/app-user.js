@@ -48,6 +48,7 @@ route('/guide', '검사 안내', async (v, p) => {
   const foot = 'right'; // 고정촬영판: 측정은 오른발로 통일
   v.innerHTML = `${stepper(1)}
     <h2>발 기능 검사 안내</h2>
+    ${guideVideoHtml()}
     <div class="card">
       <ol class="steps">
         <li>발 안쪽 면에 파란색 원형 스티커 3개를 붙입니다.</li>
@@ -65,6 +66,7 @@ route('/guide', '검사 안내', async (v, p) => {
     </div>
     <p class="tiny">${esc(DISCLAIMER)}</p>
     <button class="btn primary block big" id="next">다음: 스티커 부착 위치</button>`;
+  bindGuideVideo(v);
   let sel = foot;
   $('#next', v).onclick = async () => {
     if (!$('#ack', v).checked) return toast('사진 저장 안내를 확인해 주세요.', true);
