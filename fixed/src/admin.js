@@ -325,7 +325,7 @@ function commonCheck() {
   const seedP3 = SEED_SAMPLES.filter(x => isFinite(x.p3Move) && isFinite(x.p2Drop)).map(x => ({ participant: x.participant, p2Drop: x.p2Drop, p3Move: x.p3Move, ref: x.ref, exam: x.exam }));
   const fresh = rows.filter(r => !seedP3.some(sd => sd.exam && sd.exam === r.exam)); // 이미 표본 파일에 들어간 측정은 중복 제외
   const all = seedP3.concat(fresh.map(r => ({ participant: r.participant, p2Drop: r.p2Raw, p3Move: r.p3Move, ref: r.ref })));
-  const flat = 8, agree = (a, f) => a.filter(r => (f(r) >= flat) === (r.ref >= flat)).length + '/' + a.length;
+  const flat = 8, agree = (a, f) => a.filter(r => (Math.round(f(r)) >= flat) === (r.ref >= flat)).length + '/' + a.length;
   const stat = (a, f) => { const e = a.map(r => f(r) - r.ref); return a.length ? { mae: e.reduce((s, x) => s + Math.abs(x), 0) / e.length, me: e.reduce((s, x) => s + x, 0) / e.length, ag: agree(a, f) } : null; };
   const cur = r => { const pc = C.populationCorrect({ p2Mm: r.p2Drop, p2RawMm: r.p2Raw, p3Mm: r.p3Move }, POP); return pc ? pc.mm : r.p2Drop; };
   const sSaved = stat(rows.filter(r => isFinite(r.saved)), r => r.saved), sCur = stat(rows, cur), sNone = stat(rows, r => r.p2Drop);
@@ -337,12 +337,12 @@ function commonCheck() {
       <li>'환자·측정'에서 측정마다 치료사가 자로 잰 <b>임상 NDT</b>를 넣으면, 그 측정의 <b>보정 전 P2 이동</b>·<b>발꿈치(P3) 이동</b>과 짝이 됩니다.</li>
       <li>짝들로 '앱 값 − 실측' 오차를 계산합니다. 사람마다 표본 수가 달라도 한 사람이 결과를 끌고 가지 않게 사람별 중간값을 씁니다.</li>
       <li><b>한 사람씩 빼고</b> 나머지 사람들로 공식을 정한 뒤, 뺀 사람에게 적용해 오차를 잽니다(LOPO). 이것이 <b>처음 재는 새 사람</b>의 예상 오차입니다. 같은 사람의 값으로 그 사람을 맞추는 일은 없습니다.</li>
-      <li>보정 없음보다 새 사람 오차가 10% 이상 줄 때만 공식을 바꿉니다. 바뀐 공식은 앱 업데이트로 <b>모든 사용자에게 똑같이</b> 적용됩니다.</li></ol></div>
-    <div class="card"><b>지금 앱 공식</b>: ${heel ? esc(heel.label) + ` <span class="small muted">(학습 ${heel.participants}명 ${heel.n}건 · 새 사람 평균 오차 ${f2(heel.baseMae)} → ${f2(heel.cvMae)} mm · 8 mm 판정 일치 ${heel.baseAgree} → ${heel.agree} · 95% 오차 범위 약 ±${f2(heel.piMm)} mm)</span>` : '보정 없음'}
-      <p class="small muted" style="margin:6px 0 0">발꿈치 스티커는 앉았다 일어설 때 보통 4~5 mm 움직입니다. 그보다 더 움직였다면 휴대폰이나 발이 함께 움직인 것이므로 그만큼 P2 이동에서 뺍니다.</p></div>
+      <li>보정 없음보다 새 사람 오차가 10% 이상 줄고 <b>8 mm 판정 일치가 나빠지지 않을 때만</b> 공식을 바꿉니다. 바뀐 공식은 앱 업데이트로 <b>모든 사용자에게 똑같이</b> 적용됩니다.</li></ol></div>
+    <div class="card"><b>지금 앱 공식</b>: ${heel ? esc(heel.label) + ` <span class="small muted">(학습 ${heel.participants}명 ${heel.n}건 · 새 사람 평균 오차 ${f2(heel.baseMae)} → ${f2(heel.cvMae)} mm · 8 mm 판정 일치 ${heel.baseAgree} → ${heel.agree} · 95% 오차 범위 약 ±${f2(heel.piMm)} mm)</span>` : `${POP && POP.p2 && POP.p2.method !== 'identity' ? esc(POP.p2.label) : '보정 없음 — P2 이동을 그대로 씁니다'}`}
+      <p class="small muted" style="margin:6px 0 0">${heel ? '발꿈치 스티커는 앉았다 일어설 때 보통 4~5 mm 움직입니다. 그보다 더 움직였다면 휴대폰이나 발이 함께 움직인 것이므로 그만큼 P2 이동에서 뺍니다.' : 'ALG-3.3.0(2026-11-17): 11명 39건으로 다시 검증한 결과 발꿈치 보정은 평균 오차는 줄였지만 8 mm 판정을 더 자주 틀려서 쓰지 않습니다. 아래 표에서 자료가 늘 때마다 다시 확인됩니다.'}</p></div>
     <div class="card scroll"><b>입력된 임상 NDT로 본 오차</b> <span class="small muted">(P2 방식 측정 ${rows.length}건 · ${people}명)</span>
       ${rows.length ? `<table><thead><tr><th>계산 방법</th><th>평균 절대 오차(mm)</th><th>평균 치우침</th><th>8 mm 판정 일치</th><th></th></tr></thead><tbody>
-        ${tr('측정 당시 앱 값(저장된 값)', sSaved, '그때 공식(예: +1.2 mm)')}${tr('보정 없음(P2 이동 그대로)', sNone)}${tr('지금 앱 공식으로 다시 계산', sCur, '학습에 쓴 자료 포함 → 실제보다 좋게 나옴')}</tbody></table>` : '<p class="muted small">P2 방식 측정에 임상 NDT가 아직 없습니다.</p>'}
+        ${tr('측정 당시 앱 값(저장된 값)', sSaved, '그때 공식(+1.2 mm 또는 발꿈치 보정)')}${tr('보정 없음(P2 이동 그대로)', sNone)}${tr('지금 앱 공식으로 다시 계산', sCur, '학습에 쓴 자료 포함 → 실제보다 좋게 나옴')}</tbody></table>` : '<p class="muted small">P2 방식 측정에 임상 NDT가 아직 없습니다.</p>'}
       ${H ? `<p class="small" style="margin-top:10px"><b>새 사람 기준(한 사람씩 빼고 검증, 표본 파일 + 서버 ${all.length}건 · ${new Set(all.map(r => r.participant)).size}명)</b></p>
         <table><thead><tr><th>공식</th><th>새 사람 평균 절대 오차</th><th>평균 치우침</th><th>8 mm 판정 일치</th></tr></thead><tbody>
         <tr><td>보정 없음</td><td>${f2(H.base.mae)}</td><td>${f2(H.base.me)}</td><td>${H.base.agree}/${H.base.n}</td></tr>

@@ -70,16 +70,20 @@ ok('표본 1개 → 학습 안 함', C.learnSeedCorrection([{ ai: 3, ref: 7 }]).
   ok('현재 P2 표본 → 더하기 +0.8~+2.2 mm', m.method === 'bias' && -m.bias > 0.8 && -m.bias < 2.2, m.label);
   ok('현재 P2 표본 → 새 묶음 기준 평균 오차 감소', m.cvMae < m.baseMae * 0.9, `${m.baseMae.toFixed(2)} → ${m.cvMae.toFixed(2)}`); }
 
-// 7-7) 발꿈치 보정(ALG-3.2.0): 관리자 임상 NDT 4명 13건 → 사람 단위 검증(LOPO)으로 새 사람 오차·판정 일치 개선
-{ const L = C.learnPopulationCalib(S), h = L.calib.heel;
-  ok('발꿈치 보정 채택(4명, LOPO)', h && h.method === 'heel' && h.validation === 'LOPO' && h.participants >= 4, h && h.label);
-  ok('발꿈치 보정: P2 − 발꿈치 이동 + 약 4~5 mm', h && h.k === 1 && h.c > 4 && h.c < 5.3, h && `k ${h.k} c ${h.c}`);
-  ok('새 사람 평균 오차 40% 이상 감소', h && h.cvMae < h.baseMae * 0.6, h && `${h.baseMae} → ${h.cvMae}`);
-  ok('8 mm 판정 일치 개선', h && parseInt(h.agree) > parseInt(h.baseAgree), h && `${h.baseAgree} → ${h.agree}`);
-  const P = Object.assign({ id: 'T' }, L.calib);
-  const a = C.populationCorrect({ p2Mm: 22.87, p2RawMm: 22.87, p3Mm: 19.7 }, P), b = C.populationCorrect({ p2Mm: 6.0, p2RawMm: 6.0, p3Mm: null }, P);
-  ok('발꿈치가 크게 움직인 측정(P2 22.9·P3 19.7, 실측 7.5)도 바로잡음', a && a.model === 'heel' && Math.abs(a.mm - 7.5) < 1.5, a && a.mm.toFixed(2));
-  ok('발꿈치 이동이 없으면 P2 공식으로 대체', b && b.model !== 'heel', b && b.label);
+// 7-7) 발꿈치 보정 재검토(ALG-3.3.0): 관리자 임상 NDT 11명 39건(그중 20건은 k=1 공식의 전향 자료) → 사람 단위 검증(LOPO)
+{ const L = C.learnPopulationCalib(S), H = L.heel;
+  ok('11명 이상 자료로 LOPO 검증', H && H.participants >= 11 && H.n >= 39, H && `${H.participants}명 ${H.n}건`);
+  const k1 = H.cands.find(c => c.k === 1);
+  ok('k=1(이전 공식)은 판정 일치가 보정 없음보다 나쁨', k1 && k1.agree < H.base.agree, k1 && `${H.base.agree} → ${k1.agree}`);
+  ok('판정이 나빠지는 발꿈치 보정은 채택 안 함 → P2 이동 그대로', !L.calib.heel && !H.ok, H.reason);
+  const pro = S.filter(x => x.alg === 'ALG-3.2.0' && isFinite(x.appShown));
+  const ag = f => pro.filter(x => (Math.round(f(x)) >= 8) === (x.ref >= 8)).length;
+  ok('전향 자료: 보정 없음이 이전 공식보다 판정 일치 높음', pro.length >= 20 && ag(x => x.p2Drop) > ag(x => x.appShown), `${ag(x => x.appShown)}/${pro.length} → ${ag(x => x.p2Drop)}/${pro.length}`);
+  const P = Object.assign({ id: 'T' }, L.calib), a = C.populationCorrect({ p2Mm: 9.2, p2RawMm: 9.2, p3Mm: 4.1 }, P);
+  ok('발꿈치 이동이 있어도 P2 이동 그대로(9.2 mm)', a && a.model !== 'heel' && Math.abs(a.mm - 9.2) < 1e-9, a && a.mm);
+  // 장치 자체는 동작: 발꿈치 흔들림이 실제 오차 원인인 자료라면 채택
+  const syn = []; for (let p = 0; p < 6; p++) for (let i = 0; i < 4; i++) { const ref = 5 + p, h = 3 + ((p * 7 + i * 3) % 6); syn.push({ participant: 'Q' + p, p2Drop: ref + h - 4.5, p3Move: h, ref }); }
+  const sh = C.learnHeelCalib(syn); ok('발꿈치 흔들림이 원인인 자료면 발꿈치 보정 채택', sh.ok && sh.model.k === 1, sh.ok ? sh.model.label : sh.reason);
   const one = C.learnHeelCalib(S.filter(x => x.participant === 'P-44AF42DE'));
   ok('사람 3명 미만이면 발꿈치 보정 안 함(개인 맞춤 방지)', !one.ok, one.reason); }
 

@@ -9,7 +9,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  const ALGORITHM_VERSION = 'ALG-3.2.0'; // 고정촬영판: 치료사 방식 = 앉음→섬 P2 스티커 이동 거리 + 공통 보정계수
+  const ALGORITHM_VERSION = 'ALG-3.3.0'; // 고정촬영판: 치료사 방식 = 앉음→섬 P2 스티커 이동 거리 + 공통 보정계수(3.3.0: 11명 재검증 → 발꿈치 보정 중단, P2 이동 그대로)
 
   // 기본 검출 파라미터 (휴리스틱 값 — 실제 사진으로 검증 후 연구자가 조정해야 함)
   const DEFAULT_DETECT = {
@@ -1439,23 +1439,27 @@
   }
 
   /**
-   * 발꿈치 보정 학습(ALG-3.2.0): 값 = P2 이동 − k × 발꿈치(P3) 이동 + c, 모든 사용자 공통.
-   * 근거(2026-11-16, 4명 13건): 오차가 발꿈치가 많이 움직인 측정에서 커짐(사람마다 기울기 약 1) → 같이 움직인 양을 빼면 새 사람 오차가 줄어듦.
-   * k 후보 0(더하기만)·0.5·1, c = 사람별 중간값의 중간값(한 사람이 표본을 많이 내도 끌려가지 않음).
-   * 검증: 한 사람씩 빼고 나머지로 학습 → 뺀 사람에게 적용(LOPO). 사람 3명 이상일 때만, 보정 없음보다 평균 오차가 10% 이상 줄 때만 채택.
+   * 발꿈치 보정 학습(ALG-3.2.0~): 값 = P2 이동 − k × 발꿈치(P3) 이동 + c, 모든 사용자 공통(개인 보정 없음).
+   * 처음 근거(2026-11-16, 4명 13건): 발꿈치가 많이 움직인 측정에서 오차가 커짐 → k=1 채택.
+   * 재검토(2026-11-17, 11명 39건, 그중 20건은 k=1 공식을 처음 본 사람에게 쓴 전향 자료): k=1은 판정 일치가 보정 없음보다 나빠짐
+   *   → 후보를 0·0.25·0.5·0.75·1로 넓히고, '판정(8 mm, 반올림)이 보정 없음보다 나빠지지 않을 것'을 채택 조건에 더함.
+   * c = 사람별 중간값의 중간값(한 사람이 표본을 많이 내도 끌려가지 않음).
+   * 검증: 한 사람씩 빼고 나머지로 학습 → 뺀 사람에게 적용(LOPO). 채택 조건: 사람 3명 이상 · 평균 오차 10% 이상 감소 · 판정 일치 ≥ 보정 없음.
    */
   function learnHeelCalib(samples, options) {
-    const o = Object.assign({ minPeople: 3, minGain: 0.10, ks: [0, 0.5, 1], flatMm: 8 }, options || {});
+    const o = Object.assign({ minPeople: 3, minGain: 0.10, ks: [0, 0.25, 0.5, 0.75, 1], flatMm: 8 }, options || {});
     const rows = (samples || []).filter(x => [x.p2Drop, x.p3Move, x.ref].every(Number.isFinite));
     const people = [...new Set(rows.map(r => r.participant))];
     if (people.length < o.minPeople) return { ok: false, reason: `발꿈치 이동이 있는 표본의 사람이 ${people.length}명(최소 ${o.minPeople}명).`, n: rows.length, participants: people.length };
     const fitC = (rs, k) => median([...new Set(rs.map(r => r.participant))].map(p => median(rs.filter(r => r.participant === p).map(r => r.ref - (r.p2Drop - k * r.p3Move)))));
     const pred = (r, k, c) => Math.max(0, r.p2Drop - k * r.p3Move + c);
-    const lopo = k => { const e = [], ag = []; for (const p of people) { const tr = rows.filter(r => r.participant !== p), c = k == null ? 0 : fitC(tr, k); for (const r of rows.filter(x => x.participant === p)) { const v = k == null ? Math.max(0, r.p2Drop) : pred(r, k, c); e.push(v - r.ref); ag.push((v >= o.flatMm) === (r.ref >= o.flatMm)); } } return { mae: mean(e.map(Math.abs)), me: mean(e), sd: e.length > 1 ? Math.sqrt(mean(e.map(x => (x - mean(e)) ** 2)) * e.length / (e.length - 1)) : null, agree: ag.filter(Boolean).length, n: e.length }; };
+    const isFlat = v => Math.round(v) >= o.flatMm; // 앱 판정과 같게 반올림 후 비교
+    const lopo = k => { const e = [], ag = []; for (const p of people) { const tr = rows.filter(r => r.participant !== p), c = k == null ? 0 : fitC(tr, k); for (const r of rows.filter(x => x.participant === p)) { const v = k == null ? Math.max(0, r.p2Drop) : pred(r, k, c); e.push(v - r.ref); ag.push(isFlat(v) === (r.ref >= o.flatMm)); } } return { mae: mean(e.map(Math.abs)), me: mean(e), sd: e.length > 1 ? Math.sqrt(mean(e.map(x => (x - mean(e)) ** 2)) * e.length / (e.length - 1)) : null, agree: ag.filter(Boolean).length, n: e.length }; };
     const base = lopo(null), cands = o.ks.map(k => Object.assign({ k }, lopo(k)));
-    const best = cands.slice().sort((a, b) => a.mae - b.mae)[0];
+    const okC = cands.filter(c => c.mae <= base.mae * (1 - o.minGain) && c.agree >= base.agree);
+    const best = okC.slice().sort((a, b) => (b.agree - a.agree) || (a.mae - b.mae))[0];
     const res = { ok: false, n: rows.length, participants: people.length, base, cands };
-    if (!(best.mae <= base.mae * (1 - o.minGain))) return Object.assign(res, { reason: `보정해도 새 사람 평균 오차가 충분히 줄지 않음(보정 없음 ${base.mae.toFixed(2)} → ${best.mae.toFixed(2)} mm).` });
+    if (!best) { const m = cands.slice().sort((a, b) => a.mae - b.mae)[0]; return Object.assign(res, { reason: `발꿈치 보정을 하면 새 사람 평균 오차는 ${base.mae.toFixed(2)} → ${m.mae.toFixed(2)} mm(k=${m.k})로 줄지만, 판정 일치가 ${base.agree}/${base.n} → ${m.agree}/${m.n}로 보정 없음보다 나빠지거나 오차가 충분히 줄지 않음 → 보정 안 함.` }); }
     const c = fitC(rows, best.k), r1 = x => Math.round(x * 100) / 100;
     const label = best.k ? `P2 이동 − 발꿈치 이동${best.k === 1 ? '' : '×' + best.k} ${c >= 0 ? '+' : '−'} ${Math.abs(c).toFixed(1)} mm` : `P2 이동 ${c >= 0 ? '+' : '−'} ${Math.abs(c).toFixed(1)} mm`;
     return Object.assign(res, { ok: true, model: { method: 'heel', k: best.k, c: r1(c), label, n: rows.length, participants: people.length, validation: 'LOPO', cvMae: r1(best.mae), baseMae: r1(base.mae), piMm: best.sd != null ? r1(1.96 * best.sd) : null, agree: `${best.agree}/${best.n}`, baseAgree: `${base.agree}/${base.n}` } });
