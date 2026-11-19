@@ -188,6 +188,44 @@ route('sheet', '측정 시트', async (v) => {
 const FLAT_MM = (C.CLASS_MM && C.CLASS_MM.flat) || 8;
 const judge = mm => mm == null || !isFinite(mm) ? null : (C.classify(+mm).key === 'normal' ? { ok: true, t: '정상' } : { ok: false, t: '유연성 평발' });
 /** points: [{ x(0..1), label, sub, y }] — y가 null이면 빈 자리. 8 mm 기준선, 정상 초록·유연성 평발 빨강 */
+// 전체 중재 효과: 회차 기록이 2개 이상인 환자 모두. 회색 = 환자 한 명, 파란 굵은 선 = 회차별 평균(점 위에 n). RT·Y-balance는 단위가 달라 그래프를 나눔(축 하나씩)
+function groupStats(people, by, key, valid) {
+  const ppl = people.map(p => ({ p, v: ROUNDS.map((_, k) => { const r = (by[p.id] || {})[k], x = r && r[key] != null ? +r[key] : null; return x != null && valid(x) ? x : null; }) })).filter(o => o.v.filter(x => x != null).length >= 2);
+  // 평균은 기본~4회차를 모두 잰 사람만(중간에 빠진 사람이 섞이면 평균이 사람 구성 때문에 오르내림). 끝까지 한 사람이 없으면 있는 값 모두
+  const full = ppl.filter(o => o.v.every(x => x != null)), mp = full.length >= 2 ? full : ppl;
+  const mean = ROUNDS.map((_, k) => { const a = mp.map(o => o.v[k]).filter(x => x != null); return a.length ? { m: a.reduce((t, x) => t + x, 0) / a.length, n: a.length, sd: a.length > 1 ? Math.sqrt(a.reduce((t, x) => t + (x - a.reduce((u, y) => u + y, 0) / a.length) ** 2, 0) / (a.length - 1)) : 0 } : null; });
+  return { ppl, mean, nFull: full.length, complete: mp === full };
+}
+function groupSvg(st, o) {
+  const W = 520, H = 300, L = 46, R = 18, T = 26, B = 46, all = st.ppl.flatMap(q => q.v).filter(x => x != null).concat(o.ref != null ? [o.ref] : []);
+  if (!all.length) return '<p class="muted small">회차 기록이 2개 이상인 환자가 아직 없습니다.</p>';
+  let y0 = Math.floor(Math.min(...all) - 1), y1 = Math.ceil(Math.max(...all) + 1); if (o.y0 != null) y0 = Math.min(y0, o.y0);
+  const X = k => L + k * (W - L - R) / (ROUNDS.length - 1), Y = v => T + (y1 - v) / (y1 - y0) * (H - T - B), step = (y1 - y0) > 30 ? 10 : (y1 - y0) > 12 ? 2 : 1;
+  const grid = []; for (let v = Math.ceil(y0 / step) * step; v <= y1; v += step) grid.push(`<line x1="${L}" x2="${W - R}" y1="${Y(v)}" y2="${Y(v)}" stroke="#E6EAF2"/><text x="${L - 6}" y="${Y(v) + 4}" text-anchor="end" font-size="11" fill="#6B7590">${v}</text>`);
+  const path = v => { let d = '', pen = false; v.forEach((y, k) => { if (y == null) { pen = false; return; } d += (pen ? 'L' : 'M') + X(k).toFixed(1) + ' ' + Y(y).toFixed(1); pen = true; }); return d; };
+  const ind = st.ppl.map(q => `<g class="gp"><path d="${path(q.v)}" fill="none" stroke="#B9C2D6" stroke-width="1.5"/>${q.v.map((y, k) => y == null ? '' : `<circle cx="${X(k)}" cy="${Y(y)}" r="3" fill="#B9C2D6"><title>${esc(q.p.name)} · ${ROUNDS[k]} ${y.toFixed(1)}${o.unit}</title></circle>`).join('')}</g>`).join('');
+  const mv = st.mean.map(m => m ? m.m : null);
+  const mean = `<path d="${path(mv)}" fill="none" stroke="#1F5FE0" stroke-width="3"/>` + st.mean.map((m, k) => m ? `<circle cx="${X(k)}" cy="${Y(m.m)}" r="5.5" fill="#1F5FE0" stroke="#fff" stroke-width="2"><title>평균 ${ROUNDS[k]} ${m.m.toFixed(1)}${o.unit} (n=${m.n}, SD ${m.sd.toFixed(1)})</title></circle><text x="${X(k)}" y="${Y(m.m) - 10}" text-anchor="middle" font-size="11.5" font-weight="700" fill="#1B2440">${m.m.toFixed(1)}</text>` : '').join('');
+  const ref = o.ref != null && o.ref >= y0 && o.ref <= y1 ? `<line x1="${L}" x2="${W - R}" y1="${Y(o.ref)}" y2="${Y(o.ref)}" stroke="#C0281B" stroke-dasharray="5 4" stroke-width="1.2"/><text x="${L + 4}" y="${Y(o.ref) + 14}" font-size="11" fill="#C0281B">${esc(o.refLabel)}</text>` : '';
+  const xl = ROUNDS.map((n, k) => `<text x="${X(k)}" y="${H - B + 18}" text-anchor="middle" font-size="11.5" fill="#1B2440">${n}</text><text x="${X(k)}" y="${H - B + 33}" text-anchor="middle" font-size="10.5" fill="#6B7590">${st.mean[k] ? 'n=' + st.mean[k].n : ''}</text>`).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${esc(o.aria)}" style="max-width:640px;display:block">${grid.join('')}${ref}${ind}${mean}${xl}<text x="${L}" y="14" font-size="11" fill="#6B7590">${esc(o.yLabel)}</text></svg>`;
+}
+function groupEffectHtml(people, by) {
+  const rt = groupStats(people, by, 'rt_mm', x => x >= 0), yb = groupStats(people, by, 'y_balance', x => x > 0);
+  const n = new Set(rt.ppl.map(o => o.p.id).concat(yb.ppl.map(o => o.p.id))).size;
+  const chg = st => { const a = st.ppl.map(o => { const d = o.v.map((y, k) => [y, k]).filter(x => x[0] != null); return d.length >= 2 ? d[d.length - 1][0] - d[0][0] : null; }).filter(x => x != null); return a.length ? { m: a.reduce((t, x) => t + x, 0) / a.length, n: a.length, better: a } : null; };
+  const c1 = chg(rt), c2 = chg(yb), flatT = rt.ppl.filter(o => { const d = o.v.filter(y => y != null); return Math.round(d[0] * 10) / 10 >= FLAT_MM && Math.round(d[d.length - 1] * 10) / 10 < FLAT_MM; }).length, flat0 = rt.ppl.filter(o => Math.round(o.v.find(y => y != null) * 10) / 10 >= FLAT_MM).length;
+  return `<div class="card"><h2 style="margin:0 0 4px">전체 중재 효과 <span class="small muted">· 회차 기록이 2개 이상인 환자 ${n}명</span></h2>
+    <p class="small muted">회색 선 = 환자 한 명, <b style="color:#1F5FE0">파란 굵은 선 = 4회차까지 모두 측정한 ${rt.complete ? rt.nFull + '명의 ' : ''}회차별 평균</b>(아래 n = 평균에 들어간 사람 수), 빨간 점선 = ${FLAT_MM} mm(이상이면 유연성 평발). 점에 마우스를 올리면 이름과 값이 나옵니다.</p>
+    <div class="row" style="gap:18px;margin:6px 0 4px">
+      ${c2 ? `<div><div class="small muted">Y-balance 평균 변화(처음→마지막)</div><div style="font-size:22px;font-weight:800">${c2.m >= 0 ? '+' : '−'}${Math.abs(c2.m).toFixed(1)}</div><div class="small muted">${c2.better.filter(x => x > 0).length}/${c2.n}명 상승</div></div>` : ''}
+      ${c1 ? `<div><div class="small muted">RT 평균 변화(처음→마지막)</div><div style="font-size:22px;font-weight:800">${c1.m >= 0 ? '+' : '−'}${Math.abs(c1.m).toFixed(1)} mm</div><div class="small muted">${c1.better.filter(x => x < 0).length}/${c1.n}명 하강 감소</div></div>` : ''}
+      ${flat0 ? `<div><div class="small muted">유연성 평발 → 정상</div><div style="font-size:22px;font-weight:800">${flatT}/${flat0}명</div><div class="small muted">처음 ${FLAT_MM} mm 이상이던 환자 중</div></div>` : ''}
+    </div>
+    <div class="ge"><div><b>Y-balance</b> <span class="small muted">(높을수록 균형이 좋음)</span>${groupSvg(yb, { unit: '', yLabel: 'Y-balance', aria: '전체 Y-balance 회차별 그래프' })}</div>
+    <div><b>RT(발활 하강, mm)</b> <span class="small muted">(낮을수록 아치가 덜 무너짐)</span>${groupSvg(rt, { unit: ' mm', yLabel: 'mm', ref: FLAT_MM, refLabel: `${FLAT_MM} mm`, y0: 0, aria: '전체 RT 회차별 그래프' })}</div></div>
+    <p class="small muted" style="margin-top:6px">Y-balance 0 등 0 이하 값은 입력 오류로 보고 뺍니다. 대조군이 없어 중재만의 효과라고 단정할 수는 없습니다.</p></div>`;
+}
 function trendSvg(points, o) {
   o = o || {};
   const W = 760, H = 300, L = 48, R = 16, T = 18, B = 54, have = points.filter(p => p.y != null && isFinite(p.y));
@@ -207,9 +245,9 @@ route('trend', '환자별 그래프', async (v, id) => {
   const { people, by } = await loadSheet();
   let exams = []; try { await loadAll(true); exams = D.exams; } catch (e) { /* 연구 동의 기록은 없어도 됨 */ }
   const last = p => { const rs = Object.values(by[p.id] || {}).filter(r => r.rt_mm != null).sort((a, b) => a.round - b.round); return rs[rs.length - 1]; };
-  const list = people.map(p => { const r = last(p); return `<a href="#/trend/${p.id}" class="pl ${p.id === id ? 'on' : ''}"><b>${esc(p.name)}</b> <span class="small muted">${esc(p.gender || '')}</span><br><span class="small">${r ? `${ROUNDS[r.round]} <span class="${judge(r.rt_mm).ok ? 'jg' : 'jb'}">${judge(r.rt_mm).t}</span>` : '<span class="muted">기록 없음</span>'}</span></a>`; }).join('') || '<p class="muted small">가입한 환자가 없습니다.</p>';
+  const list = `<a href="#/trend" class="pl ${!id ? 'on' : ''}"><b>전체 중재 효과</b><br><span class="small muted">모든 환자 평균</span></a>` + people.map(p => { const r = last(p); return `<a href="#/trend/${p.id}" class="pl ${p.id === id ? 'on' : ''}"><b>${esc(p.name)}</b> <span class="small muted">${esc(p.gender || '')}</span><br><span class="small">${r ? `${ROUNDS[r.round]} <span class="${judge(r.rt_mm).ok ? 'jg' : 'jb'}">${judge(r.rt_mm).t}</span>` : '<span class="muted">기록 없음</span>'}</span></a>`; }).join('') || '<p class="muted small">가입한 환자가 없습니다.</p>';
   const p = people.find(x => x.id === id);
-  let body = '<div class="card"><p class="muted">왼쪽에서 환자를 고르면 회차별 아치 변화 그래프가 나옵니다.</p></div>';
+  let body = groupEffectHtml(people, by) + '<div class="card"><p class="muted">왼쪽에서 환자를 고르면 그 환자의 회차별 아치 변화 그래프가 나옵니다.</p></div>';
   if (p) {
     const rs = by[p.id] || {};
     const pts = ROUNDS.map((n, k) => ({ x: ROUNDS.length > 1 ? k / (ROUNDS.length - 1) : .5, label: n, sub: rs[k] ? ymd(rs[k].measured_at) : '미측정', y: rs[k] && rs[k].rt_mm != null ? +rs[k].rt_mm : null }));
