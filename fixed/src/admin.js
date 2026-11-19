@@ -196,35 +196,35 @@ function groupStats(people, by, key, valid) {
   const mean = ROUNDS.map((_, k) => { const a = mp.map(o => o.v[k]).filter(x => x != null); return a.length ? { m: a.reduce((t, x) => t + x, 0) / a.length, n: a.length, sd: a.length > 1 ? Math.sqrt(a.reduce((t, x) => t + (x - a.reduce((u, y) => u + y, 0) / a.length) ** 2, 0) / (a.length - 1)) : 0 } : null; });
   return { ppl, mean, nFull: full.length, complete: mp === full };
 }
-function groupSvg(st, o) {
-  const W = 520, H = 300, L = 46, R = 18, T = 26, B = 46, all = st.ppl.flatMap(q => q.v).filter(x => x != null).concat(o.ref != null ? [o.ref] : []);
-  if (!all.length) return '<p class="muted small">회차 기록이 2개 이상인 환자가 아직 없습니다.</p>';
-  let y0 = Math.floor(Math.min(...all) - 1), y1 = Math.ceil(Math.max(...all) + 1); if (o.y0 != null) y0 = Math.min(y0, o.y0);
-  const X = k => L + k * (W - L - R) / (ROUNDS.length - 1), Y = v => T + (y1 - v) / (y1 - y0) * (H - T - B), step = (y1 - y0) > 30 ? 10 : (y1 - y0) > 12 ? 2 : 1;
-  const grid = []; for (let v = Math.ceil(y0 / step) * step; v <= y1; v += step) grid.push(`<line x1="${L}" x2="${W - R}" y1="${Y(v)}" y2="${Y(v)}" stroke="#E6EAF2"/><text x="${L - 6}" y="${Y(v) + 4}" text-anchor="end" font-size="11" fill="#6B7590">${v}</text>`);
+function groupSvg(st, o) { return `<div class="gmean">${groupSvg1(st, o, false)}</div><div class="gall">${groupSvg1(st, o, true)}</div>`; }
+function groupSvg1(st, o, withInd) {
+  // 한눈에 보기: 평균 선 하나(굵게, 값 크게) + 처음→마지막 변화. 환자별 선은 '환자별 선 보기'를 켰을 때만 아주 옅게
+  const W = 520, H = 260, L = 40, R = 26, T = 34, B = 34, mv = st.mean.map(m => m ? m.m : null), all = mv.filter(x => x != null).concat(o.ref != null ? [o.ref] : []).concat(withInd ? st.ppl.flatMap(q => q.v).filter(x => x != null) : []);
+  if (!mv.some(x => x != null)) return '<p class="muted small">회차 기록이 2개 이상인 환자가 아직 없습니다.</p>';
+  const pad = Math.max(1, (Math.max(...all) - Math.min(...all)) * 0.08); let y0 = Math.floor(Math.min(...all) - pad), y1 = Math.ceil(Math.max(...all) + pad); if (o.y0 != null) y0 = Math.min(y0, o.y0);
+  const X = k => L + k * (W - L - R) / (ROUNDS.length - 1), Y = v => T + (y1 - v) / (y1 - y0) * (H - T - B), step = (y1 - y0) > 30 ? 10 : (y1 - y0) > 12 ? 4 : 2;
+  const grid = []; for (let v = Math.ceil(y0 / step) * step; v <= y1; v += step) grid.push(`<line x1="${L}" x2="${W - R}" y1="${Y(v)}" y2="${Y(v)}" stroke="#EEF1F6"/><text x="${L - 8}" y="${Y(v) + 4}" text-anchor="end" font-size="11" fill="#8A93A8">${v}</text>`);
   const path = v => { let d = '', pen = false; v.forEach((y, k) => { if (y == null) { pen = false; return; } d += (pen ? 'L' : 'M') + X(k).toFixed(1) + ' ' + Y(y).toFixed(1); pen = true; }); return d; };
-  const ind = st.ppl.map(q => `<g class="gp"><path d="${path(q.v)}" fill="none" stroke="#B9C2D6" stroke-width="1.5"/>${q.v.map((y, k) => y == null ? '' : `<circle cx="${X(k)}" cy="${Y(y)}" r="3" fill="#B9C2D6"><title>${esc(q.p.name)} · ${ROUNDS[k]} ${y.toFixed(1)}${o.unit}</title></circle>`).join('')}</g>`).join('');
-  const mv = st.mean.map(m => m ? m.m : null);
-  const mean = `<path d="${path(mv)}" fill="none" stroke="#1F5FE0" stroke-width="3"/>` + st.mean.map((m, k) => m ? `<circle cx="${X(k)}" cy="${Y(m.m)}" r="5.5" fill="#1F5FE0" stroke="#fff" stroke-width="2"><title>평균 ${ROUNDS[k]} ${m.m.toFixed(1)}${o.unit} (n=${m.n}, SD ${m.sd.toFixed(1)})</title></circle><text x="${X(k)}" y="${Y(m.m) - 10}" text-anchor="middle" font-size="11.5" font-weight="700" fill="#1B2440">${m.m.toFixed(1)}</text>` : '').join('');
-  const ref = o.ref != null && o.ref >= y0 && o.ref <= y1 ? `<line x1="${L}" x2="${W - R}" y1="${Y(o.ref)}" y2="${Y(o.ref)}" stroke="#C0281B" stroke-dasharray="5 4" stroke-width="1.2"/><text x="${L + 4}" y="${Y(o.ref) + 14}" font-size="11" fill="#C0281B">${esc(o.refLabel)}</text>` : '';
-  const xl = ROUNDS.map((n, k) => `<text x="${X(k)}" y="${H - B + 18}" text-anchor="middle" font-size="11.5" fill="#1B2440">${n}</text><text x="${X(k)}" y="${H - B + 33}" text-anchor="middle" font-size="10.5" fill="#6B7590">${st.mean[k] ? 'n=' + st.mean[k].n : ''}</text>`).join('');
-  return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${esc(o.aria)}" style="max-width:640px;display:block">${grid.join('')}${ref}${ind}${mean}${xl}<text x="${L}" y="14" font-size="11" fill="#6B7590">${esc(o.yLabel)}</text></svg>`;
+  const ind = !withInd ? '' : `<g>${st.ppl.map(q => `<path d="${path(q.v)}" fill="none" stroke="#D5DBE7" stroke-width="1.2"><title>${esc(q.p.name)}</title></path>`).join('')}</g>`;
+  const area = (() => { const pts = mv.map((y, k) => y == null ? null : [X(k), Y(y)]).filter(Boolean); return pts.length > 1 ? `<path d="M${pts[0][0]} ${H - B} ${pts.map(p => 'L' + p[0] + ' ' + p[1]).join(' ')} L${pts[pts.length - 1][0]} ${H - B}Z" fill="${o.color}" opacity=".08"/>` : ''; })();
+  const line = `<path d="${path(mv)}" fill="none" stroke="${o.color}" stroke-width="3.5" stroke-linejoin="round"/>` + st.mean.map((m, k) => m ? `<circle cx="${X(k)}" cy="${Y(m.m)}" r="6" fill="${o.color}" stroke="#fff" stroke-width="2.5"><title>${ROUNDS[k]} 평균 ${m.m.toFixed(1)}${o.unit} (${m.n}명)</title></circle><text x="${X(k)}" y="${Y(m.m) - 13}" text-anchor="middle" font-size="14" font-weight="800" fill="#1B2440">${m.m.toFixed(1)}</text>` : '').join('');
+  const ref = o.ref != null && o.ref >= y0 && o.ref <= y1 ? `<line x1="${L}" x2="${W - R}" y1="${Y(o.ref)}" y2="${Y(o.ref)}" stroke="#C0281B" stroke-dasharray="5 4" stroke-width="1.2" opacity=".7"/><text x="${L + 6}" y="${Y(o.ref) + 15}" font-size="11" fill="#C0281B">${esc(o.refLabel)}</text>` : '';
+  const xl = ROUNDS.map((n, k) => `<text x="${X(k)}" y="${H - B + 20}" text-anchor="middle" font-size="12" fill="#3A4560">${k ? k + '회차' : '기본'}</text>`).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${esc(o.aria)}" style="display:block">${grid.join('')}${ref}${ind}${area}${line}${xl}</svg>`;
 }
 function groupEffectHtml(people, by) {
   const rt = groupStats(people, by, 'rt_mm', x => x >= 0), yb = groupStats(people, by, 'y_balance', x => x > 0);
-  const n = new Set(rt.ppl.map(o => o.p.id).concat(yb.ppl.map(o => o.p.id))).size;
-  const chg = st => { const a = st.ppl.map(o => { const d = o.v.map((y, k) => [y, k]).filter(x => x[0] != null); return d.length >= 2 ? d[d.length - 1][0] - d[0][0] : null; }).filter(x => x != null); return a.length ? { m: a.reduce((t, x) => t + x, 0) / a.length, n: a.length, better: a } : null; };
-  const c1 = chg(rt), c2 = chg(yb), flatT = rt.ppl.filter(o => { const d = o.v.filter(y => y != null); return Math.round(d[0] * 10) / 10 >= FLAT_MM && Math.round(d[d.length - 1] * 10) / 10 < FLAT_MM; }).length, flat0 = rt.ppl.filter(o => Math.round(o.v.find(y => y != null) * 10) / 10 >= FLAT_MM).length;
-  return `<div class="card"><h2 style="margin:0 0 4px">전체 중재 효과 <span class="small muted">· 회차 기록이 2개 이상인 환자 ${n}명</span></h2>
-    <p class="small muted">회색 선 = 환자 한 명, <b style="color:#1F5FE0">파란 굵은 선 = 4회차까지 모두 측정한 ${rt.complete ? rt.nFull + '명의 ' : ''}회차별 평균</b>(아래 n = 평균에 들어간 사람 수), 빨간 점선 = ${FLAT_MM} mm(이상이면 유연성 평발). 점에 마우스를 올리면 이름과 값이 나옵니다.</p>
-    <div class="row" style="gap:18px;margin:6px 0 4px">
-      ${c2 ? `<div><div class="small muted">Y-balance 평균 변화(처음→마지막)</div><div style="font-size:22px;font-weight:800">${c2.m >= 0 ? '+' : '−'}${Math.abs(c2.m).toFixed(1)}</div><div class="small muted">${c2.better.filter(x => x > 0).length}/${c2.n}명 상승</div></div>` : ''}
-      ${c1 ? `<div><div class="small muted">RT 평균 변화(처음→마지막)</div><div style="font-size:22px;font-weight:800">${c1.m >= 0 ? '+' : '−'}${Math.abs(c1.m).toFixed(1)} mm</div><div class="small muted">${c1.better.filter(x => x < 0).length}/${c1.n}명 하강 감소</div></div>` : ''}
-      ${flat0 ? `<div><div class="small muted">유연성 평발 → 정상</div><div style="font-size:22px;font-weight:800">${flatT}/${flat0}명</div><div class="small muted">처음 ${FLAT_MM} mm 이상이던 환자 중</div></div>` : ''}
-    </div>
-    <div class="ge"><div><b>Y-balance</b> <span class="small muted">(높을수록 균형이 좋음)</span>${groupSvg(yb, { unit: '', yLabel: 'Y-balance', aria: '전체 Y-balance 회차별 그래프' })}</div>
-    <div><b>RT(발활 하강, mm)</b> <span class="small muted">(낮을수록 아치가 덜 무너짐)</span>${groupSvg(rt, { unit: ' mm', yLabel: 'mm', ref: FLAT_MM, refLabel: `${FLAT_MM} mm`, y0: 0, aria: '전체 RT 회차별 그래프' })}</div></div>
-    <p class="small muted" style="margin-top:6px">Y-balance 0 등 0 이하 값은 입력 오류로 보고 뺍니다. 대조군이 없어 중재만의 효과라고 단정할 수는 없습니다.</p></div>`;
+  const delta = st => { const f = st.mean.find(m => m), l = [...st.mean].reverse().find(m => m); return f && l && f !== l ? { a: f.m, b: l.m, d: l.m - f.m } : null; };
+  const flat0 = rt.ppl.filter(o => Math.round(o.v.find(y => y != null) * 10) / 10 >= FLAT_MM), flatT = flat0.filter(o => { const d = o.v.filter(y => y != null); return Math.round(d[d.length - 1] * 10) / 10 < FLAT_MM; }).length;
+  const panel = (st, title, good, o) => { const d = delta(st); return `<div class="gpanel"><div class="row" style="align-items:baseline;gap:8px"><b style="font-size:16px">${title}</b><span class="small muted">${good}</span></div>
+    ${d ? `<div class="gbig" style="color:${o.color}">${d.a.toFixed(1)} → ${d.b.toFixed(1)}${o.unit} <span>(${d.d >= 0 ? '+' : '−'}${Math.abs(d.d).toFixed(1)})</span></div>` : ''}${groupSvg(st, o)}</div>`; };
+  const nm = rt.complete ? rt.nFull : rt.ppl.length;
+  return `<div class="card ge-card"><div class="row" style="align-items:center"><h2 class="grow" style="margin:0">전체 중재 효과 <span class="small muted">· ${rt.complete ? `4회차까지 마친 ${nm}명 평균` : `${nm}명 평균`}</span></h2>
+      <label class="small muted" style="cursor:pointer"><input type="checkbox" id="geInd" onchange="this.closest('.ge-card').classList.toggle('show-ind',this.checked)"> 환자별 선 보기</label></div>
+    <div class="ge">${panel(yb, 'Y-balance', '↑ 높을수록 좋음', { unit: '', color: '#1F5FE0', aria: '전체 Y-balance 회차별 평균' })}
+      ${panel(rt, 'RT (발활 하강)', '↓ 낮을수록 좋음', { unit: ' mm', color: '#0E9F6E', ref: FLAT_MM, refLabel: `${FLAT_MM} mm 이상 = 유연성 평발`, aria: '전체 RT 회차별 평균' })}</div>
+    ${flat0.length ? `<p style="margin:10px 0 0;font-size:15px">유연성 평발 → 정상: <b>${flatT}/${flat0.length}명</b> <span class="small muted">(처음 ${FLAT_MM} mm 이상이던 환자 중)</span></p>` : ''}
+    <p class="small muted" style="margin:4px 0 0">대조군이 없어 중재만의 효과라고 단정할 수는 없습니다. Y-balance 0 등 0 이하 값은 입력 오류로 보고 뺍니다.</p></div>`;
 }
 function trendSvg(points, o) {
   o = o || {};
