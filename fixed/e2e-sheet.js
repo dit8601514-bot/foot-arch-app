@@ -18,6 +18,8 @@ http.createServer((q, s) => {
     const me = uidOf(q);
     if (u.pathname === '/rest/v1/rpc/is_admin') return J(s, 200, admins.has(me), cors);
     if (u.pathname === '/rest/v1/rpc/admin_stats') return J(s, 200, {}, cors);
+    if (u.pathname === '/rest/v1/rpc/admin_members') { if (!admins.has(me)) return J(s, 400, { message: 'not admin' }, cors); return J(s, 200, Object.values(profiles).map(p => ({ id: p.id, username: p.username, name: p.name, phone: p.phone || null, created_at: p.created_at, last_sign_in_at: null, consent_research: false, is_admin: admins.has(p.id), exams: 0, rounds: Object.values(rounds).filter(r => r.user_id === p.id).length, refs: 0 })), cors); }
+    if (u.pathname === '/rest/v1/rpc/admin_delete_user') { if (!admins.has(me)) return J(s, 400, { message: 'not admin' }, cors); if (admins.has(b.uid)) return J(s, 400, { message: '관리자 계정은 앱에서 지울 수 없습니다.' }, cors); const pr = profiles[b.uid]; if (!pr) return J(s, 400, { message: '이미 없는 회원입니다.' }, cors); delete profiles[b.uid]; delete users[b.uid]; for (const k in rounds) if (rounds[k].user_id === b.uid) delete rounds[k]; return J(s, 200, { username: pr.username, exams: 0, rounds: 0, refs: 0 }, cors); }
     if (u.pathname === '/rest/v1/profiles') return J(s, 200, admins.has(me) ? Object.values(profiles) : Object.values(profiles).filter(p => p.id === me), cors);
     if (u.pathname === '/rest/v1/reminders') { if (q.method === 'POST') { if (!me || b.user_id !== me) return J(s, 403, { message: 'RLS' }, cors); reminders[me] = Object.assign({}, reminders[me] || {}, b); return J(s, 201, undefined, cors); } return J(s, 200, Object.values(reminders).filter(r => r.user_id === me), cors); }
     if (u.pathname === '/rest/v1/push_subscriptions') { if (q.method === 'POST') { if (!me) return J(s, 401, { message: 'auth' }, cors); pushSubs[b.endpoint] = b; return J(s, 201, undefined, cors); } if (q.method === 'DELETE') { for (const k in pushSubs) if (pushSubs[k].user_id === me) delete pushSubs[k]; return J(s, 204, undefined, cors); } return J(s, 200, Object.values(pushSubs).filter(x => x.user_id === me), cors); }
@@ -165,6 +167,17 @@ let pass = 0, fail = 0; const ok = (n, c, x) => { c ? pass++ : fail++; console.l
     ok('환자별 그래프: 이름 클릭 → 회차 4개 점(빨강 2·초록 2)', /#\/trend\//.test(tv.hash) && tv.dots === 4 && tv.red === 2, JSON.stringify({ dots: tv.dots, red: tv.red }));
     ok('환자별 그래프: 최근 판정·변화량·판정 변화 표시', tv.txt.includes('4회차') && tv.txt.includes('−2.8 mm') && tv.txt.includes('유연성 평발 → 정상') && tv.txt.includes('8 mm 이상 = 유연성 평발 구간'), tv.txt.slice(0, 160));
     await ap.setViewportSize({ width: 1280, height: 900 }); await ap.waitForTimeout(200); await ap.screenshot({ path: '/tmp/trend.png', fullPage: true }); }
+  // 회원 관리: 중복 가입(같은 이름) 표시 → 아이디 입력 확인 후 탈퇴
+  { await ap.evaluate(async () => { await fetch('http://localhost:8811/auth/v1/signup', { method: 'POST', body: JSON.stringify({ email: 'juhee2@users.footarch.app', password: 'pw123456', data: { username: 'juhee2', name: '김주희' } }) }); });
+    const n0 = Object.keys(profiles).length;
+    await ap.goto('http://localhost:8810/foot-arch-app/fixed/admin/#/members'); await ap.waitForSelector('button.del');
+    const t = await ap.textContent('#view'); ok('회원 관리: 같은 이름 중복 의심 표시', (t.match(/⚠ 같은 이름/g) || []).length === 2 && t.includes('@juhee2'), (t.match(/⚠ 같은 이름/g) || []).length);
+    ok('회원 관리: 관리자 계정은 탈퇴 버튼 없음', await ap.$eval('tr[data-u="teacher"]', tr => !tr.querySelector('button.del')));
+    await ap.click('tr[data-u="juhee2"] button.del'); ok('탈퇴: 아이디 입력 전엔 삭제 잠김', await ap.$eval('.delbox .go', b => b.disabled));
+    await ap.fill('.delbox .confirmU', 'juhee'); ok('탈퇴: 다른 아이디면 잠김 유지', await ap.$eval('.delbox .go', b => b.disabled));
+    await ap.fill('.delbox .confirmU', 'juhee2'); await ap.click('.delbox .go'); await ap.waitForTimeout(1500);
+    const t2 = await ap.textContent('#view'); ok('탈퇴 → 서버에서 삭제·목록에서 사라짐·중복 표시 해제', Object.keys(profiles).length === n0 - 1 && !Object.values(profiles).some(p => p.username === 'juhee2') && !t2.includes('@juhee2') && !t2.includes('⚠'), Object.keys(profiles).length + '/' + n0);
+    await ap.screenshot({ path: '/tmp/members.png', fullPage: true }); }
   ok('오류 없음', errs.length === 0, errs.slice(0, 3).join(' / '));
   console.log(`\n${pass}/${pass + fail} 통과`); await B.close(); process.exit(fail ? 1 : 0);
 })();

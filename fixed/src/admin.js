@@ -100,7 +100,7 @@ const routes = {};
 const route = (p, title, fn) => { routes[p] = { title, fn }; };
 function topbar(cur) {
   $('#top').innerHTML = `<span class="logo">AI Footarch</span><span class="tag">관리자</span>
-    ${Api.loggedIn ? `<nav>${[['sheet', '측정 시트'], ['trend', '환자별 그래프'], ['dash', '대시보드'], ['users', '환자·측정'], ['content', '운동 영상'], ['errors', '오차·신뢰도'], ['ai', 'AI 보정 모델'], ['export', '데이터 내보내기']].map(([k, l]) => `<a href="#/${k}" class="${cur === k ? 'on' : ''}">${l}</a>`).join('')}</nav><button id="logout">로그아웃</button>` : ''}`;
+    ${Api.loggedIn ? `<nav>${[['sheet', '측정 시트'], ['trend', '환자별 그래프'], ['dash', '대시보드'], ['users', '환자·측정'], ['members', '회원 관리'], ['content', '운동 영상'], ['errors', '오차·신뢰도'], ['ai', 'AI 보정 모델'], ['export', '데이터 내보내기']].map(([k, l]) => `<a href="#/${k}" class="${cur === k ? 'on' : ''}">${l}</a>`).join('')}</nav><button id="logout">로그아웃</button>` : ''}`;
   const lo = $('#logout'); if (lo) lo.onclick = async () => { await Api.signOut(); Object.assign(D, { loaded: false }); location.hash = '#/login'; };
 }
 async function render() {
@@ -270,6 +270,46 @@ route('users', '사용자·측정', async (v, arg) => {
     <div class="card scroll"><table><thead><tr><th>참여자 코드</th><th>아이디</th><th>이름</th><th>전화번호</th><th>가입일</th><th>측정</th><th>기준값</th><th></th></tr></thead><tbody>
     ${D.profiles.map(p => `<tr><td>${pcode(p.id)}</td><td>@${esc(p.username)}</td><td>${esc(p.name)}</td><td>${esc(maskPhone(p.phone))}</td><td>${fmtDate(p.created_at)}</td><td>${cnt(p.id)}</td><td>${rc(p.id)}</td><td><a class="btn sm" href="#/users/${p.id}">측정 보기</a></td></tr>`).join('') || '<tr><td colspan="8" class="muted">연구 동의자가 아직 없습니다.</td></tr>'}
     </tbody></table></div>`;
+});
+// 회원 관리(중복 가입 정리): 연구 동의와 관계없이 전체 회원, 같은 이름·전화번호는 '중복 의심'으로 묶어 표시. 탈퇴는 서버 함수 admin_delete_user
+route('members', '회원 관리', async (v) => {
+  let rows;
+  try { rows = await Api.rpc('admin_members'); }
+  catch (e) { v.innerHTML = `<h1>회원 관리</h1><div class="note warn">서버에 회원 관리 기능이 아직 없습니다. Supabase SQL Editor에서 <code>fixed/supabase/admin_members.sql</code>을 한 번 실행해 주세요.<br><span class="small muted">${esc(e.message)}</span></div>`; return; }
+  rows = rows || [];
+  const norm = x => String(x || '').replace(/\s+/g, '').toLowerCase(), digits = x => String(x || '').replace(/\D/g, '');
+  const by = {}; const add = (k, r) => { if (k) (by[k] = by[k] || []).push(r); };
+  rows.forEach(r => { add('n:' + norm(r.name), r); if (digits(r.phone).length >= 8) add('p:' + digits(r.phone), r); });
+  const dupOf = r => { const ks = ['n:' + norm(r.name), digits(r.phone).length >= 8 ? 'p:' + digits(r.phone) : null].filter(k => k && by[k] && by[k].length > 1); return ks.length ? (ks.find(k => k[0] === 'p') ? '같은 전화번호' : '같은 이름') : ''; };
+  const grp = r => norm(r.name) || r.id;
+  const show = rows.slice().sort((a, b) => (!!dupOf(b) - !!dupOf(a)) || grp(a).localeCompare(grp(b)) || String(a.created_at).localeCompare(String(b.created_at)));
+  const nd = rows.filter(dupOf).length;
+  v.innerHTML = `<h1>회원 관리 <span class="small muted">· 전체 ${rows.length}명</span></h1>
+    <div class="card small"><b>중복 가입 지우는 방법</b><ol class="small" style="margin:6px 0 0 18px">
+      <li>위쪽 노란 줄이 <b>이름이나 전화번호가 같은 회원</b>(중복 의심)입니다${nd ? `(${nd}명)` : ''}.</li>
+      <li>측정·회차·임상 NDT 수와 마지막 로그인을 보고 <b>실제로 쓰는 계정</b>을 남깁니다(보통 기록이 있는 쪽).</li>
+      <li>지울 계정의 <b>탈퇴</b> → 그 계정의 아이디를 똑같이 입력 → <b>영구 삭제</b>.</li>
+      <li>지우면 그 계정의 프로필·검사·회차·임상 NDT·알람이 함께 지워지고 되돌릴 수 없습니다. 관리자 계정은 여기서 지울 수 없습니다.</li></ol></div>
+    <div class="card scroll"><table><thead><tr><th>중복</th><th>이름</th><th>아이디</th><th>전화번호</th><th>가입일</th><th>마지막 로그인</th><th>측정</th><th>회차</th><th>임상 NDT</th><th>연구 동의</th><th></th></tr></thead><tbody>
+    ${show.map(r => { const d = dupOf(r); return `<tr data-id="${esc(r.id)}" data-u="${esc(r.username || '')}" ${d ? 'style="background:#fff6d6"' : ''}><td class="small">${d ? '⚠ ' + d : ''}</td><td>${esc(r.name || '—')}</td><td>@${esc(r.username || '—')}</td><td>${esc(maskPhone(r.phone))}</td><td>${fmtDate(r.created_at)}</td><td>${r.last_sign_in_at ? fmtDate(r.last_sign_in_at) : '—'}</td><td>${r.exams}</td><td>${r.rounds}</td><td>${r.refs}</td><td>${r.consent_research ? '동의' : '—'}</td>
+      <td>${r.is_admin ? '<span class="small muted">관리자</span>' : '<button class="btn sm del">탈퇴</button>'}</td></tr>`; }).join('') || '<tr><td colspan="11" class="muted">회원이 없습니다.</td></tr>'}
+    </tbody></table></div>`;
+  $$('button.del', v).forEach(b => b.onclick = () => {
+    const tr = b.closest('tr'), u = tr.dataset.u, id = tr.dataset.id, cells = tr.children;
+    const old = tr.nextElementSibling; if (old && old.classList.contains('delbox')) { old.remove(); return; }
+    const box = document.createElement('tr'); box.className = 'delbox';
+    box.innerHTML = `<td colspan="11"><div class="note bad small"><b>@${esc(u)}</b> 계정을 영구 삭제합니다 — 측정 ${esc(cells[6].textContent)}건 · 회차 ${esc(cells[7].textContent)}건 · 임상 NDT ${esc(cells[8].textContent)}건이 함께 지워집니다.
+      <div class="row" style="margin-top:6px;gap:6px"><input class="confirmU" placeholder="아이디 ${esc(u)} 입력" autocomplete="off" style="max-width:220px"><button class="btn sm danger go" disabled>영구 삭제</button><button class="btn sm ghost no">취소</button></div></div></td>`;
+    tr.after(box);
+    const inp = $('.confirmU', box), go = $('.go', box);
+    inp.oninput = () => { go.disabled = inp.value.trim() !== u; };
+    $('.no', box).onclick = () => box.remove();
+    go.onclick = async () => {
+      go.disabled = true; go.textContent = '삭제 중…';
+      try { const r = await Api.rpc('admin_delete_user', { uid: id }); box.remove(); tr.remove(); D.loaded = false; toast(`@${(r && r.username) || u} 계정을 탈퇴 처리했습니다.`); setTimeout(render, 600); }
+      catch (e) { go.disabled = false; go.textContent = '영구 삭제'; toast(e.message, true); }
+    };
+  });
 });
 function userDetail(v, id) {
   const p = userOf(id); if (!p) { v.innerHTML = '<div class="note bad">사용자를 찾을 수 없거나 열람 권한이 없습니다.</div>'; return; }
