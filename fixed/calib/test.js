@@ -70,20 +70,20 @@ ok('표본 1개 → 학습 안 함', C.learnSeedCorrection([{ ai: 3, ref: 7 }]).
   ok('현재 P2 표본 → 더하기 +0.8~+2.2 mm', m.method === 'bias' && -m.bias > 0.8 && -m.bias < 2.2, m.label);
   ok('현재 P2 표본 → 새 묶음 기준 평균 오차 감소', m.cvMae < m.baseMae * 0.9, `${m.baseMae.toFixed(2)} → ${m.cvMae.toFixed(2)}`); }
 
-// 7-7) 발꿈치 보정 재검토(ALG-3.3.0): 관리자 임상 NDT 11명 39건(그중 20건은 k=1 공식의 전향 자료) → 사람 단위 검증(LOPO)
-{ const L = C.learnPopulationCalib(S), H = L.heel;
-  ok('11명 이상 자료로 LOPO 검증', H && H.participants >= 11 && H.n >= 39, H && `${H.participants}명 ${H.n}건`);
-  const k1 = H.cands.find(c => c.k === 1);
-  ok('k=1(이전 공식)은 판정 일치가 보정 없음보다 나쁨', k1 && k1.agree < H.base.agree, k1 && `${H.base.agree} → ${k1.agree}`);
-  ok('판정이 나빠지는 발꿈치 보정은 채택 안 함 → P2 이동 그대로', !L.calib.heel && !H.ok, H.reason);
-  const pro = S.filter(x => x.alg === 'ALG-3.2.0' && isFinite(x.appShown));
-  const ag = f => pro.filter(x => (Math.round(f(x)) >= 8) === (x.ref >= 8)).length;
-  ok('전향 자료: 보정 없음이 이전 공식보다 판정 일치 높음', pro.length >= 20 && ag(x => x.p2Drop) > ag(x => x.appShown), `${ag(x => x.appShown)}/${pro.length} → ${ag(x => x.p2Drop)}/${pro.length}`);
-  const P = Object.assign({ id: 'T' }, L.calib), a = C.populationCorrect({ p2Mm: 9.2, p2RawMm: 9.2, p3Mm: 4.1 }, P);
-  ok('발꿈치 이동이 있어도 P2 이동 그대로(9.2 mm)', a && a.model !== 'heel' && Math.abs(a.mm - 9.2) < 1e-9, a && a.mm);
-  // 장치 자체는 동작: 발꿈치 흔들림이 실제 오차 원인인 자료라면 채택
-  const syn = []; for (let p = 0; p < 6; p++) for (let i = 0; i < 4; i++) { const ref = 5 + p, h = 3 + ((p * 7 + i * 3) % 6); syn.push({ participant: 'Q' + p, p2Drop: ref + h - 4.5, p3Move: h, ref }); }
-  const sh = C.learnHeelCalib(syn); ok('발꿈치 흔들림이 원인인 자료면 발꿈치 보정 채택', sh.ok && sh.model.k === 1, sh.ok ? sh.model.label : sh.reason);
+// 7-7) 발꿈치 보정 재검토(ALG-3.4.0): 관리자 임상 NDT 19명 50건 → 사람 단위 검증(LOPO)
+{ const L = C.learnPopulationCalib(S), H = L.heel, h = L.calib.heel;
+  ok('19명 이상 자료로 LOPO 검증', H && H.participants >= 19 && H.n >= 50, H && `${H.participants}명 ${H.n}건`);
+  ok('채택: P2 − 0.5×발꿈치 이동 + 약 2 mm', h && h.k === 0.5 && h.c > 1.5 && h.c < 2.6, h && h.label);
+  ok('새 사람 평균 오차 10% 이상 감소·판정 일치 나빠지지 않음', h && h.cvMae <= h.baseMae * 0.9 && parseInt(h.agree) >= parseInt(h.baseAgree), h && `${h.baseMae} → ${h.cvMae} · ${h.baseAgree} → ${h.agree}`);
+  const k1 = H.cands.find(c => c.k === 1); ok('이전 k=1 공식은 선택 안 됨(오차 더 큼)', k1 && k1.mae > H.cands.find(c => c.k === 0.5).mae, k1 && k1.mae.toFixed(2));
+  // 전향 확인: 11/17까지 자료로만 정한 k=0.5 공식을 11/19 새 사람(ALG-3.3.0) 자료에 적용
+  const old = S.filter(x => x.alg !== 'ALG-3.3.0' && isFinite(x.p3Move)), nw = S.filter(x => x.alg === 'ALG-3.3.0');
+  const md = a => { a = [...a].sort((x, y) => x - y); const n = a.length; return n % 2 ? a[(n - 1) / 2] : (a[n / 2 - 1] + a[n / 2]) / 2; }, c0 = md([...new Set(old.map(r => r.participant))].map(p => md(old.filter(r => r.participant === p).map(r => r.ref - (r.p2Drop - 0.5 * r.p3Move))))), mae = f => nw.reduce((t, x) => t + Math.abs(f(x) - x.ref), 0) / nw.length, ag = f => nw.filter(x => (Math.round(f(x)) >= 8) === (x.ref >= 8)).length;
+  const fk = x => Math.max(0, x.p2Drop - 0.5 * x.p3Move + c0), f0 = x => x.p2Drop;
+  ok('전향: 이전 자료로 정한 공식이 새 사람에게도 오차 감소·판정 유지', nw.length >= 11 && mae(fk) < mae(f0) && ag(fk) >= ag(f0), `${mae(f0).toFixed(2)} → ${mae(fk).toFixed(2)} mm · ${ag(f0)} → ${ag(fk)}/${nw.length}`);
+  const P = Object.assign({ id: 'T' }, L.calib), a = C.populationCorrect({ p2Mm: 9.2, p2RawMm: 9.2, p3Mm: 4.1 }, P), b = C.populationCorrect({ p2Mm: 6.0, p2RawMm: 6.0, p3Mm: null }, P);
+  ok('발꿈치 공식 적용(9.2 − 0.5×4.1 + c)', a && a.model === 'heel' && Math.abs(a.mm - (9.2 - 2.05 + h.c)) < 1e-9, a && a.mm.toFixed(2));
+  ok('발꿈치 이동이 없으면 P2 공식으로 대체', b && b.model !== 'heel', b && b.label);
   const one = C.learnHeelCalib(S.filter(x => x.participant === 'P-44AF42DE'));
   ok('사람 3명 미만이면 발꿈치 보정 안 함(개인 맞춤 방지)', !one.ok, one.reason); }
 
