@@ -42,7 +42,7 @@ let pass = 0, fail = 0; const ok = (n, c, x) => { c ? pass++ : fail++; console.l
   await pg.goto(base); await pg.waitForTimeout(1200);
   ok('처음 열면 로그인 화면', /#\/auth/.test(pg.url()) && !!(await pg.$('a[href="#/auth/signup"]')) && !(await pg.$('#guest')));
   // 회원가입 2명
-  for (const [nm, gd, un] of [['김주희', '여', 'juhee1'], ['마형빈', '남', 'hyungbin']]) {
+  for (const [nm, gd, un] of [['김가람', '여', 'juhee1'], ['마나루', '남', 'hyungbin']]) {
     await pg.goto(base + '#/auth/signup'); await pg.waitForTimeout(600);
     await pg.fill('#nm', nm); await pg.click(`#gd button[data-v="${gd}"]`); await pg.fill('#un', un); await pg.fill('#pw', 'test1234'); await pg.check('#cAll');
     await pg.click('#go'); await pg.waitForTimeout(1200);
@@ -51,7 +51,7 @@ let pass = 0, fail = 0; const ok = (n, c, x) => { c ? pass++ : fail++; console.l
   }
   const p0 = Object.values(profiles); ok('서버 프로필에 이름·성별(학년 없음)', p0.length === 2 && !p0[0].grade && p0[0].gender === '여' && p0[1].gender === '남', JSON.stringify(p0.map(p => [p.name, p.gender])));
   await pg.goto(base + '#/auth/signup'); await pg.waitForTimeout(500); ok('회원가입 화면에 학년 없음', !(await pg.$('#gr')) && !(await pg.textContent('#view')).includes('학년'));
-  // 마형빈(로그인 상태)으로 측정 기록 하나 넣고 결과 화면에서 1회차 저장
+  // 마나루(로그인 상태)으로 측정 기록 하나 넣고 결과 화면에서 1회차 저장
   const eid = await pg.evaluate(async () => { const e = { id: 'ex' + Date.now(), foot: 'right', createdAt: Date.now(), algorithmVersion: C.ALGORITHM_VERSION, participantId: '', pre: { mode: 'ai', detectionConfidence: 0.9, quality: { sharp: true, edgeWidthPx: 1.2 }, measure: { heightMm: 30, floor: { ok: false } } }, post: { mode: 'ai', detectionConfidence: 0.9, quality: { sharp: true, edgeWidthPx: 1.2 }, measure: { heightMm: 26, floor: { ok: false } } }, comparison: { status: '측정 가능', preMm: 30, postMm: 26, changeMm: 6.4, lineChangeMm: 4.0, primary: 'p2', p2: { dropMm: 5.2, p3MoveMm: 0.3, flags: [] }, calib: { method: 'p2', rawMm: 5.2, label: '+1.2 mm', n: 11 }, notes: [], flags: [] } }; e.category = C.classify(6.4); await save('exams', e); return e.id; });
   await pg.goto(base + '#/result/' + eid); await pg.waitForTimeout(1500);
   ok('결과 화면에 회차 저장 카드', !!(await pg.$('#roundCard')) && (await pg.textContent('#roundCard')).includes('4회차'));
@@ -148,27 +148,27 @@ let pass = 0, fail = 0; const ok = (n, c, x) => { c ? pass++ : fail++; console.l
   ok('관리자 로그인 → 측정 시트', /#\/sheet/.test(ap.url()) && !!(await ap.$('table.sheet')));
   const rows = await ap.$$eval('table.sheet tbody tr:not(.empty)', trs => trs.map(tr => [...tr.children].map(td => (td.querySelector('input') ? td.querySelector('input').value : td.textContent).trim())));
   console.log('  시트:', JSON.stringify(rows));
-  ok('시트: 여·남 → 이름 순, 이름·성별(학년 칸 없음)', rows.length === 2 && rows[0][1] === '김주희' && rows[0][2] === '여' && rows[1][1] === '마형빈' && rows[1][2] === '남' && !(await ap.textContent('table.sheet thead')).includes('학년'));
-  ok('시트: 마형빈 기본 측정·1회차 RT 6.4, 1회차 Y 95.5', rows[1][4] === '6.4' && rows[1][7] === '6.4' && rows[1][8] === '95.5' && rows[1][3] !== '', JSON.stringify(rows[1].slice(3, 9)));
+  ok('시트: 여·남 → 이름 순, 이름·성별(학년 칸 없음)', rows.length === 2 && rows[0][1] === '김가람' && rows[0][2] === '여' && rows[1][1] === '마나루' && rows[1][2] === '남' && !(await ap.textContent('table.sheet thead')).includes('학년'));
+  ok('시트: 마나루 기본 측정·1회차 RT 6.4, 1회차 Y 95.5', rows[1][4] === '6.4' && rows[1][7] === '6.4' && rows[1][8] === '95.5' && rows[1][3] !== '', JSON.stringify(rows[1].slice(3, 9)));
   ok('시트: 빈 줄 포함 30줄', (await ap.$$('table.sheet tbody tr')).length === 30);
   const heads = await ap.$$eval('table.sheet thead tr:first-child th.grp', t => t.map(x => x.textContent)); ok('시트 머리글 기본 측정·1~4회차', heads.join(',') === '기본 측정,1회차,2회차,3회차,4회차', heads.join(','));
-  // 관리자가 김주희 2회차 Y-balance 입력
+  // 관리자가 김가람 2회차 Y-balance 입력
   const inp = (await ap.$$('table.sheet tbody tr:first-child input.ybi'))[2]; await inp.fill('88'); await inp.press('Tab'); await ap.waitForTimeout(800);
   const rz = Object.values(rounds).find(r => r.round === 2); ok('관리자 Y-balance 입력 → 서버 저장', rz && rz.y_balance === 88 && rz.user_id.startsWith('u1'), JSON.stringify(rz));
   // CSV
   const [dl] = await Promise.all([ap.waitForEvent('download'), ap.click('#csv')]); const csv = fs.readFileSync(await dl.path(), 'utf8');
-  ok('CSV: 두 줄 머리글 + 회원 줄', csv.split('\r\n')[1].startsWith('번호,이름,성별,측정날짜,RT,Y-balance') && csv.includes('마형빈,남') && csv.includes(',6.4,95.5'), csv.split('\r\n').slice(0, 4).join(' | ').slice(0, 200));
+  ok('CSV: 두 줄 머리글 + 회원 줄', csv.split('\r\n')[1].startsWith('번호,이름,성별,측정날짜,RT,Y-balance') && csv.includes('마나루,남') && csv.includes(',6.4,95.5'), csv.split('\r\n').slice(0, 4).join(' | ').slice(0, 200));
   await ap.screenshot({ path: '/tmp/sheet.png', fullPage: false });
-  // 환자별 그래프: 김주희 회차 기록을 더 넣고(기본 측정 9.6 → 4회차 6.8) 이름을 눌러 그래프 확인
-  { const u1 = Object.keys(profiles).find(k => profiles[k].name === '김주희'), d0 = Date.parse('2026-09-01');
+  // 환자별 그래프: 김가람 회차 기록을 더 넣고(기본 측정 9.6 → 4회차 6.8) 이름을 눌러 그래프 확인
+  { const u1 = Object.keys(profiles).find(k => profiles[k].name === '김가람'), d0 = Date.parse('2026-09-01');
     [[0, 9.6], [2, 8.4], [3, 7.6], [4, 6.8]].forEach(([k, v], i) => { rounds[u1 + ':' + k] = Object.assign({}, rounds[u1 + ':' + k] || {}, { user_id: u1, round: k, rt_mm: v, measured_at: new Date(d0 + k * 14 * 864e5).toISOString() }); });
-    await ap.click('#rf'); await ap.waitForTimeout(500); await ap.click('table.sheet td.nm a >> text=김주희'); await ap.waitForSelector('.trend svg');
+    await ap.click('#rf'); await ap.waitForTimeout(500); await ap.click('table.sheet td.nm a >> text=김가람'); await ap.waitForSelector('.trend svg');
     const tv = await ap.evaluate(() => ({ dots: document.querySelectorAll('.trend section svg circle').length, red: [...document.querySelectorAll('.trend section svg circle')].filter(c => c.getAttribute('fill') === '#C0281B').length, txt: document.querySelector('.trend section').textContent, hash: location.hash }));
     ok('환자별 그래프: 이름 클릭 → 회차 4개 점(빨강 2·초록 2)', /#\/trend\//.test(tv.hash) && tv.dots === 4 && tv.red === 2, JSON.stringify({ dots: tv.dots, red: tv.red }));
     ok('환자별 그래프: 최근 판정·변화량·판정 변화 표시', tv.txt.includes('4회차') && tv.txt.includes('−2.8 mm') && tv.txt.includes('유연성 평발 → 정상') && tv.txt.includes('8 mm 이상 = 유연성 평발 구간'), tv.txt.slice(0, 160));
     await ap.setViewportSize({ width: 1280, height: 900 }); await ap.waitForTimeout(200); await ap.screenshot({ path: '/tmp/trend.png', fullPage: true }); }
   // 회원 관리: 중복 가입(같은 이름) 표시 → 아이디 입력 확인 후 탈퇴
-  { await ap.evaluate(async () => { await fetch('http://localhost:8811/auth/v1/signup', { method: 'POST', body: JSON.stringify({ email: 'juhee2@users.footarch.app', password: 'pw123456', data: { username: 'juhee2', name: '김주희' } }) }); });
+  { await ap.evaluate(async () => { await fetch('http://localhost:8811/auth/v1/signup', { method: 'POST', body: JSON.stringify({ email: 'juhee2@users.footarch.app', password: 'pw123456', data: { username: 'juhee2', name: '김가람' } }) }); });
     const n0 = Object.keys(profiles).length;
     await ap.goto('http://localhost:8810/foot-arch-app/fixed/admin/#/members'); await ap.waitForSelector('button.del');
     const t = await ap.textContent('#view'); ok('회원 관리: 같은 이름 중복 의심 표시', (t.match(/⚠ 같은 이름/g) || []).length === 2 && t.includes('@juhee2'), (t.match(/⚠ 같은 이름/g) || []).length);
